@@ -46,13 +46,13 @@ export const MODULES = [
   {
     code: 'projets',
     libelle: 'Projets événementiels',
-    description: 'Rétroplanning, tâches, prestataires, plan d’implantation, sécurité et budget.',
-    disponible: false,
+    description: 'Rétroplanning, tâches, prestataires, plan d’implantation, sécurité, budget et bilan.',
+    disponible: true,
     niveaux: {
-      lecture: 'Consulter les projets.',
-      contribution: 'Mettre à jour les tâches et la logistique.',
-      validation: 'Valider les jalons, le budget et les dossiers de sécurité.',
-      administration: 'Créer et clôturer des projets, gérer les prestataires.',
+      lecture: 'Consulter les projets et leur plan ; déposer une demande d’événement et la suivre.',
+      contribution: 'Mettre à jour les tâches, la logistique, le matériel, les démarches, les prestataires et le plan.',
+      validation: 'Instruire les demandes d’événement ; tenir le budget et le bilan ; changer le statut des projets.',
+      administration: 'Créer, modifier et supprimer les projets ; gérer les modèles de rétroplanning et le matériel.',
     },
   },
 ] as const satisfies readonly DefinitionModule[];

@@ -146,6 +146,52 @@ const TABLES = {
     ],
     json: [],
   },
+  materiel_articles: {
+    colonnes: ['_id', 'code', 'nom', 'unite', 'total', 'actif', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  projet_demandes: {
+    colonnes: [
+      '_id', 'intitule', 'demandeurId', 'demandeurNom', 'structure', 'contact', 'dateSouhaitee', 'lieu', 'type', 'jauge',
+      'besoins', 'description', 'statut', 'reponse', 'projetId', 'createdAt', 'updatedAt',
+    ],
+    json: ['besoins'],
+  },
+  projets: {
+    colonnes: [
+      '_id', 'titre', 'type', 'dateJour', 'dateFin', 'lieu', 'jauge', 'demandeur', 'referent', 'description', 'statut',
+      'inscritLe', 'demandeId', 'evenementId', 'montage', 'ouverture', 'fermeture', 'demontage', 'implantation', 'bilan',
+      'createdAt', 'updatedAt',
+    ],
+    json: ['bilan'],
+  },
+  projet_taches: {
+    colonnes: ['_id', 'projetId', 'decalage', 'branche', 'libelle', 'fait', 'faitPar', 'faitLe', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  projet_demarches: {
+    colonnes: ['_id', 'projetId', 'decalage', 'libelle', 'statut', 'note', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  projet_prestataires: {
+    colonnes: [
+      '_id', 'projetId', 'nom', 'prestation', 'contact', 'arrivee', 'depart', 'montant', 'lien', 'pieces', 'createdAt',
+      'updatedAt',
+    ],
+    json: ['pieces'],
+  },
+  projet_budget: {
+    colonnes: ['_id', 'projetId', 'poste', 'prevu', 'realise', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  projet_materiel: {
+    colonnes: ['projetId', 'articleId', 'quantite', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  projet_plans: {
+    colonnes: ['_id', 'projetId', 'libelle', 'document', 'auteurNom', 'createdAt', 'updatedAt'],
+    json: ['document'],
+  },
   fichiers: {
     colonnes: [
       '_id', 'cleStockage', 'nomOrigine', 'typeMime', 'taille', 'module', 'rattachement', 'deposePar', 'createdAt',

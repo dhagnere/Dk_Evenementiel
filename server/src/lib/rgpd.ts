@@ -183,6 +183,13 @@ export async function exporterPersonne(email: string) {
           ),
         ])
       : [[], []];
+  const demandesEvenement = compte
+    ? await requete(
+        `SELECT intitule, structure, contact, date_souhaitee, lieu, statut, reponse, created_at
+           FROM projet_demandes WHERE demandeur_id = $1 ORDER BY created_at`,
+        [compte._id]
+      )
+    : [];
   return {
     personne: adresse,
     exporteLe: new Date().toISOString(),
@@ -193,6 +200,7 @@ export async function exporterPersonne(email: string) {
     evenementsPilotes,
     demandesStock,
     registreProtocolaire,
+    demandesEvenement,
   };
 }
 
@@ -203,6 +211,7 @@ export interface BilanEffacement {
   sauvegardesNettoyees: number;
   evenementsPilotes: number;
   registreProtocolaire: number;
+  demandesEvenementAnonymisees: number;
 }
 
 /**
@@ -211,11 +220,19 @@ export interface BilanEffacement {
  * dont elle est pilote ne sont pas modifiés (donnée de service) : ils sont comptés pour que le
  * super-administrateur puisse les revoir. Même chose pour le registre protocolaire, dont l'effacement
  * relève d'une décision au cas par cas (mission d'intérêt public, obligation de traçabilité).
+ * Ses demandes d'événement restent (elles ont pu donner lieu à un projet) mais sans nom ni contact.
  */
 export async function effacerPersonne(email: string, identite: IdentiteJournal): Promise<BilanEffacement> {
   const adresse = email.trim().toLowerCase();
   const { evenementsPilotes, registreProtocolaire } = await exporterPersonne(adresse);
   const bilan = await transaction(async (client) => {
+    // Avant la suppression du compte, qui détacherait ses demandes (demandeur_id remis à NULL).
+    const demandesEvenementAnonymisees = await executer(
+      `UPDATE projet_demandes SET demandeur_nom = 'Personne effacée', contact = '', demandeur_id = NULL
+        WHERE demandeur_id = (SELECT id FROM utilisateurs WHERE email = $1)`,
+      [adresse],
+      client
+    );
     const compte = await executer('DELETE FROM utilisateurs WHERE email = $1', [adresse], client);
     const demandesAcces = await executer('DELETE FROM demandes_acces WHERE email = $1', [adresse], client);
     const parAuteur = await executer(
@@ -246,6 +263,7 @@ export async function effacerPersonne(email: string, identite: IdentiteJournal):
       sauvegardesNettoyees,
       evenementsPilotes: evenementsPilotes.length,
       registreProtocolaire: registreProtocolaire.length,
+      demandesEvenementAnonymisees,
     };
   });
   // L'adresse effacée n'est pas reprise dans le journal : seule la trace de l'opération est gardée.

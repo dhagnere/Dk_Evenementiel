@@ -19,6 +19,8 @@ import { directionsRouter } from './routes/directions.routes.js';
 import { rgpdRouter } from './routes/rgpd.routes.js';
 import { systemeRouter } from './routes/systeme.routes.js';
 import { stockRouter } from './routes/stock.routes.js';
+import { projetsRouter } from './routes/projets.routes.js';
+import { fichiersRouter } from './routes/fichiers.routes.js';
 import { demarrerSauvegardeQuotidienne } from './lib/backup.js';
 import { demarrerPurgeQuotidienne } from './lib/rgpd.js';
 
@@ -35,7 +37,8 @@ async function main() {
   // X-Frame-Options, HSTS, retrait de X-Powered-By…) sont sans risque de régression et actifs.
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
-  app.use(express.json());
+  // 5 Mo : un plan d'implantation détaillé (centaines de chaises) dépasse la limite par défaut de 100 Ko.
+  app.use(express.json({ limit: '5mb' }));
   app.use(cookieParser());
   app.use(readSession);
 
@@ -51,6 +54,8 @@ async function main() {
   app.use('/api/rgpd', rgpdRouter);
   app.use('/api/systeme', systemeRouter);
   app.use('/api/stock', stockRouter);
+  app.use('/api/projets', projetsRouter);
+  app.use('/api/fichiers', fichiersRouter);
 
   demarrerSauvegardeQuotidienne();
   demarrerPurgeQuotidienne();
