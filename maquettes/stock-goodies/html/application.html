@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock &amp; Protocole — Application</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&amp;display=swap">
+  <style>
+    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; background: #eef1f4; color: #17212b; }
+    a { color: #1f5f8b; } a:hover { color: #123d5c; }
+    table { border-collapse: collapse; width: 100%; }
+    th { text-align: left; font-size: 12px; font-weight: 600; color: #4a5561; text-transform: uppercase; letter-spacing: 0.04em; padding: 10px 12px; border-bottom: 1px solid #d5dbe1; }
+    td { font-size: 14px; padding: 11px 12px; border-bottom: 1px solid #e6eaee; vertical-align: middle; }
+    input, select { font-family: inherit; font-size: 14px; }
+    button { font-family: inherit; cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: 0.45; }
+  </style>
+</head>
+<body>
+<div id="dc-root"></div>
+<script>
+// Moteur minimal pour afficher hors de Claude une maquette au format Design Component.
+// Gère : DCLogic (state, setState, props), {{chemins}}, <sc-for>, <sc-if>, événements onClick / onChange.
+(function () {
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var current = null;
+
+  function DCLogic(props) { this.props = props || {}; this.state = {}; }
+  DCLogic.prototype.setState = function (patch) {
+    if (typeof patch === 'function') patch = patch(this.state, this.props);
+    this.state = Object.assign({}, this.state, patch);
+    schedule();
+  };
+  window.DCLogic = DCLogic;
+
+  var pending = false;
+  function schedule() {
+    if (pending) return;
+    pending = true;
+    Promise.resolve().then(function () { pending = false; render(); });
+  }
+
+  function lookup(path, scope) {
+    if (path === 'true') return true;
+    if (path === 'false') return false;
+    var parts = path.split('.');
+    var v = scope;
+    for (var i = 0; i < parts.length; i++) {
+      if (v == null) return undefined;
+      v = v[parts[i]];
+    }
+    return v;
+  }
+
+  var HOLE = /\{\{\s*([^}]+?)\s*\}\}/g;
+  var WHOLE = /^\{\{\s*([^}]+?)\s*\}\}$/;
+  function interpolate(str, scope) {
+    return str.replace(HOLE, function (_, p) { var v = lookup(p, scope); return v == null ? '' : String(v); });
+  }
+  function resolve(str, scope) {
+    var m = WHOLE.exec(str);
+    return m ? lookup(m[1], scope) : interpolate(str, scope);
+  }
+
+  function eventType(el, name) {
+    var ev = name.slice(2).toLowerCase();
+    if (ev === 'change') {
+      var tag = el.localName;
+      var type = (el.getAttribute('type') || '').toLowerCase();
+      if (tag === 'textarea' || (tag === 'input' && type !== 'checkbox' && type !== 'radio' && type !== 'file')) return 'input';
+    }
+    return ev;
+  }
+
+  // Construit les nœuds DOM d'un nœud de l'arbre { t: tag, a: [[nom, valeur]], c: [...] } ou d'un texte.
+  function build(node, scope, ns, out) {
+    if (typeof node === 'string') { out.push(document.createTextNode(interpolate(node, scope))); return; }
+    var i;
+    if (node.t === 'sc-for') {
+      var attrs = toMap(node.a);
+      var list = resolve(attrs.list || '', scope) || [];
+      var as = attrs.as || 'item';
+      for (var k = 0; k < list.length; k++) {
+        var sub = Object.create(scope);
+        sub[as] = list[k];
+        for (i = 0; i < node.c.length; i++) build(node.c[i], sub, ns, out);
+      }
+      return;
+    }
+    if (node.t === 'sc-if') {
+      if (resolve(toMap(node.a).value || '', scope)) for (i = 0; i < node.c.length; i++) build(node.c[i], scope, ns, out);
+      return;
+    }
+    var childNs = node.t === 'svg' ? SVG_NS : ns;
+    var el = childNs ? document.createElementNS(childNs, node.t) : document.createElement(node.t);
+    var handlers = {};
+    var deferred = [];
+    for (i = 0; i < node.a.length; i++) {
+      var name = node.a[i][0], raw = node.a[i][1];
+      if (name.indexOf('hint-') === 0) continue;
+      if (/^on[A-Za-z]/.test(name)) { deferred.push([name, resolve(raw, scope)]); continue; }
+      var v = resolve(raw, scope);
+      if (name === 'value' && !childNs) { el.__value = v; if (node.t !== 'select') setAttr(el, name, v); continue; }
+      if (name === 'href' && typeof v === 'string') v = v.replace(/\.dc\.html(?=$|[?#])/, '.html');
+      setAttr(el, name, v);
+    }
+    for (i = 0; i < deferred.length; i++) if (typeof deferred[i][1] === 'function') handlers[eventType(el, deferred[i][0])] = deferred[i][1];
+    el.__h = handlers;
+    var kids = [];
+    for (i = 0; i < node.c.length; i++) build(node.c[i], scope, childNs, kids);
+    for (i = 0; i < kids.length; i++) el.appendChild(kids[i]);
+    if ('__value' in el) applyValue(el, el.__value);
+    out.push(el);
+  }
+
+  function toMap(pairs) { var m = {}; for (var i = 0; i < pairs.length; i++) m[pairs[i][0]] = pairs[i][1]; return m; }
+  function setAttr(el, name, v) {
+    if (v === false || v == null) return;
+    el.setAttribute(name, v === true ? '' : String(v));
+  }
+  function applyValue(el, v) {
+    var s = v == null ? '' : String(v);
+    if (el.value !== s) el.value = s;
+  }
+
+  // Met à jour le DOM existant à partir des nœuds neufs, pour garder le focus et la saisie en cours.
+  function morph(parent, fresh) {
+    var old = Array.prototype.slice.call(parent.childNodes);
+    var n = Math.max(old.length, fresh.length);
+    for (var i = 0; i < n; i++) {
+      var o = old[i], f = fresh[i];
+      if (!o) parent.appendChild(f);
+      else if (!f) parent.removeChild(o);
+      else if (o.nodeType !== f.nodeType || o.nodeName !== f.nodeName) parent.replaceChild(f, o);
+      else patch(o, f);
+    }
+  }
+  function patch(o, f) {
+    if (o.nodeType === 3) { if (o.data !== f.data) o.data = f.data; return; }
+    var i, a;
+    for (i = o.attributes.length - 1; i >= 0; i--) {
+      a = o.attributes[i];
+      if (!f.hasAttribute(a.name)) o.removeAttribute(a.name);
+    }
+    for (i = 0; i < f.attributes.length; i++) {
+      a = f.attributes[i];
+      if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
+    }
+    o.__h = f.__h;
+    morph(o, Array.prototype.slice.call(f.childNodes));
+    if ('__value' in f) applyValue(o, f.__value);
+  }
+
+  function render() {
+    var vals = current.instance.renderVals();
+    var scope = Object.assign({}, current.instance.props, vals);
+    var out = [];
+    for (var i = 0; i < current.tree.length; i++) build(current.tree[i], scope, null, out);
+    morph(current.root, out);
+  }
+
+  function dispatch(e) {
+    var el = e.target;
+    while (el && el !== current.root) {
+      var h = el.__h && el.__h[e.type];
+      if (h) { h(e); return; }
+      el = el.parentNode;
+    }
+  }
+
+  window.DCMount = function (Component, tree, props) {
+    var root = document.getElementById('dc-root');
+    current = { root: root, tree: tree, instance: new Component(props) };
+    ['click', 'input', 'change'].forEach(function (t) { root.addEventListener(t, dispatch); });
+    render();
+  };
+})();
+</script>
+<script>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      screen: 'dash',
+      role: 'service',
+      filter: 'Tous',
+      search: '',
+      regSearch: '',
+      msg: '',
+      nextId: 45,
+      nextMvt: 121,
+      entTab: 'rec',
+      rec: { origine: 'bc', fournisseur: '', ref: '', date: '2026-09-17', art: 'G-003', attendu: 100, recu: 100, nc: 0, prix: 4.9 },
+      recLines: [],
+      na: { cat: 'Goodies', lib: '', fam: '', fournisseur: '', loc: 'Central · A1', delai: 15, stock: 0, seuil: 20, prix: '' },
+      adj: { art: 'G-001', sens: 'moins', qty: 1, motif: 'Casse', comment: '' },
+      mvts: [
+        { id: 'M-0120', date: '16/09/2026', type: 'Ajustement', art: 'G-006', qty: -2, detail: 'Casse — baleines cassées', statut: 'Appliqué' },
+        { id: 'M-0119', date: '16/09/2026', type: 'Sortie', art: 'G-002', qty: -60, detail: 'D-2026-039 — Direction des Sports', statut: 'Appliqué' },
+        { id: 'M-0118', date: '15/09/2026', type: 'Entrée', art: 'G-001', qty: 500, detail: 'Marché n° [2025-XX] — [Fournisseur A]', statut: 'Appliqué' }
+      ],
+      articles: [
+        { id: 'G-001', lib: 'Stylo bille CUD', fam: 'Papeterie', cat: 'Goodies', phys: 1200, res: 150, seuil: 300, pmp: 0.45, loc: 'Central · A1' },
+        { id: 'G-002', lib: 'Tote bag coton « Dunkerque »', fam: 'Textile', cat: 'Goodies', phys: 340, res: 120, seuil: 150, pmp: 2.8, loc: 'Central · A2' },
+        { id: 'G-003', lib: 'Casquette brodée', fam: 'Textile', cat: 'Goodies', phys: 90, res: 40, seuil: 80, pmp: 4.9, loc: 'Central · A2' },
+        { id: 'G-004', lib: 'Gourde inox', fam: 'Objets', cat: 'Goodies', phys: 210, res: 0, seuil: 60, pmp: 7.5, loc: 'Central · B1' },
+        { id: 'G-005', lib: 'Bracelet silicone', fam: 'Objets', cat: 'Goodies', phys: 2000, res: 500, seuil: 400, pmp: 0.3, loc: 'Central · B2' },
+        { id: 'G-006', lib: 'Parapluie aux couleurs de la Ville', fam: 'Objets', cat: 'Goodies', phys: 45, res: 10, seuil: 40, pmp: 12, loc: 'Central · B3' },
+        { id: 'P-101', lib: 'Médaille de la Ville (coffret)', fam: 'Médailles', cat: 'Protocole', phys: 38, res: 2, seuil: 10, pmp: 28, loc: 'Central · Coffre' },
+        { id: 'P-102', lib: 'Livre patrimoine dunkerquois', fam: 'Livres', cat: 'Protocole', phys: 24, res: 4, seuil: 15, pmp: 35, loc: 'Central · Coffre' },
+        { id: 'P-103', lib: 'Coffret gourmand régional', fam: 'Gastronomie', cat: 'Protocole', phys: 12, res: 3, seuil: 10, pmp: 45, loc: 'Central · Coffre' },
+        { id: 'P-104', lib: 'Maquette de navire', fam: 'Objets d\'art', cat: 'Protocole', phys: 6, res: 1, seuil: 3, pmp: 120, loc: 'Central · Coffre' }
+      ],
+      demandes: [
+        { id: 'D-2026-041', dir: 'Direction des Sports', evt: '[Course urbaine]', art: 'G-002', qty: 80, besoin: '2026-09-26', statut: 'Validée', benef: '' },
+        { id: 'D-2026-042', dir: 'Direction de la Culture', evt: '[Journées du patrimoine]', art: 'G-003', qty: 40, besoin: '2026-09-24', statut: 'En attente chef de service', benef: '' },
+        { id: 'D-2026-043', dir: 'Cabinet du Maire', evt: '[Visite officielle]', art: 'P-104', qty: 1, besoin: '2026-10-02', statut: 'En attente Cabinet', benef: 'Ambassadeur de [Pays C]', occ: 'Visite officielle', elu: '[Élu remettant]' },
+        { id: 'D-2026-044', dir: 'Direction de l\'Économie', evt: '[Salon économique]', art: 'P-102', qty: 2, besoin: '2026-10-08', statut: 'En attente Protocole', benef: 'Délégation de [Ville partenaire]', occ: 'Accueil de délégation', elu: '[Élu remettant]' }
+      ],
+      registre: [
+        { date: '12/06/2026', benef: 'Maire de [Ville jumelée A]', org: 'Délégation officielle', occasion: 'Visite de jumelage', art: 'P-101', elu: '[Élu remettant]', qty: 1 },
+        { date: '09/07/2026', benef: 'Consul de [Pays B]', org: 'Consulat', occasion: 'Réception', art: 'P-102', elu: '[Élu remettant]', qty: 1 },
+        { date: '02/09/2026', benef: 'Maire de [Ville jumelée A]', org: 'Délégation officielle', occasion: 'Fête maritime', art: 'P-103', elu: '[Élu remettant]', qty: 1 }
+      ],
+      depots: [
+        { dir: 'Direction des Sports', ref: '[Référent Sports]', nb: 6, val: 310, jours: 12, relance: false },
+        { dir: 'Direction de la Culture', ref: '[Référent Culture]', nb: 4, val: 185, jours: 41, relance: false },
+        { dir: 'Mairie de quartier', ref: '[Référent quartier]', nb: 3, val: 95, jours: 8, relance: false },
+        { dir: 'Direction de la Jeunesse', ref: '[Référent Jeunesse]', nb: 5, val: 240, jours: 36, relance: false }
+      ],
+      form: { dir: 'Direction des Sports', evt: '', art: 'G-001', qty: 50, date: '2026-10-05', motif: '', benef: '', occ: '', elu: '' }
+    };
+  }
+
+  fmt(n) { return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }); }
+  frDate(iso) { if (!iso) return '—'; const p = iso.split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : iso; }
+  art(id) { return this.state.articles.find((a) => a.id === id); }
+  setForm(k, v) { this.setState({ form: Object.assign({}, this.state.form, { [k]: v }) }); }
+  badge(statut) {
+    if (statut === 'Validée' || statut === 'Validée auto') return 'background: #e3f0e6; color: #1e4d2b;';
+    if (statut === 'Refusée') return 'background: #fbe4e1; color: #8e1c1c;';
+    return 'background: #fdeedd; color: #7a340b;';
+  }
+  notify(text) { this.setState({ msg: text }); }
+
+  submit() {
+    const s = this.state, f = s.form, a = this.art(f.art);
+    const qty = parseInt(f.qty, 10) || 0;
+    const valeur = qty * a.pmp;
+    const seuil = this.props.seuilAuto ?? 150;
+    let statut;
+    if (a.cat === 'Protocole') statut = 'En attente Protocole';
+    else statut = valeur <= seuil ? 'Validée auto' : 'En attente chef de service';
+    const id = 'D-2026-0' + s.nextId;
+    const d = { id, dir: f.dir, evt: f.evt, art: a.id, qty, besoin: f.date, statut, benef: f.benef, occ: f.occ, elu: f.elu };
+    const articles = s.articles.map((x) => x.id === a.id ? Object.assign({}, x, { res: x.res + qty }) : x);
+    const msg = statut === 'Validée auto'
+      ? 'Demande ' + id + ' validée automatiquement et réservée. Le magasinier est notifié (Outlook + Teams).'
+      : 'Demande ' + id + ' enregistrée et réservée. Notification envoyée au valideur (Outlook + Teams).';
+    this.setState({
+      demandes: [d].concat(s.demandes), articles, nextId: s.nextId + 1, msg,
+      screen: s.role === 'service' ? 'val' : 'dash',
+      form: Object.assign({}, f, { evt: '', motif: '', benef: '', occ: '', elu: '' })
+    });
+  }
+
+  approve(d) {
+    const s = this.state;
+    let statut = 'Validée', registre = s.registre, msg;
+    if (d.statut === 'En attente Protocole') { statut = 'En attente Cabinet'; msg = d.id + ' : avis favorable du Protocole, transmis au Cabinet.'; }
+    else {
+      msg = d.id + ' validée. Préparation planifiée, demandeur notifié.';
+      const a = this.art(d.art);
+      if (a.cat === 'Protocole') {
+        registre = [{ date: this.frDate(d.besoin), benef: d.benef, org: d.dir, occasion: d.occ || d.evt, art: d.art, elu: d.elu || '—', qty: d.qty }].concat(registre);
+        msg = d.id + ' validée par le Cabinet et inscrite au registre protocolaire.';
+      }
+    }
+    this.setState({ registre, msg, demandes: s.demandes.map((x) => x.id === d.id ? Object.assign({}, x, { statut }) : x) });
+  }
+
+  refuse(d) {
+    const s = this.state;
+    this.setState({
+      msg: d.id + ' refusée. Réservation libérée, demandeur notifié avec le motif.',
+      demandes: s.demandes.map((x) => x.id === d.id ? Object.assign({}, x, { statut: 'Refusée' }) : x),
+      articles: s.articles.map((x) => x.id === d.art ? Object.assign({}, x, { res: Math.max(0, x.res - d.qty) }) : x)
+    });
+  }
+
+  today() { return '17/09/2026'; }
+  mvtId(n) { return 'M-0' + n; }
+  setSub(key, k, v) { this.setState({ [key]: Object.assign({}, this.state[key], { [k]: v }) }); }
+
+  validateRec() {
+    const s = this.state, r = s.rec;
+    const originLabel = { bc: 'Bon de commande n° ', marche: 'Marché ', ponctuel: 'Facture ' }[r.origine];
+    let articles = s.articles.slice(), mvts = s.mvts.slice(), n = s.nextMvt, anomalies = 0;
+    s.recLines.forEach((l) => {
+      articles = articles.map((a) => {
+        if (a.id !== l.art) return a;
+        const phys = a.phys + l.recu;
+        const pmp = phys > 0 ? ((a.aValoriser ? 0 : a.phys * a.pmp) + l.recu * l.prix) / ((a.aValoriser ? 0 : a.phys) + l.recu) : a.pmp;
+        return Object.assign({}, a, { phys, pmp: Math.round(pmp * 100) / 100, aValoriser: false });
+      });
+      if (l.recu > 0) mvts = [{ id: this.mvtId(n++), date: this.frDate(r.date), type: 'Entrée', art: l.art, qty: l.recu, detail: originLabel + r.ref + ' — ' + r.fournisseur, statut: 'Appliqué' }].concat(mvts);
+      if (l.nc > 0 || l.recu + l.nc !== l.attendu) {
+        anomalies++;
+        mvts = [{ id: this.mvtId(n++), date: this.frDate(r.date), type: 'Anomalie', art: l.art, qty: 0, detail: 'Commandé ' + l.attendu + ', conforme ' + l.recu + ', non conforme ' + l.nc + ' — ' + r.fournisseur, statut: 'À traiter' }].concat(mvts);
+      }
+    });
+    this.setState({
+      articles, mvts, nextMvt: n, recLines: [],
+      rec: Object.assign({}, r, { ref: '' }),
+      msg: 'Réception enregistrée : ' + s.recLines.length + ' ligne(s), stock et PMP mis à jour.' + (anomalies ? ' ' + anomalies + ' anomalie(s) transmise(s) au fournisseur.' : '')
+    });
+  }
+
+  createArt() {
+    const s = this.state, na = s.na;
+    const pref = na.cat === 'Protocole' ? 'P-' : 'G-';
+    const ref = this.nextRef(pref);
+    const prix = na.prix === '' ? null : parseFloat(na.prix);
+    const stock = parseInt(na.stock, 10) || 0;
+    const a = { id: ref, lib: na.lib.trim(), fam: na.fam.trim(), cat: na.cat, phys: stock, res: 0, seuil: parseInt(na.seuil, 10) || 0, pmp: prix === null ? 0 : prix, aValoriser: prix === null, loc: na.loc };
+    const mvts = [{ id: this.mvtId(s.nextMvt), date: this.today(), type: 'Création', art: ref, qty: stock, detail: 'Stock initial' + (na.fournisseur ? ' — ' + na.fournisseur : ''), statut: 'Appliqué' }].concat(s.mvts);
+    this.setState({
+      articles: s.articles.concat([a]), mvts, nextMvt: s.nextMvt + 1,
+      na: Object.assign({}, na, { lib: '', fam: '', fournisseur: '', stock: 0, prix: '' }),
+      msg: 'Article ' + ref + ' créé. Étiquette QR code prête à imprimer.'
+    });
+  }
+
+  nextRef(pref) {
+    const nums = this.state.articles.filter((a) => a.id.indexOf(pref) === 0).map((a) => parseInt(a.id.slice(2), 10));
+    const next = Math.max.apply(null, nums.concat([pref === 'P-' ? 100 : 0])) + 1;
+    return pref + String(next).padStart(3, '0');
+  }
+
+  applyAdj(needsVal) {
+    const s = this.state, j = s.adj;
+    const qty = (parseInt(j.qty, 10) || 0) * (j.sens === 'moins' ? -1 : 1);
+    const m = { id: this.mvtId(s.nextMvt), date: this.today(), type: 'Ajustement', art: j.art, qty, detail: j.motif + (j.comment ? ' — ' + j.comment : ''), statut: needsVal ? 'À valider' : 'Appliqué' };
+    const patch = { mvts: [m].concat(s.mvts), nextMvt: s.nextMvt + 1, adj: Object.assign({}, j, { qty: 1, comment: '' }) };
+    if (needsVal) patch.msg = 'Ajustement ' + m.id + ' soumis au chef de service (Outlook + Teams).';
+    else {
+      patch.articles = s.articles.map((a) => a.id === j.art ? Object.assign({}, a, { phys: a.phys + qty }) : a);
+      patch.msg = 'Ajustement ' + m.id + ' appliqué au stock.';
+    }
+    this.setState(patch);
+  }
+
+  decideMvt(m, ok) {
+    const s = this.state;
+    const patch = { mvts: s.mvts.map((x) => x.id === m.id ? Object.assign({}, x, { statut: ok ? (m.type === 'Anomalie' ? 'Traitée' : 'Appliqué') : 'Rejeté' }) : x) };
+    if (ok && m.type === 'Ajustement') patch.articles = s.articles.map((a) => a.id === m.art ? Object.assign({}, a, { phys: a.phys + m.qty }) : a);
+    patch.msg = m.id + (ok ? ' validé.' : ' rejeté : le stock reste inchangé.');
+    this.setState(patch);
+  }
+
+  entryVals(accent) {
+    const s = this.state, self = this;
+    const pill = (on) => on ? 'border: 1px solid ' + accent + '; background: ' + accent + '; color: #ffffff;' : 'border: 1px solid #b9c3cd; background: #ffffff; color: #17212b;';
+    const pendingMvts = s.mvts.filter((m) => m.statut === 'À valider' || m.statut === 'À traiter').length;
+    const entTabs = [['rec', 'Réception de livraison'], ['art', 'Nouvel article'], ['adj', 'Ajustement'], ['log', 'Journal des mouvements' + (pendingMvts ? ' (' + pendingMvts + ')' : '')]]
+      .map((t) => ({ label: t[1], style: pill(s.entTab === t[0]), pick: () => self.setState({ entTab: t[0] }) }));
+    const allArtOptions = s.articles.map((x) => ({ id: x.id, label: x.id + ' · ' + x.lib + ' (' + x.cat + ')' }));
+
+    // Réception
+    const r = s.rec;
+    const recOrigins = [['bc', 'Bon de commande'], ['marche', 'Marché public'], ['ponctuel', 'Achat ponctuel']]
+      .map((o) => ({ label: o[1], style: pill(r.origine === o[0]), pick: () => self.setSub('rec', 'origine', o[0]) }));
+    const refInfo = {
+      bc: ['N° d\'engagement (logiciel financier)', 'Ex. 2026-ENG-0000', 'Le n° d\'engagement relie la réception à la dépense.'],
+      marche: ['N° ou intitulé du marché', 'Ex. Marché [2025-XX] objets promotionnels', 'Prix du bordereau à reprendre dans la ligne.'],
+      ponctuel: ['Réf. facture / justificatif', 'Ex. FAC-000123', 'Joindre la facture (PDF ou photo) au dossier.']
+    }[r.origine];
+    const num = (v) => parseFloat(v);
+    const att = parseInt(r.attendu, 10), recu = parseInt(r.recu, 10), nc = parseInt(r.nc, 10), prix = num(r.prix);
+    const lineValid = att > 0 && recu >= 0 && nc >= 0 && recu + nc > 0 && prix >= 0;
+    const ctrl = (a, rc, n) => {
+      const diff = rc + n - a;
+      if (n > 0) return { text: n + ' non conforme(s)', style: 'background: #fbe4e1; color: #8e1c1c;' };
+      if (diff < 0) return { text: 'Manque ' + (-diff), style: 'background: #fdeedd; color: #7a340b;' };
+      if (diff > 0) return { text: 'Excédent ' + diff, style: 'background: #fdeedd; color: #7a340b;' };
+      return { text: 'Conforme', style: 'background: #e3f0e6; color: #1e4d2b;' };
+    };
+    const lineCheck = lineValid ? ctrl(att, recu, nc) : { text: 'Ligne incomplète', style: 'background: #eef1f4; color: #4a5561;' };
+    const recLines = s.recLines.map((l, i) => {
+      const c = ctrl(l.attendu, l.recu, l.nc);
+      return Object.assign({}, l, { label: l.art + ' · ' + self.art(l.art).lib, prixFr: self.fmt(l.prix), ctrl: c.text, style: c.style,
+        remove: () => self.setState({ recLines: self.state.recLines.filter((x, j) => j !== i) }) });
+    });
+    // Impact simulé
+    const sim = {};
+    s.recLines.forEach((l) => {
+      const a = self.art(l.art);
+      const cur = sim[l.art] || { label: a.id + ' · ' + a.lib, before: a.phys, phys: a.aValoriser ? 0 : a.phys, shown: a.phys, pmpBefore: a.aValoriser ? '—' : self.fmt(a.pmp), pmp: a.pmp };
+      const newQty = cur.phys + l.recu;
+      cur.pmp = newQty > 0 ? (cur.phys * cur.pmp + l.recu * l.prix) / newQty : cur.pmp;
+      cur.phys = newQty; cur.shown += l.recu;
+      sim[l.art] = cur;
+    });
+    const recImpact = Object.keys(sim).map((k) => ({ label: sim[k].label, before: sim[k].before, after: sim[k].shown, pmpBefore: sim[k].pmpBefore, pmpAfter: self.fmt(sim[k].pmp) }));
+    const nAno = s.recLines.filter((l) => l.nc > 0 || l.recu + l.nc !== l.attendu).length;
+    let recHint = 'Prêt à valider.';
+    if (!s.recLines.length) recHint = 'Ajoutez au moins une ligne.';
+    else if (!r.fournisseur.trim()) recHint = 'Indiquez le fournisseur.';
+    else if (!r.ref.trim()) recHint = 'Référence du justificatif requise.';
+
+    // Nouvel article
+    const na = s.na;
+    const naRef = self.nextRef(na.cat === 'Protocole' ? 'P-' : 'G-');
+    const words = na.lib.toLowerCase().split(/[^a-zà-ÿ0-9]+/).filter((w) => w.length >= 4);
+    const naDups = words.length ? s.articles.filter((a) => words.some((w) => a.lib.toLowerCase().indexOf(w) >= 0)) : [];
+    const naStock = parseInt(na.stock, 10) || 0;
+    const naVal = na.prix === '' ? 'À valoriser (prix inconnu)' : self.fmt(naStock * num(na.prix)) + ' (' + naStock + ' × ' + self.fmt(num(na.prix)) + ')';
+    let createHint = 'Fiche complète.';
+    if (!na.lib.trim()) createHint = 'Libellé requis.';
+    else if (!na.fam.trim()) createHint = 'Famille requise.';
+    else if (na.cat === 'Protocole' && na.loc !== 'Central · Coffre') createHint = 'Emplacement à corriger (coffre).';
+
+    // Ajustement
+    const j = s.adj, ja = self.art(j.art) || s.articles[0];
+    const jq = parseInt(j.qty, 10) || 0;
+    const signed = j.sens === 'moins' ? -jq : jq;
+    const dispo = ja.phys - ja.res;
+    const tooMuch = j.sens === 'moins' && jq > dispo;
+    const valeur = Math.abs(signed) * ja.pmp;
+    const needsVal = valeur > 50 || ja.cat === 'Protocole';
+    const needCom = needsVal || j.motif === 'Autre';
+    const cannotAdj = jq <= 0 || tooMuch || (needCom && !j.comment.trim());
+    let adjHint = needsVal ? 'Sera soumis au chef de service.' : 'Application immédiate.';
+    if (jq <= 0) adjHint = 'Quantité requise.';
+    else if (tooMuch) adjHint = 'Impossible : le stock réservé serait entamé.';
+    else if (needCom && !j.comment.trim()) adjHint = 'Commentaire obligatoire.';
+    const adjChecks = [
+      { label: 'Stock physique', value: ja.phys + ' → ' + (ja.phys + signed), style: 'color: #17212b;' },
+      { label: 'Réservé (intouchable)', value: String(ja.res), style: 'color: #17212b;' },
+      { label: 'Disponible après', value: String(dispo + signed), style: dispo + signed <= ja.seuil ? 'color: #a3460f;' : 'color: #2e6b3f;' },
+      { label: 'Valeur de l\'ajustement', value: (signed < 0 ? '− ' : '+ ') + self.fmt(valeur), style: 'color: #17212b;' },
+      { label: 'Circuit', value: needsVal ? 'Validation chef de service' : 'Application immédiate', style: needsVal ? 'color: #a3460f;' : 'color: #2e6b3f;' }
+    ];
+
+    // Journal
+    const mvtList = s.mvts.map((m) => {
+      const pending = m.statut === 'À valider' || m.statut === 'À traiter';
+      const a = self.art(m.art);
+      return Object.assign({}, m, {
+        artLabel: m.art + ' · ' + (a ? a.lib : ''),
+        qtyFr: m.qty > 0 ? '+' + m.qty : String(m.qty),
+        qtyStyle: m.qty > 0 ? 'color: #2e6b3f;' : (m.qty < 0 ? 'color: #a32020;' : 'color: #4a5561;'),
+        badge: pending ? 'background: #fdeedd; color: #7a340b;' : (m.statut === 'Rejeté' ? 'background: #fbe4e1; color: #8e1c1c;' : 'background: #e3f0e6; color: #1e4d2b;'),
+        pending, ok: () => self.decideMvt(m, true), ko: () => self.decideMvt(m, false)
+      });
+    });
+
+    return {
+      entTabs, allArtOptions,
+      tabRec: s.entTab === 'rec', tabArt: s.entTab === 'art', tabAdj: s.entTab === 'adj', tabLog: s.entTab === 'log',
+      rec: r, recOrigins, recRefLabel: refInfo[0], recRefPh: refInfo[1], recHelp: refInfo[2],
+      onRecFour: (e) => self.setSub('rec', 'fournisseur', e.target.value),
+      onRecRef: (e) => self.setSub('rec', 'ref', e.target.value),
+      onRecDate: (e) => self.setSub('rec', 'date', e.target.value),
+      onRecArt: (e) => { const a = self.art(e.target.value); self.setState({ rec: Object.assign({}, self.state.rec, { art: a.id, prix: a.aValoriser ? '' : a.pmp }) }); },
+      onRecAtt: (e) => self.setState({ rec: Object.assign({}, self.state.rec, { attendu: e.target.value, recu: e.target.value }) }),
+      onRecRecu: (e) => self.setSub('rec', 'recu', e.target.value),
+      onRecNc: (e) => self.setSub('rec', 'nc', e.target.value),
+      onRecPrix: (e) => self.setSub('rec', 'prix', e.target.value),
+      lineCheck, cannotAddLine: !lineValid,
+      addLine: () => self.setState({ recLines: self.state.recLines.concat([{ art: r.art, attendu: att, recu: recu, nc: nc, prix: prix }]), rec: Object.assign({}, r, { nc: 0 }) }),
+      recLines, hasRecLines: s.recLines.length > 0, noRecLines: s.recLines.length === 0, recImpact,
+      hasAnomalies: nAno > 0, anomalyText: nAno + ' ligne(s) avec écart : une anomalie sera créée dans le journal pour suivi fournisseur.',
+      cannotValidateRec: !s.recLines.length || !r.fournisseur.trim() || !r.ref.trim(), recHint,
+      validateRec: () => self.validateRec(),
+
+      na, naRef, naVal, naDups, naHasDup: naDups.length > 0, naNoDup: naDups.length === 0,
+      naProtoLocWarn: na.cat === 'Protocole' && na.loc !== 'Central · Coffre',
+      naCats: ['Goodies', 'Protocole'].map((c) => ({ label: c === 'Goodies' ? 'Goodies' : 'Cadeau protocolaire', style: pill(na.cat === c),
+        pick: () => self.setState({ na: Object.assign({}, self.state.na, { cat: c, loc: c === 'Protocole' ? 'Central · Coffre' : 'Central · A1' }) }) })),
+      locations: ['Central · A1', 'Central · A2', 'Central · B1', 'Central · B2', 'Central · B3', 'Central · Coffre'],
+      onNaLib: (e) => self.setSub('na', 'lib', e.target.value), onNaFam: (e) => self.setSub('na', 'fam', e.target.value),
+      onNaFour: (e) => self.setSub('na', 'fournisseur', e.target.value), onNaLoc: (e) => self.setSub('na', 'loc', e.target.value),
+      onNaDelai: (e) => self.setSub('na', 'delai', e.target.value), onNaStock: (e) => self.setSub('na', 'stock', e.target.value),
+      onNaSeuil: (e) => self.setSub('na', 'seuil', e.target.value), onNaPrix: (e) => self.setSub('na', 'prix', e.target.value),
+      cannotCreate: !na.lib.trim() || !na.fam.trim() || naStock < 0 || (na.cat === 'Protocole' && na.loc !== 'Central · Coffre'),
+      createHint, createArt: () => self.createArt(),
+
+      adj: j, motifs: ['Casse', 'Perte', 'Écart d\'inventaire', 'Erreur de saisie', 'Échantillon / don', 'Autre'],
+      adjSens: [['moins', 'Retirer (−)'], ['plus', 'Ajouter (+)']].map((o) => ({ label: o[1], style: pill(j.sens === o[0]), pick: () => self.setSub('adj', 'sens', o[0]) })),
+      onAdjArt: (e) => self.setSub('adj', 'art', e.target.value), onAdjQty: (e) => self.setSub('adj', 'qty', e.target.value),
+      onAdjMotif: (e) => self.setSub('adj', 'motif', e.target.value), onAdjCom: (e) => self.setSub('adj', 'comment', e.target.value),
+      adjComLabel: needCom ? 'Commentaire (obligatoire)' : 'Commentaire (facultatif)',
+      adjChecks, cannotAdj, adjHint, adjBtn: needsVal ? 'Soumettre l\'ajustement' : 'Appliquer l\'ajustement',
+      applyAdj: () => self.applyAdj(needsVal),
+
+      mvtList
+    };
+  }
+
+  renderVals() {
+    const s = this.state, self = this;
+    const accent = this.props.accent ?? '#1f5f8b';
+    const seuil = this.props.seuilAuto ?? 150;
+    const isService = s.role === 'service';
+    const go = (id) => () => self.setState({ screen: id });
+
+    const pendingCount = s.demandes.filter((d) => d.statut.indexOf('En attente') === 0).length;
+    const pendingMvts = s.mvts.filter((m) => m.statut === 'À valider' || m.statut === 'À traiter').length;
+    const navDefs = [
+      { id: 'dash', label: 'Tableau de bord', all: true },
+      { id: 'cat', label: 'Catalogue & stock', all: true },
+      { id: 'ent', label: 'Entrées & ajustements', all: false, count: pendingMvts },
+      { id: 'dem', label: 'Nouvelle demande', all: true },
+      { id: 'val', label: 'Validations', all: false, count: pendingCount },
+      { id: 'reg', label: 'Registre protocolaire', all: false },
+      { id: 'dep', label: 'Stocks déportés', all: false }
+    ];
+    const nav = navDefs.filter((n) => n.all || isService).map((n) => ({
+      label: n.label, pick: go(n.id), count: String(n.count || 0), hasCount: !!n.count,
+      style: s.screen === n.id ? 'background: #2b4c73; color: #ffffff;' : 'background: transparent; color: #dce4ec;'
+    }));
+    const titles = { dash: 'Tableau de bord', cat: 'Catalogue & stock', dem: 'Nouvelle demande de sortie', val: 'Validations', reg: 'Registre des cadeaux protocolaires', dep: 'Stocks déportés', ent: 'Entrées & ajustements de stock' };
+    const roles = [
+      { id: 'service', label: 'Service Événementiel' },
+      { id: 'demandeur', label: 'Direction demandeuse' }
+    ].map((r) => ({
+      label: r.label,
+      style: s.role === r.id ? 'border: 1px solid #ffffff; background: #ffffff; color: #14263d; font-weight: 600;' : 'border: 1px solid #4d6784; background: transparent; color: #dce4ec;',
+      pick: () => {
+        const f = self.state.form;
+        const artOk = r.id === 'service' || self.art(f.art).cat === 'Goodies';
+        const screenOk = r.id === 'service' || ['dash', 'cat', 'dem'].indexOf(self.state.screen) >= 0;
+        self.setState({ role: r.id, screen: screenOk ? self.state.screen : 'dash', form: artOk ? f : Object.assign({}, f, { art: 'G-001' }) });
+      }
+    }));
+
+    const visible = s.articles.filter((a) => isService || a.cat === 'Goodies');
+    const enriched = visible.map((a) => {
+      const dispo = a.phys - a.res;
+      const low = dispo <= a.seuil;
+      const etat = a.aValoriser ? 'À valoriser' : (low ? 'Sous le seuil' : 'OK');
+      const badge = a.aValoriser ? 'background: #e8eef5; color: #1f3a5f;' : (low ? 'background: #fdeedd; color: #7a340b;' : 'background: #e3f0e6; color: #1e4d2b;');
+      return Object.assign({}, a, { dispo, pmpFr: a.aValoriser ? '—' : self.fmt(a.pmp), low, etat, badge,
+        adjust: () => self.setState({ screen: 'ent', entTab: 'adj', adj: Object.assign({}, self.state.adj, { art: a.id }) }) });
+    });
+
+    // Tableau de bord
+    const lowList = enriched.filter((a) => a.low);
+    const stockVal = s.articles.reduce((t, a) => t + a.phys * a.pmp, 0);
+    const toRelance = s.depots.filter((p) => p.jours > 30 && !p.relance);
+    const kpis = [
+      { label: 'Articles sous le seuil', value: String(lowList.length), hint: 'Disponible ≤ seuil d\'alerte', color: 'color: #a3460f;', pick: go('cat') },
+      { label: 'Demandes en attente', value: String(pendingCount), hint: 'Protocole, Cabinet, chef de service', color: 'color: #14263d;', pick: go(isService ? 'val' : 'dash') },
+      { label: 'Valeur du stock', value: self.fmt(stockVal), hint: 'Local central, au PMP', color: 'color: #14263d;', pick: go('cat') },
+      { label: 'Stocks déportés à relancer', value: String(toRelance.length), hint: 'Sans déclaration depuis 30 j', color: 'color: #a3460f;', pick: go(isService ? 'dep' : 'dash') }
+    ];
+    const attention = [];
+    lowList.forEach((a) => attention.push({ level: 'Stock', style: 'background: #fdeedd; color: #7a340b;', text: a.lib + ' : ' + a.dispo + ' disponibles (seuil ' + a.seuil + '). Commande à lancer.', action: 'Voir le stock', pick: go('cat') }));
+    if (isService) {
+      s.demandes.filter((d) => d.statut.indexOf('En attente') === 0).forEach((d) => attention.push({ level: 'Validation', style: 'background: #e8eef5; color: #1f3a5f;', text: d.id + ' — ' + d.statut.toLowerCase() + ' (' + d.dir + ')', action: 'Décider', pick: go('val') }));
+      s.mvts.filter((m) => m.statut === 'À valider' || m.statut === 'À traiter').forEach((m) => attention.push({ level: m.type, style: 'background: #e8eef5; color: #1f3a5f;', text: m.id + ' — ' + m.art + ' : ' + m.detail, action: 'Traiter', pick: () => self.setState({ screen: 'ent', entTab: 'log' }) }));
+      toRelance.forEach((p) => attention.push({ level: 'Déporté', style: 'background: #fbe4e1; color: #8e1c1c;', text: p.dir + ' : aucune déclaration depuis ' + p.jours + ' jours.', action: 'Relancer', pick: go('dep') }));
+    }
+    const consoRaw = [['Service Événementiel', 610], ['Direction des Sports', 420], ['Direction de la Culture', 265], ['Direction de la Jeunesse', 180], ['Direction de l\'Économie', 95]];
+    const max = 610;
+    const conso = consoRaw.map((c) => ({ dir: c[0], val: self.fmt(c[1]), pct: Math.round(c[1] / max * 100) }));
+
+    const decorate = (d) => {
+      const a = self.art(d.art);
+      const pending = d.statut.indexOf('En attente') === 0;
+      return Object.assign({}, d, {
+        artLabel: a.id + ' · ' + a.lib, besoinFr: self.frDate(d.besoin), valFr: self.fmt(d.qty * a.pmp),
+        benefShown: d.benef || '—', badge: self.badge(d.statut), pending,
+        approveLabel: d.statut === 'En attente Protocole' ? 'Avis Protocole' : (d.statut === 'En attente Cabinet' ? 'Valider (Cabinet)' : 'Valider'),
+        approve: () => self.approve(d), refuse: () => self.refuse(d)
+      });
+    };
+    const recent = s.demandes.filter((d) => isService || self.art(d.art).cat === 'Goodies').slice(0, 5).map(decorate);
+
+    // Catalogue
+    const q = s.search.trim().toLowerCase();
+    const catalog = enriched.filter((a) => (s.filter === 'Tous' || a.cat === s.filter) && (!q || (a.id + ' ' + a.lib + ' ' + a.fam).toLowerCase().indexOf(q) >= 0));
+    const filters = ['Tous', 'Goodies', 'Protocole'].map((f) => ({
+      label: f, pick: () => self.setState({ filter: f }),
+      style: s.filter === f ? 'border: 1px solid ' + accent + '; background: ' + accent + '; color: #ffffff;' : 'border: 1px solid #b9c3cd; background: #ffffff; color: #17212b;'
+    }));
+
+    // Formulaire
+    const f = s.form, a = self.art(f.art) || s.articles[0];
+    const qty = parseInt(f.qty, 10) || 0;
+    const dispo = a.phys - a.res;
+    const valeur = qty * a.pmp;
+    const isProto = a.cat === 'Protocole';
+    const days = f.date ? Math.round((new Date(f.date + 'T00:00:00') - new Date('2026-09-17T00:00:00')) / 86400000) : null;
+    const isLate = days !== null && days < 10;
+    const enough = qty > 0 && qty <= dispo;
+    let circuit;
+    if (isProto) circuit = 'Protocole → Cabinet';
+    else circuit = valeur <= seuil ? 'Validation automatique' : 'Chef de service';
+    const checks = [
+      { label: 'Disponible', value: dispo + ' (physique ' + a.phys + ', réservé ' + a.res + ')', style: 'color: #17212b;' },
+      { label: 'Quantité demandée', value: enough ? qty + ' — disponible' : (qty <= 0 ? 'À saisir' : qty + ' — stock insuffisant'), style: enough ? 'color: #2e6b3f;' : 'color: #a32020;' },
+      { label: 'Valeur estimée (PMP)', value: self.fmt(valeur), style: 'color: #17212b;' },
+      { label: 'Circuit de validation', value: circuit, style: 'color: #1f3a5f;' },
+      { label: 'Délai avant besoin', value: days === null ? '—' : (days < 0 ? 'Date passée' : days + ' jours' + (isLate ? ' — demande tardive' : '')), style: isLate ? 'color: #a3460f;' : 'color: #2e6b3f;' }
+    ];
+    if (!enough && qty > dispo) checks.push({ label: 'Proposition', value: 'Sortie partielle (' + dispo + ') ou article de substitution', style: 'color: #a3460f;' });
+
+    const bq = (f.benef || '').trim().toLowerCase();
+    const memMatches = bq.length >= 3 ? s.registre.filter((r) => r.benef.toLowerCase().indexOf(bq) >= 0).map((r) => Object.assign({}, r, { artLabel: self.art(r.art).lib })) : [];
+    const memDuplicate = isProto && memMatches.some((r) => r.art === a.id);
+    const given = memMatches.map((r) => r.art);
+    const alt = s.articles.find((x) => x.cat === 'Protocole' && x.id !== a.id && given.indexOf(x.id) < 0 && Math.abs(x.pmp - a.pmp) <= 30 && x.phys - x.res > 0);
+    const protoOk = !isProto || (f.benef.trim() && f.occ.trim() && f.elu.trim());
+    const lateOk = !isLate || f.motif.trim();
+    const cannotSubmit = !(enough && f.evt.trim() && protoOk && lateOk && days !== null && days >= 0);
+    let submitHint = 'Tous les contrôles sont satisfaits.';
+    if (!f.evt.trim()) submitHint = 'Indiquez l\'événement.';
+    else if (!enough) submitHint = 'Ajustez la quantité.';
+    else if (!protoOk) submitHint = 'Complétez les informations protocolaires.';
+    else if (!lateOk) submitHint = 'Motif de demande tardive requis.';
+    else if (days === null || days < 0) submitHint = 'Date de besoin invalide.';
+
+    const artOptions = s.articles.filter((x) => isService || x.cat === 'Goodies').map((x) => ({ id: x.id, label: x.id + ' · ' + x.lib + ' (' + x.cat + ')' }));
+
+    // Validations & registre
+    const valList = s.demandes.map(decorate);
+    const rq = s.regSearch.trim().toLowerCase();
+    const regAll = s.registre.map((r) => { const ar = self.art(r.art); return Object.assign({}, r, { artLabel: ar.lib, valFr: self.fmt(ar.pmp * r.qty), v: ar.pmp * r.qty }); });
+    const regList = regAll.filter((r) => !rq || (r.benef + ' ' + r.org).toLowerCase().indexOf(rq) >= 0);
+    const regTotal = self.fmt(regAll.reduce((t, r) => t + r.v, 0));
+
+    const depots = s.depots.map((p, i) => {
+      const late = p.jours > 30;
+      return Object.assign({}, p, {
+        valFr: self.fmt(p.val),
+        etat: late ? (p.relance ? 'Relancé' : 'À relancer') : 'À jour',
+        badge: late ? (p.relance ? 'background: #e8eef5; color: #1f3a5f;' : 'background: #fbe4e1; color: #8e1c1c;') : 'background: #e3f0e6; color: #1e4d2b;',
+        canRelance: late && !p.relance,
+        relance: () => self.setState({
+          depots: self.state.depots.map((x, j) => j === i ? Object.assign({}, x, { relance: true }) : x),
+          msg: 'Relance envoyée à ' + p.ref + ' par Outlook et Teams.'
+        })
+      });
+    });
+
+    return Object.assign({
+      accent, nav, roles, isService, isDemandeur: !isService,
+      title: titles[s.screen], roleLabel: isService ? 'Vue Service Événementiel' : 'Vue direction demandeuse',
+      hasMsg: !!s.msg, msg: s.msg, clearMsg: () => self.setState({ msg: '' }),
+      isDash: s.screen === 'dash', isCat: s.screen === 'cat', isDem: s.screen === 'dem',
+      isVal: s.screen === 'val', isReg: s.screen === 'reg', isDep: s.screen === 'dep', isEnt: s.screen === 'ent',
+      kpis, attention, noAttention: attention.length === 0, conso, recent,
+      filters, search: s.search, onSearch: (e) => self.setState({ search: e.target.value }),
+      catalog, catalogEmpty: catalog.length === 0,
+      form: f, directions: ['Direction des Sports', 'Direction de la Culture', 'Direction de la Jeunesse', 'Direction de l\'Économie', 'Cabinet du Maire', 'Service Événementiel'],
+      artOptions,
+      onDir: (e) => self.setForm('dir', e.target.value), onEvt: (e) => self.setForm('evt', e.target.value),
+      onArt: (e) => self.setForm('art', e.target.value), onQty: (e) => self.setForm('qty', e.target.value),
+      onDate: (e) => self.setForm('date', e.target.value), onMotif: (e) => self.setForm('motif', e.target.value),
+      onBenef: (e) => self.setForm('benef', e.target.value), onOcc: (e) => self.setForm('occ', e.target.value),
+      onElu: (e) => self.setForm('elu', e.target.value),
+      isProto, isLate, checks, cannotSubmit, submitHint, submit: () => self.submit(),
+      memEmptyInput: bq.length < 3, memNoMatch: bq.length >= 3 && memMatches.length === 0,
+      memMatches, memDuplicate, memSuggest: alt ? alt.lib + ' (' + self.fmt(alt.pmp) + ')' : 'aucun article équivalent disponible',
+      valList, seuilFr: self.fmt(seuil),
+      regSearch: s.regSearch, onRegSearch: (e) => self.setState({ regSearch: e.target.value }),
+      regList, regTotal,
+      exportPdf: () => self.notify('Registre exporté en PDF et archivé dans SharePoint (maquette).'),
+      exportXls: () => self.notify('Registre exporté au format Excel (maquette).'),
+      depots
+    }, this.entryVals(accent));
+  }
+}
+DCMount(Component, [" ",{"t":"div","a":[["style","width: 1440px; height: 900px; display: flex; overflow: hidden; background: #eef1f4;"]],"c":[" "," ",{"t":"div","a":[["style","width: 256px; flex-shrink: 0; background: #14263d; color: #ffffff; display: flex; flex-direction: column; padding: 28px 16px; box-sizing: border-box; gap: 28px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; padding: 0 8px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 24px; font-weight: 700; line-height: 1.15;"]],"c":["Stock & Protocole"]}," ",{"t":"div","a":[["style","font-size: 12px; color: #b9c6d3; line-height: 1.4;"]],"c":["Service Événementiel",{"t":"br","a":[],"c":[]},"CUD · Ville de Dunkerque"]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 4px;"]],"c":[" ",{"t":"sc-for","a":[["list","{{nav}}"],["as","n"],["hint-placeholder-count","6"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{n.pick}}"],["style","display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 14px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; text-align: left; {{n.style}}"]],"c":[" ",{"t":"span","a":[],"c":["{{n.label}}"]}," ",{"t":"sc-if","a":[["value","{{n.hasCount}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"span","a":[["style","min-width: 22px; height: 22px; border-radius: 11px; background: #c2561c; color: #ffffff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 6px; box-sizing: border-box;"]],"c":["{{n.count}}"]}," "]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 0 8px;"]],"c":[" ",{"t":"div","a":[["style","font-size: 12px; color: #b9c6d3;"]],"c":["Profil de démonstration"]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"sc-for","a":[["list","{{roles}}"],["as","r"],["hint-placeholder-count","2"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{r.pick}}"],["style","min-height: 40px; border-radius: 8px; font-size: 13px; padding: 0 12px; text-align: left; {{r.style}}"]],"c":["{{r.label}}"]}," "]}," "]}," "]}," "]}," "," ",{"t":"div","a":[["style","flex-grow: 1; display: flex; flex-direction: column; min-width: 0;"]],"c":[" ",{"t":"div","a":[["style","height: 72px; flex-shrink: 0; background: #ffffff; border-bottom: 1px solid #d5dbe1; display: flex; align-items: center; justify-content: space-between; padding: 0 36px; box-sizing: border-box;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 26px; font-weight: 700; color: #14263d;"]],"c":["{{title}}"]}," ",{"t":"div","a":[["style","display: flex; align-items: center; gap: 16px; font-size: 13px; color: #4a5561;"]],"c":[" ",{"t":"span","a":[],"c":["Jeudi 17 septembre 2026"]}," ",{"t":"span","a":[["style","padding: 6px 12px; border-radius: 16px; background: #e8eef5; color: #1f3a5f; font-weight: 500;"]],"c":["{{roleLabel}}"]}," "]}," "]}," ",{"t":"sc-if","a":[["value","{{hasMsg}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","margin: 16px 36px 0; padding: 12px 16px; border-radius: 8px; background: #e3f0e6; color: #1e4d2b; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 16px;"]],"c":[" ",{"t":"span","a":[],"c":["{{msg}}"]}," ",{"t":"button","a":[["type","button"],["onClick","{{clearMsg}}"],["aria-label","Fermer le message"],["style","border: none; background: transparent; color: #1e4d2b; min-width: 44px; min-height: 32px; font-size: 13px; font-weight: 600;"]],"c":["Fermer"]}," "]}," "]}," ",{"t":"div","a":[["style","flex-grow: 1; overflow: auto; padding: 28px 36px 40px; box-sizing: border-box;"]],"c":[" "," ",{"t":"sc-if","a":[["value","{{isDash}}"],["hint-placeholder-val","{{true}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 24px;"]],"c":[" ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;"]],"c":[" ",{"t":"sc-for","a":[["list","{{kpis}}"],["as","k"],["hint-placeholder-count","4"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{k.pick}}"],["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 20px; text-align: left; display: flex; flex-direction: column; gap: 8px;"]],"c":[" ",{"t":"span","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["{{k.label}}"]}," ",{"t":"span","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 34px; font-weight: 700; {{k.color}}"]],"c":["{{k.value}}"]}," ",{"t":"span","a":[["style","font-size: 12px; color: #4a5561;"]],"c":["{{k.hint}}"]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px;"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 14px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; justify-content: space-between; align-items: baseline;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 700;"]],"c":["Ce qui demande votre attention"]}," ",{"t":"div","a":[["style","font-size: 12px; color: #4a5561;"]],"c":["Rapport par exception"]}," "]}," ",{"t":"sc-if","a":[["value","{{noAttention}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","font-size: 14px; color: #2e6b3f;"]],"c":["Rien à signaler : aucune décision requise."]}," "]}," ",{"t":"sc-for","a":[["list","{{attention}}"],["as","a"],["hint-placeholder-count","4"]],"c":[" ",{"t":"div","a":[["style","display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 8px; background: #f6f8fa;"]],"c":[" ",{"t":"span","a":[["style","padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; flex-shrink: 0; {{a.style}}"]],"c":["{{a.level}}"]}," ",{"t":"span","a":[["style","flex-grow: 1; font-size: 14px;"]],"c":["{{a.text}}"]}," ",{"t":"button","a":[["type","button"],["onClick","{{a.pick}}"],["style","min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #1f5f8b; background: #ffffff; color: #1f5f8b; font-size: 13px; font-weight: 500;"]],"c":["{{a.action}}"]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 700;"]],"c":["Consommation du mois par direction"]}," ",{"t":"sc-for","a":[["list","{{conso}}"],["as","c"],["hint-placeholder-count","5"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; justify-content: space-between; font-size: 13px;"]],"c":[" ",{"t":"span","a":[],"c":["{{c.dir}}"]},{"t":"span","a":[["style","font-weight: 600;"]],"c":["{{c.val}}"]}," "]}," ",{"t":"div","a":[["style","height: 10px; border-radius: 5px; background: #e6eaee;"]],"c":[" ",{"t":"div","a":[["style","height: 10px; border-radius: 5px; width: {{c.pct}}%; background: {{accent}};"]],"c":[]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","font-size: 12px; color: #4a5561;"]],"c":["Valorisation au prix moyen pondéré · suivi sans plafond"]}," "]}," "]}," ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 700;"]],"c":["Dernières demandes"]}," ",{"t":"table","a":[],"c":[" ",{"t":"thead","a":[],"c":[{"t":"tr","a":[],"c":[{"t":"th","a":[],"c":["N°"]},{"t":"th","a":[],"c":["Direction"]},{"t":"th","a":[],"c":["Événement"]},{"t":"th","a":[],"c":["Article"]},{"t":"th","a":[],"c":["Qté"]},{"t":"th","a":[],"c":["Besoin"]},{"t":"th","a":[],"c":["Statut"]}]}]}," ",{"t":"tbody","a":[],"c":[" ",{"t":"sc-for","a":[["list","{{recent}}"],["as","d"],["hint-placeholder-count","4"]],"c":[" ",{"t":"tr","a":[],"c":[{"t":"td","a":[],"c":["{{d.id}}"]},{"t":"td","a":[],"c":["{{d.dir}}"]},{"t":"td","a":[],"c":["{{d.evt}}"]},{"t":"td","a":[],"c":["{{d.artLabel}}"]},{"t":"td","a":[],"c":["{{d.qty}}"]},{"t":"td","a":[],"c":["{{d.besoinFr}}"]},{"t":"td","a":[],"c":[{"t":"span","a":[["style","padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; {{d.badge}}"]],"c":["{{d.statut}}"]}]}]}," "]}," "]}," "]}," "]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{isCat}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 18px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; gap: 12px; align-items: center; flex-wrap: wrap;"]],"c":[" ",{"t":"sc-if","a":[["value","{{isService}}"],["hint-placeholder-val","{{true}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; gap: 8px;"]],"c":[" ",{"t":"sc-for","a":[["list","{{filters}}"],["as","f"],["hint-placeholder-count","3"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{f.pick}}"],["style","min-height: 40px; padding: 0 16px; border-radius: 20px; font-size: 13px; font-weight: 500; {{f.style}}"]],"c":["{{f.label}}"]}," "]}," "]}," "]}," ",{"t":"label","a":[["for","recherche"],["style","font-size: 13px; color: #4a5561; margin-left: auto;"]],"c":["Rechercher"]}," ",{"t":"input","a":[["id","recherche"],["type","search"],["value","{{search}}"],["onChange","{{onSearch}}"],["placeholder","Référence, libellé, famille…"],["style","width: 300px; min-height: 40px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"sc-if","a":[["value","{{isDemandeur}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["Vue direction demandeuse : les cadeaux protocolaires ne sont pas visibles."]}," "]}," ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 8px 12px;"]],"c":[" ",{"t":"table","a":[],"c":[" ",{"t":"thead","a":[],"c":[{"t":"tr","a":[],"c":[{"t":"th","a":[],"c":["Réf."]},{"t":"th","a":[],"c":["Article"]},{"t":"th","a":[],"c":["Famille"]},{"t":"th","a":[],"c":["Catégorie"]},{"t":"th","a":[],"c":["Physique"]},{"t":"th","a":[],"c":["Réservé"]},{"t":"th","a":[],"c":["Disponible"]},{"t":"th","a":[],"c":["Seuil"]},{"t":"th","a":[],"c":["PMP"]},{"t":"th","a":[],"c":["Emplacement"]},{"t":"th","a":[],"c":["État"]},{"t":"th","a":[],"c":["Action"]}]}]}," ",{"t":"tbody","a":[],"c":[" ",{"t":"sc-for","a":[["list","{{catalog}}"],["as","a"],["hint-placeholder-count","8"]],"c":[" ",{"t":"tr","a":[],"c":[" ",{"t":"td","a":[["style","font-weight: 600;"]],"c":["{{a.id}}"]},{"t":"td","a":[],"c":["{{a.lib}}"]},{"t":"td","a":[],"c":["{{a.fam}}"]},{"t":"td","a":[],"c":["{{a.cat}}"]}," ",{"t":"td","a":[],"c":["{{a.phys}}"]},{"t":"td","a":[],"c":["{{a.res}}"]},{"t":"td","a":[["style","font-weight: 600;"]],"c":["{{a.dispo}}"]},{"t":"td","a":[],"c":["{{a.seuil}}"]},{"t":"td","a":[],"c":["{{a.pmpFr}}"]},{"t":"td","a":[],"c":["{{a.loc}}"]}," ",{"t":"td","a":[],"c":[{"t":"span","a":[["style","padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; white-space: nowrap; {{a.badge}}"]],"c":["{{a.etat}}"]}]}," ",{"t":"td","a":[],"c":[{"t":"sc-if","a":[["value","{{isService}}"],["hint-placeholder-val","{{true}}"]],"c":[{"t":"button","a":[["type","button"],["onClick","{{a.adjust}}"],["style","min-height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid #1f5f8b; background: #ffffff; color: #1f5f8b; font-size: 12px; font-weight: 600;"]],"c":["Ajuster"]}]}]}," "]}," "]}," "]}," "]}," ",{"t":"sc-if","a":[["value","{{catalogEmpty}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","padding: 20px; font-size: 14px; color: #4a5561;"]],"c":["Aucun article ne correspond à la recherche."]}," "]}," "]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{isDem}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: start;"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 28px; display: flex; flex-direction: column; gap: 18px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 700;"]],"c":["Formulaire de demande"]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","f-dir"],["style","font-size: 13px; font-weight: 500;"]],"c":["Direction demandeuse"]}," ",{"t":"select","a":[["id","f-dir"],["value","{{form.dir}}"],["onChange","{{onDir}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; background: #ffffff;"]],"c":[" ",{"t":"sc-for","a":[["list","{{directions}}"],["as","o"],["hint-placeholder-count","5"]],"c":[{"t":"option","a":[["value","{{o}}"]],"c":["{{o}}"]}]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","f-evt"],["style","font-size: 13px; font-weight: 500;"]],"c":["Événement"]}," ",{"t":"input","a":[["id","f-evt"],["type","text"],["value","{{form.evt}}"],["onChange","{{onEvt}}"],["placeholder","Nom de la manifestation"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; grid-column: span 2;"]],"c":[" ",{"t":"label","a":[["for","f-art"],["style","font-size: 13px; font-weight: 500;"]],"c":["Article"]}," ",{"t":"select","a":[["id","f-art"],["value","{{form.art}}"],["onChange","{{onArt}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; background: #ffffff;"]],"c":[" ",{"t":"sc-for","a":[["list","{{artOptions}}"],["as","o"],["hint-placeholder-count","6"]],"c":[{"t":"option","a":[["value","{{o.id}}"]],"c":["{{o.label}}"]}]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","f-qty"],["style","font-size: 13px; font-weight: 500;"]],"c":["Quantité"]}," ",{"t":"input","a":[["id","f-qty"],["type","number"],["min","1"],["value","{{form.qty}}"],["onChange","{{onQty}}"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","f-date"],["style","font-size: 13px; font-weight: 500;"]],"c":["Date de besoin"]}," ",{"t":"input","a":[["id","f-date"],["type","date"],["value","{{form.date}}"],["onChange","{{onDate}}"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"sc-if","a":[["value","{{isLate}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; grid-column: span 2;"]],"c":[" ",{"t":"label","a":[["for","f-motif"],["style","font-size: 13px; font-weight: 500; color: #8a3a0e;"]],"c":["Motif de la demande tardive (obligatoire)"]}," ",{"t":"input","a":[["id","f-motif"],["type","text"],["value","{{form.motif}}"],["onChange","{{onMotif}}"],["placeholder","Pourquoi ce délai court ?"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #c2561c; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," "]}," "]}," ",{"t":"sc-if","a":[["value","{{isProto}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","border-top: 1px solid #e6eaee; padding-top: 18px; display: flex; flex-direction: column; gap: 14px;"]],"c":[" ",{"t":"div","a":[["style","font-size: 15px; font-weight: 600; color: #14263d;"]],"c":["Informations protocolaires (obligatoires)"]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","f-benef"],["style","font-size: 13px; font-weight: 500;"]],"c":["Bénéficiaire (nom et qualité)"]}," ",{"t":"input","a":[["id","f-benef"],["type","text"],["value","{{form.benef}}"],["onChange","{{onBenef}}"],["placeholder","Ex. Maire de [Ville jumelée A]"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","f-occ"],["style","font-size: 13px; font-weight: 500;"]],"c":["Occasion"]}," ",{"t":"input","a":[["id","f-occ"],["type","text"],["value","{{form.occ}}"],["onChange","{{onOcc}}"],["placeholder","Visite officielle, réception…"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; grid-column: span 2;"]],"c":[" ",{"t":"label","a":[["for","f-elu"],["style","font-size: 13px; font-weight: 500;"]],"c":["Élu remettant"]}," ",{"t":"input","a":[["id","f-elu"],["type","text"],["value","{{form.elu}}"],["onChange","{{onElu}}"],["placeholder","[Nom de l'élu]"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; gap: 12px; align-items: center;"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{submit}}"],["disabled","{{cannotSubmit}}"],["style","min-height: 46px; padding: 0 24px; border-radius: 8px; border: none; background: {{accent}}; color: #ffffff; font-size: 15px; font-weight: 600;"]],"c":["Soumettre la demande"]}," ",{"t":"span","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["{{submitHint}}"]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 18px; font-weight: 700;"]],"c":["Contrôle en temps réel"]}," ",{"t":"sc-for","a":[["list","{{checks}}"],["as","c"],["hint-placeholder-count","4"]],"c":[" ",{"t":"div","a":[["style","display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eef1f4; font-size: 14px;"]],"c":[" ",{"t":"span","a":[["style","color: #4a5561;"]],"c":["{{c.label}}"]}," ",{"t":"span","a":[["style","font-weight: 600; text-align: right; {{c.style}}"]],"c":["{{c.value}}"]}," "]}," "]}," "]}," ",{"t":"sc-if","a":[["value","{{isProto}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 18px; font-weight: 700;"]],"c":["Mémoire protocolaire"]}," ",{"t":"sc-if","a":[["value","{{memEmptyInput}}"],["hint-placeholder-val","{{true}}"]],"c":[" ",{"t":"div","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["Saisissez un bénéficiaire pour afficher les cadeaux déjà remis."]}," "]}," ",{"t":"sc-if","a":[["value","{{memNoMatch}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","font-size: 13px; color: #2e6b3f;"]],"c":["Aucun cadeau déjà remis à ce bénéficiaire."]}," "]}," ",{"t":"sc-if","a":[["value","{{memDuplicate}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","padding: 10px 12px; border-radius: 8px; background: #fbe4e1; color: #8e1c1c; font-size: 13px; font-weight: 600;"]],"c":["Doublon : cet article a déjà été offert à ce bénéficiaire. Suggestion : {{memSuggest}}"]}," "]}," ",{"t":"sc-for","a":[["list","{{memMatches}}"],["as","m"],["hint-placeholder-count","2"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 8px; background: #f6f8fa; font-size: 13px;"]],"c":[" ",{"t":"span","a":[["style","font-weight: 600;"]],"c":["{{m.date}} · {{m.artLabel}}"]}," ",{"t":"span","a":[["style","color: #4a5561;"]],"c":["{{m.benef}} — {{m.occasion}}"]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{isVal}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","font-size: 14px; color: #4a5561;"]],"c":["Circuits : goodies au-delà de {{seuilFr}} → chef de service · cadeaux protocolaires → Protocole puis Cabinet. Notifications envoyées par Outlook et Teams, relance après 48 h."]}," ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 8px 12px;"]],"c":[" ",{"t":"table","a":[],"c":[" ",{"t":"thead","a":[],"c":[{"t":"tr","a":[],"c":[{"t":"th","a":[],"c":["N°"]},{"t":"th","a":[],"c":["Direction"]},{"t":"th","a":[],"c":["Article"]},{"t":"th","a":[],"c":["Qté"]},{"t":"th","a":[],"c":["Valeur"]},{"t":"th","a":[],"c":["Bénéficiaire"]},{"t":"th","a":[],"c":["Besoin"]},{"t":"th","a":[],"c":["Statut"]},{"t":"th","a":[],"c":["Décision"]}]}]}," ",{"t":"tbody","a":[],"c":[" ",{"t":"sc-for","a":[["list","{{valList}}"],["as","d"],["hint-placeholder-count","5"]],"c":[" ",{"t":"tr","a":[],"c":[" ",{"t":"td","a":[["style","font-weight: 600;"]],"c":["{{d.id}}"]},{"t":"td","a":[],"c":["{{d.dir}}"]},{"t":"td","a":[],"c":["{{d.artLabel}}"]},{"t":"td","a":[],"c":["{{d.qty}}"]},{"t":"td","a":[],"c":["{{d.valFr}}"]},{"t":"td","a":[],"c":["{{d.benefShown}}"]},{"t":"td","a":[],"c":["{{d.besoinFr}}"]}," ",{"t":"td","a":[],"c":[{"t":"span","a":[["style","padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; white-space: nowrap; {{d.badge}}"]],"c":["{{d.statut}}"]}]}," ",{"t":"td","a":[],"c":[" ",{"t":"sc-if","a":[["value","{{d.pending}}"],["hint-placeholder-val","{{true}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; gap: 8px;"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{d.approve}}"],["style","min-height: 36px; padding: 0 12px; border-radius: 8px; border: none; background: #2e6b3f; color: #ffffff; font-size: 13px; font-weight: 600; white-space: nowrap;"]],"c":["{{d.approveLabel}}"]}," ",{"t":"button","a":[["type","button"],["onClick","{{d.refuse}}"],["style","min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #a32020; background: #ffffff; color: #a32020; font-size: 13px; font-weight: 600;"]],"c":["Refuser"]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{isReg}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; align-items: center; gap: 12px;"]],"c":[" ",{"t":"label","a":[["for","reg-search"],["style","font-size: 13px; color: #4a5561;"]],"c":["Bénéficiaire ou organisme"]}," ",{"t":"input","a":[["id","reg-search"],["type","search"],["value","{{regSearch}}"],["onChange","{{onRegSearch}}"],["placeholder","Filtrer le registre…"],["style","width: 300px; min-height: 40px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," ",{"t":"div","a":[["style","margin-left: auto; display: flex; gap: 8px;"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{exportPdf}}"],["style","min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #1f5f8b; background: #ffffff; color: #1f5f8b; font-size: 13px; font-weight: 600;"]],"c":["Exporter en PDF"]}," ",{"t":"button","a":[["type","button"],["onClick","{{exportXls}}"],["style","min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #1f5f8b; background: #ffffff; color: #1f5f8b; font-size: 13px; font-weight: 600;"]],"c":["Exporter en Excel"]}," "]}," "]}," ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 8px 12px;"]],"c":[" ",{"t":"table","a":[],"c":[" ",{"t":"thead","a":[],"c":[{"t":"tr","a":[],"c":[{"t":"th","a":[],"c":["Date"]},{"t":"th","a":[],"c":["Bénéficiaire"]},{"t":"th","a":[],"c":["Organisme"]},{"t":"th","a":[],"c":["Occasion"]},{"t":"th","a":[],"c":["Cadeau"]},{"t":"th","a":[],"c":["Valeur"]},{"t":"th","a":[],"c":["Élu remettant"]}]}]}," ",{"t":"tbody","a":[],"c":[" ",{"t":"sc-for","a":[["list","{{regList}}"],["as","r"],["hint-placeholder-count","3"]],"c":[" ",{"t":"tr","a":[],"c":[{"t":"td","a":[],"c":["{{r.date}}"]},{"t":"td","a":[["style","font-weight: 600;"]],"c":["{{r.benef}}"]},{"t":"td","a":[],"c":["{{r.org}}"]},{"t":"td","a":[],"c":["{{r.occasion}}"]},{"t":"td","a":[],"c":["{{r.artLabel}}"]},{"t":"td","a":[],"c":["{{r.valFr}}"]},{"t":"td","a":[],"c":["{{r.elu}}"]}]}," "]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["Total des cadeaux remis sur l'année : ",{"t":"strong","a":[],"c":["{{regTotal}}"]}]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{isEnt}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 18px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; gap: 8px; flex-wrap: wrap;"]],"c":[" ",{"t":"sc-for","a":[["list","{{entTabs}}"],["as","t"],["hint-placeholder-count","4"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{t.pick}}"],["style","min-height: 42px; padding: 0 18px; border-radius: 21px; font-size: 14px; font-weight: 600; {{t.style}}"]],"c":["{{t.label}}"]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{tabRec}}"],["hint-placeholder-val","{{true}}"]],"c":[" ",{"t":"div","a":[["style","display: grid; grid-template-columns: 1.35fr 1fr; gap: 20px; align-items: start;"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 26px; display: flex; flex-direction: column; gap: 18px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 700;"]],"c":["Réception d'une livraison"]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 8px;"]],"c":[" ",{"t":"span","a":[["style","font-size: 13px; font-weight: 500;"]],"c":["Origine de l'achat"]}," ",{"t":"div","a":[["style","display: flex; gap: 8px;"]],"c":[" ",{"t":"sc-for","a":[["list","{{recOrigins}}"],["as","o"],["hint-placeholder-count","3"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{o.pick}}"],["style","flex-grow: 1; min-height: 44px; border-radius: 8px; font-size: 13px; font-weight: 600; {{o.style}}"]],"c":["{{o.label}}"]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","rc-four"],["style","font-size: 13px; font-weight: 500;"]],"c":["Fournisseur"]}," ",{"t":"input","a":[["id","rc-four"],["type","text"],["value","{{rec.fournisseur}}"],["onChange","{{onRecFour}}"],["placeholder","[Nom du fournisseur]"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","rc-ref"],["style","font-size: 13px; font-weight: 500;"]],"c":["{{recRefLabel}}"]}," ",{"t":"input","a":[["id","rc-ref"],["type","text"],["value","{{rec.ref}}"],["onChange","{{onRecRef}}"],["placeholder","{{recRefPh}}"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","rc-date"],["style","font-size: 13px; font-weight: 500;"]],"c":["Date de réception"]}," ",{"t":"input","a":[["id","rc-date"],["type","date"],["value","{{rec.date}}"],["onChange","{{onRecDate}}"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; justify-content: flex-end;"]],"c":[" ",{"t":"span","a":[["style","font-size: 12px; color: #4a5561; line-height: 1.4;"]],"c":["{{recHelp}}"]}," "]}," "]}," ",{"t":"div","a":[["style","border-top: 1px solid #e6eaee; padding-top: 16px; display: flex; flex-direction: column; gap: 14px;"]],"c":[" ",{"t":"div","a":[["style","font-size: 15px; font-weight: 600; color: #14263d;"]],"c":["Ligne de livraison"]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; grid-column: span 4;"]],"c":[" ",{"t":"label","a":[["for","rc-art"],["style","font-size: 13px; font-weight: 500;"]],"c":["Article"]}," ",{"t":"select","a":[["id","rc-art"],["value","{{rec.art}}"],["onChange","{{onRecArt}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; background: #ffffff;"]],"c":[" ",{"t":"sc-for","a":[["list","{{allArtOptions}}"],["as","o"],["hint-placeholder-count","6"]],"c":[{"t":"option","a":[["value","{{o.id}}"]],"c":["{{o.label}}"]}]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","rc-att"],["style","font-size: 13px; font-weight: 500;"]],"c":["Qté commandée"]}," ",{"t":"input","a":[["id","rc-att"],["type","number"],["min","0"],["value","{{rec.attendu}}"],["onChange","{{onRecAtt}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","rc-rec"],["style","font-size: 13px; font-weight: 500;"]],"c":["Reçue conforme"]}," ",{"t":"input","a":[["id","rc-rec"],["type","number"],["min","0"],["value","{{rec.recu}}"],["onChange","{{onRecRecu}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","rc-nc"],["style","font-size: 13px; font-weight: 500;"]],"c":["Non conforme"]}," ",{"t":"input","a":[["id","rc-nc"],["type","number"],["min","0"],["value","{{rec.nc}}"],["onChange","{{onRecNc}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","rc-prix"],["style","font-size: 13px; font-weight: 500;"]],"c":["Prix unitaire HT (€)"]}," ",{"t":"input","a":[["id","rc-prix"],["type","number"],["min","0"],["step","0.01"],["value","{{rec.prix}}"],["onChange","{{onRecPrix}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; align-items: center; gap: 12px;"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{addLine}}"],["disabled","{{cannotAddLine}}"],["style","min-height: 42px; padding: 0 18px; border-radius: 8px; border: 1px solid {{accent}}; background: #ffffff; color: {{accent}}; font-size: 14px; font-weight: 600;"]],"c":["Ajouter la ligne"]}," ",{"t":"span","a":[["style","padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; {{lineCheck.style}}"]],"c":["{{lineCheck.text}}"]}," "]}," "]}," ",{"t":"sc-if","a":[["value","{{hasRecLines}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"table","a":[],"c":[" ",{"t":"thead","a":[],"c":[{"t":"tr","a":[],"c":[{"t":"th","a":[],"c":["Article"]},{"t":"th","a":[],"c":["Commandé"]},{"t":"th","a":[],"c":["Conforme"]},{"t":"th","a":[],"c":["Non conf."]},{"t":"th","a":[],"c":["Prix HT"]},{"t":"th","a":[],"c":["Contrôle"]},{"t":"th","a":[],"c":[]}]}]}," ",{"t":"tbody","a":[],"c":[" ",{"t":"sc-for","a":[["list","{{recLines}}"],["as","l"],["hint-placeholder-count","2"]],"c":[" ",{"t":"tr","a":[],"c":[{"t":"td","a":[],"c":["{{l.label}}"]},{"t":"td","a":[],"c":["{{l.attendu}}"]},{"t":"td","a":[],"c":["{{l.recu}}"]},{"t":"td","a":[],"c":["{{l.nc}}"]},{"t":"td","a":[],"c":["{{l.prixFr}}"]}," ",{"t":"td","a":[],"c":[{"t":"span","a":[["style","padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; {{l.style}}"]],"c":["{{l.ctrl}}"]}]}," ",{"t":"td","a":[],"c":[{"t":"button","a":[["type","button"],["onClick","{{l.remove}}"],["style","min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid #b9c3cd; background: #ffffff; font-size: 12px;"]],"c":["Retirer"]}]}]}," "]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; align-items: center; gap: 12px;"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{validateRec}}"],["disabled","{{cannotValidateRec}}"],["style","min-height: 46px; padding: 0 24px; border-radius: 8px; border: none; background: {{accent}}; color: #ffffff; font-size: 15px; font-weight: 600;"]],"c":["Valider la réception"]}," ",{"t":"span","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["{{recHint}}"]}," "]}," "]}," ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 18px; font-weight: 700;"]],"c":["Impact sur le stock"]}," ",{"t":"sc-if","a":[["value","{{noRecLines}}"],["hint-placeholder-val","{{true}}"]],"c":[" ",{"t":"div","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["Ajoutez une ou plusieurs lignes : l'application calcule le nouveau stock et le prix moyen pondéré avant validation."]}," "]}," ",{"t":"sc-for","a":[["list","{{recImpact}}"],["as","m"],["hint-placeholder-count","2"]],"c":[" ",{"t":"div","a":[["style","padding: 12px; border-radius: 8px; background: #f6f8fa; display: flex; flex-direction: column; gap: 4px; font-size: 13px;"]],"c":[" ",{"t":"span","a":[["style","font-weight: 600;"]],"c":["{{m.label}}"]}," ",{"t":"span","a":[],"c":["Stock physique : {{m.before}} → ",{"t":"strong","a":[],"c":["{{m.after}}"]}]}," ",{"t":"span","a":[],"c":["Prix moyen pondéré : {{m.pmpBefore}} → ",{"t":"strong","a":[],"c":["{{m.pmpAfter}}"]}]}," "]}," "]}," ",{"t":"sc-if","a":[["value","{{hasAnomalies}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","padding: 10px 12px; border-radius: 8px; background: #fdeedd; color: #7a340b; font-size: 13px; font-weight: 600;"]],"c":["{{anomalyText}}"]}," "]}," "]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{tabArt}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: grid; grid-template-columns: 1.35fr 1fr; gap: 20px; align-items: start;"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 26px; display: flex; flex-direction: column; gap: 18px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 700;"]],"c":["Créer une fiche article"]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 8px;"]],"c":[" ",{"t":"span","a":[["style","font-size: 13px; font-weight: 500;"]],"c":["Catégorie"]}," ",{"t":"div","a":[["style","display: flex; gap: 8px;"]],"c":[" ",{"t":"sc-for","a":[["list","{{naCats}}"],["as","c"],["hint-placeholder-count","2"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{c.pick}}"],["style","flex-grow: 1; min-height: 44px; border-radius: 8px; font-size: 13px; font-weight: 600; {{c.style}}"]],"c":["{{c.label}}"]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; grid-column: span 2;"]],"c":[" ",{"t":"label","a":[["for","na-lib"],["style","font-size: 13px; font-weight: 500;"]],"c":["Libellé"]}," ",{"t":"input","a":[["id","na-lib"],["type","text"],["value","{{na.lib}}"],["onChange","{{onNaLib}}"],["placeholder","Ex. Sac isotherme aux couleurs de la CUD"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","na-fam"],["style","font-size: 13px; font-weight: 500;"]],"c":["Famille"]}," ",{"t":"input","a":[["id","na-fam"],["type","text"],["value","{{na.fam}}"],["onChange","{{onNaFam}}"],["placeholder","Textile, Papeterie, Médailles…"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","na-four"],["style","font-size: 13px; font-weight: 500;"]],"c":["Fournisseur habituel"]}," ",{"t":"input","a":[["id","na-four"],["type","text"],["value","{{na.fournisseur}}"],["onChange","{{onNaFour}}"],["placeholder","[Nom du fournisseur]"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","na-loc"],["style","font-size: 13px; font-weight: 500;"]],"c":["Emplacement"]}," ",{"t":"select","a":[["id","na-loc"],["value","{{na.loc}}"],["onChange","{{onNaLoc}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; background: #ffffff;"]],"c":[" ",{"t":"sc-for","a":[["list","{{locations}}"],["as","o"],["hint-placeholder-count","6"]],"c":[{"t":"option","a":[["value","{{o}}"]],"c":["{{o}}"]}]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","na-delai"],["style","font-size: 13px; font-weight: 500;"]],"c":["Délai fournisseur (jours)"]}," ",{"t":"input","a":[["id","na-delai"],["type","number"],["min","0"],["value","{{na.delai}}"],["onChange","{{onNaDelai}}"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","na-stock"],["style","font-size: 13px; font-weight: 500;"]],"c":["Stock initial"]}," ",{"t":"input","a":[["id","na-stock"],["type","number"],["min","0"],["value","{{na.stock}}"],["onChange","{{onNaStock}}"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","na-seuil"],["style","font-size: 13px; font-weight: 500;"]],"c":["Seuil d'alerte"]}," ",{"t":"input","a":[["id","na-seuil"],["type","number"],["min","0"],["value","{{na.seuil}}"],["onChange","{{onNaSeuil}}"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; grid-column: span 2;"]],"c":[" ",{"t":"label","a":[["for","na-prix"],["style","font-size: 13px; font-weight: 500;"]],"c":["Prix unitaire HT (€) — laisser vide si inconnu"]}," ",{"t":"input","a":[["id","na-prix"],["type","number"],["min","0"],["step","0.01"],["value","{{na.prix}}"],["onChange","{{onNaPrix}}"],["placeholder","À valoriser plus tard"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; align-items: center; gap: 12px;"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{createArt}}"],["disabled","{{cannotCreate}}"],["style","min-height: 46px; padding: 0 24px; border-radius: 8px; border: none; background: {{accent}}; color: #ffffff; font-size: 15px; font-weight: 600;"]],"c":["Créer l'article"]}," ",{"t":"span","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["{{createHint}}"]}," "]}," "]}," ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 12px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 18px; font-weight: 700;"]],"c":["Contrôles de la fiche"]}," ",{"t":"div","a":[["style","display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eef1f4; font-size: 14px;"]],"c":[{"t":"span","a":[["style","color: #4a5561;"]],"c":["Référence attribuée"]},{"t":"span","a":[["style","font-weight: 600;"]],"c":["{{naRef}}"]}]}," ",{"t":"div","a":[["style","display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eef1f4; font-size: 14px;"]],"c":[{"t":"span","a":[["style","color: #4a5561;"]],"c":["Valorisation"]},{"t":"span","a":[["style","font-weight: 600;"]],"c":["{{naVal}}"]}]}," ",{"t":"div","a":[["style","display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eef1f4; font-size: 14px;"]],"c":[{"t":"span","a":[["style","color: #4a5561;"]],"c":["Étiquette"]},{"t":"span","a":[["style","font-weight: 600;"]],"c":["QR code généré à la création"]}]}," ",{"t":"sc-if","a":[["value","{{naProtoLocWarn}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","padding: 10px 12px; border-radius: 8px; background: #fdeedd; color: #7a340b; font-size: 13px; font-weight: 600;"]],"c":["Un cadeau protocolaire doit être rangé au coffre du local central."]}," "]}," ",{"t":"sc-if","a":[["value","{{naHasDup}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","padding: 10px 12px; border-radius: 8px; background: #fbe4e1; color: #8e1c1c; font-size: 13px; display: flex; flex-direction: column; gap: 4px;"]],"c":[" ",{"t":"strong","a":[],"c":["Doublon possible — vérifiez avant de créer :"]}," ",{"t":"sc-for","a":[["list","{{naDups}}"],["as","d"],["hint-placeholder-count","1"]],"c":[{"t":"span","a":[],"c":["{{d.id}} · {{d.lib}} ({{d.loc}})"]}]}," "]}," "]}," ",{"t":"sc-if","a":[["value","{{naNoDup}}"],["hint-placeholder-val","{{true}}"]],"c":[" ",{"t":"div","a":[["style","font-size: 13px; color: #2e6b3f;"]],"c":["Aucun article similaire détecté."]}," "]}," "]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{tabAdj}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: grid; grid-template-columns: 1.35fr 1fr; gap: 20px; align-items: start;"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 26px; display: flex; flex-direction: column; gap: 18px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 700;"]],"c":["Ajustement à la marge"]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px; grid-column: span 2;"]],"c":[" ",{"t":"label","a":[["for","aj-art"],["style","font-size: 13px; font-weight: 500;"]],"c":["Article"]}," ",{"t":"select","a":[["id","aj-art"],["value","{{adj.art}}"],["onChange","{{onAdjArt}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; background: #ffffff;"]],"c":[" ",{"t":"sc-for","a":[["list","{{allArtOptions}}"],["as","o"],["hint-placeholder-count","6"]],"c":[{"t":"option","a":[["value","{{o.id}}"]],"c":["{{o.label}}"]}]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 8px;"]],"c":[" ",{"t":"span","a":[["style","font-size: 13px; font-weight: 500;"]],"c":["Sens"]}," ",{"t":"div","a":[["style","display: flex; gap: 8px;"]],"c":[" ",{"t":"sc-for","a":[["list","{{adjSens}}"],["as","o"],["hint-placeholder-count","2"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{o.pick}}"],["style","flex-grow: 1; min-height: 44px; border-radius: 8px; font-size: 13px; font-weight: 600; {{o.style}}"]],"c":["{{o.label}}"]}," "]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","aj-qty"],["style","font-size: 13px; font-weight: 500;"]],"c":["Quantité"]}," ",{"t":"input","a":[["id","aj-qty"],["type","number"],["min","1"],["value","{{adj.qty}}"],["onChange","{{onAdjQty}}"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","aj-motif"],["style","font-size: 13px; font-weight: 500;"]],"c":["Motif"]}," ",{"t":"select","a":[["id","aj-motif"],["value","{{adj.motif}}"],["onChange","{{onAdjMotif}}"],["style","min-height: 44px; padding: 0 10px; border: 1px solid #b9c3cd; border-radius: 8px; background: #ffffff;"]],"c":[" ",{"t":"sc-for","a":[["list","{{motifs}}"],["as","o"],["hint-placeholder-count","6"]],"c":[{"t":"option","a":[["value","{{o}}"]],"c":["{{o}}"]}]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 6px;"]],"c":[" ",{"t":"label","a":[["for","aj-com"],["style","font-size: 13px; font-weight: 500;"]],"c":["{{adjComLabel}}"]}," ",{"t":"input","a":[["id","aj-com"],["type","text"],["value","{{adj.comment}}"],["onChange","{{onAdjCom}}"],["placeholder","Précisez les circonstances"],["style","min-height: 44px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; box-sizing: border-box;"]],"c":[]}," "]}," "]}," ",{"t":"div","a":[["style","display: flex; align-items: center; gap: 12px;"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{applyAdj}}"],["disabled","{{cannotAdj}}"],["style","min-height: 46px; padding: 0 24px; border-radius: 8px; border: none; background: {{accent}}; color: #ffffff; font-size: 15px; font-weight: 600;"]],"c":["{{adjBtn}}"]}," ",{"t":"span","a":[["style","font-size: 13px; color: #4a5561;"]],"c":["{{adjHint}}"]}," "]}," "]}," ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 4px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 18px; font-weight: 700; margin-bottom: 8px;"]],"c":["Avant / après"]}," ",{"t":"sc-for","a":[["list","{{adjChecks}}"],["as","c"],["hint-placeholder-count","4"]],"c":[" ",{"t":"div","a":[["style","display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eef1f4; font-size: 14px;"]],"c":[" ",{"t":"span","a":[["style","color: #4a5561;"]],"c":["{{c.label}}"]},{"t":"span","a":[["style","font-weight: 600; text-align: right; {{c.style}}"]],"c":["{{c.value}}"]}," "]}," "]}," ",{"t":"div","a":[["style","font-size: 12px; color: #4a5561; margin-top: 8px;"]],"c":["Au-delà de 50 € ou pour un cadeau protocolaire, l'ajustement est soumis au chef de service avant d'être appliqué."]}," "]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{tabLog}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 8px 12px;"]],"c":[" ",{"t":"table","a":[],"c":[" ",{"t":"thead","a":[],"c":[{"t":"tr","a":[],"c":[{"t":"th","a":[],"c":["N°"]},{"t":"th","a":[],"c":["Date"]},{"t":"th","a":[],"c":["Type"]},{"t":"th","a":[],"c":["Article"]},{"t":"th","a":[],"c":["Quantité"]},{"t":"th","a":[],"c":["Détail"]},{"t":"th","a":[],"c":["Statut"]},{"t":"th","a":[],"c":["Décision"]}]}]}," ",{"t":"tbody","a":[],"c":[" ",{"t":"sc-for","a":[["list","{{mvtList}}"],["as","m"],["hint-placeholder-count","5"]],"c":[" ",{"t":"tr","a":[],"c":[{"t":"td","a":[["style","font-weight: 600;"]],"c":["{{m.id}}"]},{"t":"td","a":[],"c":["{{m.date}}"]},{"t":"td","a":[],"c":["{{m.type}}"]},{"t":"td","a":[],"c":["{{m.artLabel}}"]}," ",{"t":"td","a":[["style","font-weight: 600; {{m.qtyStyle}}"]],"c":["{{m.qtyFr}}"]},{"t":"td","a":[],"c":["{{m.detail}}"]}," ",{"t":"td","a":[],"c":[{"t":"span","a":[["style","padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; white-space: nowrap; {{m.badge}}"]],"c":["{{m.statut}}"]}]}," ",{"t":"td","a":[],"c":[{"t":"sc-if","a":[["value","{{m.pending}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; gap: 8px;"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{m.ok}}"],["style","min-height: 36px; padding: 0 12px; border-radius: 8px; border: none; background: #2e6b3f; color: #ffffff; font-size: 13px; font-weight: 600;"]],"c":["Valider"]}," ",{"t":"button","a":[["type","button"],["onClick","{{m.ko}}"],["style","min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #a32020; background: #ffffff; color: #a32020; font-size: 13px; font-weight: 600;"]],"c":["Rejeter"]}," "]}," "]}]}]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "," ",{"t":"sc-if","a":[["value","{{isDep}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 16px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; justify-content: space-between; align-items: center;"]],"c":[" ",{"t":"div","a":[["style","font-size: 14px; color: #4a5561;"]],"c":["Les cadeaux protocolaires restent au local central. Relance automatique après 30 jours sans déclaration."]}," ",{"t":"a","a":[["href","Referent.dc.html"],["style","min-height: 40px; padding: 0 16px; border-radius: 8px; background: {{accent}}; color: #ffffff; font-size: 13px; font-weight: 600; display: flex; align-items: center; text-decoration: none;"]],"c":["Voir l'écran mobile du référent"]}," "]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;"]],"c":[" ",{"t":"sc-for","a":[["list","{{depots}}"],["as","p"],["hint-placeholder-count","4"]],"c":[" ",{"t":"div","a":[["style","background: #ffffff; border: 1px solid #d5dbe1; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 12px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; justify-content: space-between; align-items: center; gap: 12px;"]],"c":[" ",{"t":"div","a":[["style","font-family: 'Source Serif 4', Georgia, serif; font-size: 18px; font-weight: 700;"]],"c":["{{p.dir}}"]}," ",{"t":"span","a":[["style","padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; {{p.badge}}"]],"c":["{{p.etat}}"]}," "]}," ",{"t":"div","a":[["style","display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; font-size: 13px;"]],"c":[" ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 2px;"]],"c":[{"t":"span","a":[["style","color: #4a5561;"]],"c":["Référent"]},{"t":"span","a":[["style","font-weight: 600;"]],"c":["{{p.ref}}"]}]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 2px;"]],"c":[{"t":"span","a":[["style","color: #4a5561;"]],"c":["Articles · valeur"]},{"t":"span","a":[["style","font-weight: 600;"]],"c":["{{p.nb}} · {{p.valFr}}"]}]}," ",{"t":"div","a":[["style","display: flex; flex-direction: column; gap: 2px;"]],"c":[{"t":"span","a":[["style","color: #4a5561;"]],"c":["Dernière déclaration"]},{"t":"span","a":[["style","font-weight: 600;"]],"c":["il y a {{p.jours}} j"]}]}," "]}," ",{"t":"sc-if","a":[["value","{{p.canRelance}}"],["hint-placeholder-val","{{false}}"]],"c":[" ",{"t":"button","a":[["type","button"],["onClick","{{p.relance}}"],["style","align-self: flex-start; min-height: 40px; padding: 0 16px; border-radius: 8px; border: none; background: #c2561c; color: #ffffff; font-size: 13px; font-weight: 600;"]],"c":["Relancer le référent (Outlook + Teams)"]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "]}," "], {"accent":"#1f5f8b","seuilAuto":150});
+</script>
+</body>
+</html>
