@@ -54,6 +54,8 @@ définir `DATABASE_URL`.
 
 ## Étape 3 — Variables d'environnement
 
+Valeurs prêtes à saisir, recette et production, et commande de saisie groupée : [`VARIABLES-SCALINGO.md`](VARIABLES-SCALINGO.md).
+
 **Tableau de bord** : application → *Environment*. Variables à créer :
 
 | Variable | Valeur | Obligatoire |
