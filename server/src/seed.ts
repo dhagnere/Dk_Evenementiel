@@ -4,6 +4,7 @@ import path from 'node:path';
 import { appliquerMigrations, clauseSet, executer, insererUn, pool, requeteUne, transaction } from './db.js';
 import { parseEventsCsv, parseUsersCsv } from './lib/csv.js';
 import { genererHash, genererSel } from './lib/password.js';
+import { directionParNom, ecrireDroits } from './lib/comptes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
@@ -62,26 +63,32 @@ async function seedUsers(): Promise<void> {
 
   for (const row of rows) {
     const existant = await requeteUne<{ _id: string }>('SELECT id FROM utilisateurs WHERE email = $1', [row.email]);
+    const directionId = await directionParNom(row.direction);
+    let id: string;
     if (existant) {
-      const champs: Record<string, unknown> = { nom: row.nom, role: row.role, statut: row.statut };
+      id = existant._id;
+      const champs: Record<string, unknown> = { nom: row.nom, superAdmin: row.superAdmin, directionId, statut: row.statut };
       if (row.motDePasseInitial) Object.assign(champs, await genererHash(row.motDePasseInitial));
       const { texte, params } = clauseSet('utilisateurs', champs, 2);
-      await executer(`UPDATE utilisateurs SET ${texte} WHERE id = $1`, [existant._id, ...params]);
+      await executer(`UPDATE utilisateurs SET ${texte} WHERE id = $1`, [id, ...params]);
       updated++;
     } else {
       const motDePasse = row.motDePasseInitial || genererSel().slice(0, 12);
       const { hash, sel } = await genererHash(motDePasse);
-      await insererUn('utilisateurs', {
+      const compte = await insererUn<{ _id: string }>('utilisateurs', {
         nom: row.nom,
         email: row.email,
-        role: row.role,
+        superAdmin: row.superAdmin,
+        directionId,
         statut: row.motDePasseInitial ? row.statut : 'Mot de passe à définir',
         hash,
         sel,
       });
+      id = compte._id;
       if (!row.motDePasseInitial) motsDePasseGeneres.push({ email: row.email, motDePasse });
       created++;
     }
+    await ecrireDroits(id, row.droits);
   }
 
   if (motsDePasseGeneres.length > 0) {

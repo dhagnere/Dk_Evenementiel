@@ -1,3 +1,3 @@
-nom,email,role,statut,motDePasseInitial,derniereConnexion
-Admin Exemple,admin@dunkerque.example,Administrateur,Actif,ChangezMoi123!,
-Consultant Exemple,consultant@dunkerque.example,Consultant,Actif,ChangezMoi123!,
+nom,email,superAdmin,direction,droits,statut,motDePasseInitial,derniereConnexion
+Admin Exemple,admin@dunkerque.example,Oui,,,Actif,ChangezMoi123!,
+Consultant Exemple,consultant@dunkerque.example,Non,Service Événementiel,calendrier:contribution,Actif,ChangezMoi123!,

@@ -7,6 +7,8 @@ import { genererHash, verifierMotDePasse } from '../lib/password.js';
 import { signSession, setSessionCookie, clearSessionCookie } from '../lib/session.js';
 import { requireAuth } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
+import { chargerProfil } from '../lib/comptes.js';
+import { MODULES } from '../lib/droits.js';
 
 export const authRouter = Router();
 
@@ -19,17 +21,17 @@ const limiteurConnexion = rateLimit({
   message: { ok: false, message: 'Trop de tentatives de connexion, réessayez dans quelques minutes' },
 });
 
-/** Existe-t-il déjà un administrateur actif ? (contrôle affiché à l'écran de connexion) */
+/** Existe-t-il déjà un super-administrateur actif ? (contrôle affiché à l'écran de connexion) */
 authRouter.get('/existe-administrateur', async (_req, res) => {
   const [{ nombreComptes, existe }] = await requete<{ nombreComptes: number; existe: boolean }>(
     `SELECT count(*) AS nombre_comptes,
-            bool_or(role = 'Administrateur' AND statut = 'Actif') IS TRUE AS existe
+            bool_or(super_admin AND statut = 'Actif') IS TRUE AS existe
        FROM utilisateurs`
   );
   res.json({ existe, nombreComptes });
 });
 
-/** Initialise le tout premier compte administrateur. */
+/** Initialise le tout premier compte, super-administrateur. */
 authRouter.post('/initialiser-administrateur', async (req, res) => {
   const schema = z.object({
     nom: z.string().min(1),
@@ -42,7 +44,7 @@ authRouter.post('/initialiser-administrateur', async (req, res) => {
     return;
   }
 
-  const admin = await requeteUne("SELECT 1 FROM utilisateurs WHERE role = 'Administrateur' AND statut = 'Actif' LIMIT 1");
+  const admin = await requeteUne("SELECT 1 FROM utilisateurs WHERE super_admin AND statut = 'Actif' LIMIT 1");
   if (admin) {
     res.json({ ok: false, message: 'Un administrateur existe déjà' });
     return;
@@ -52,10 +54,10 @@ authRouter.post('/initialiser-administrateur', async (req, res) => {
   const email = parsed.data.email.toLowerCase();
   const { hash, sel } = await genererHash(motDePasse);
 
-  const compte = await insererUn<Utilisateur>('utilisateurs', { nom, email, role: 'Administrateur', statut: 'Actif', hash, sel });
-  console.log(`[auth] Administrateur initial créé : ${email}`);
-  await consigner({ userId: compte._id, nom: compte.nom, email: compte.email }, 'creation_compte', email, { role: 'Administrateur', initial: true });
-  res.json({ ok: true, message: 'Compte administrateur créé avec succès' });
+  const compte = await insererUn<Utilisateur>('utilisateurs', { nom, email, superAdmin: true, statut: 'Actif', hash, sel });
+  console.log(`[auth] Super-administrateur initial créé : ${email}`);
+  await consigner({ userId: compte._id, nom: compte.nom, email: compte.email }, 'creation_compte', email, { superAdmin: true, initial: true });
+  res.json({ ok: true, message: 'Compte super-administrateur créé avec succès' });
 });
 
 /** Authentifie un utilisateur et pose le cookie de session. */
@@ -91,13 +93,12 @@ authRouter.post('/connexion', limiteurConnexion, async (req, res) => {
 
   await requete('UPDATE utilisateurs SET derniere_connexion = now() WHERE id = $1', [compte._id]);
 
-  const role = compte.role;
-  const token = signSession({ userId: compte._id, email: compte.email, nom: compte.nom, role });
+  const token = signSession({ userId: compte._id });
   setSessionCookie(res, token);
 
-  console.log(`[auth] Connexion réussie : ${email} (${role})`);
+  console.log(`[auth] Connexion réussie : ${email}${compte.superAdmin ? ' (super-administrateur)' : ''}`);
   await consigner({ userId: compte._id, nom: compte.nom, email: compte.email }, 'connexion', email);
-  res.json({ ok: true, message: 'Connexion réussie', session: { email: compte.email, nom: compte.nom, role } });
+  res.json({ ok: true, message: 'Connexion réussie', session: await chargerProfil(compte._id), modules: MODULES });
 });
 
 authRouter.post('/deconnexion', async (req, res) => {
@@ -106,9 +107,9 @@ authRouter.post('/deconnexion', async (req, res) => {
   res.json({ ok: true });
 });
 
-/** Retourne la session courante (ou null si non connecté). */
+/** Retourne la session courante (ou null si non connecté) et la liste des modules de l'application. */
 authRouter.get('/moi', (req, res) => {
-  res.json({ session: req.session ?? null });
+  res.json({ session: req.session ?? null, modules: MODULES });
 });
 
 /** Change le mot de passe de l'utilisateur connecté. */

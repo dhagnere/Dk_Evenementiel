@@ -54,11 +54,11 @@ export async function envoyerEmail(options: EmailOptions): Promise<boolean> {
   }
 }
 
-/** Emails des administrateurs à notifier : adresse dédiée si configurée, sinon tous les admins actifs. */
+/** Emails à notifier : adresse dédiée si configurée, sinon tous les super-administrateurs actifs. */
 async function destinatairesAdministrateurs(): Promise<string[]> {
   if (config.adminNotificationEmail) return [config.adminNotificationEmail];
   const admins = await requete<{ email: string }>(
-    "SELECT email FROM utilisateurs WHERE role = 'Administrateur' AND statut = 'Actif'"
+    "SELECT email FROM utilisateurs WHERE super_admin AND statut = 'Actif'"
   );
   return admins.map((a) => a.email).filter((email) => !!email);
 }
@@ -67,7 +67,7 @@ function echapperHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/** Notifie les administrateurs qu'une nouvelle demande d'accès vient d'être déposée. */
+/** Notifie les super-administrateurs qu'une nouvelle demande d'accès vient d'être déposée. */
 export async function notifierNouvelleDemandeAcces(demande: {
   nom: string;
   email: string;
@@ -76,15 +76,15 @@ export async function notifierNouvelleDemandeAcces(demande: {
 }): Promise<void> {
   const destinataires = await destinatairesAdministrateurs();
   if (destinataires.length === 0) {
-    console.warn(`[email] Aucun administrateur actif à notifier pour la demande de ${demande.email}`);
+    console.warn(`[email] Aucun super-administrateur actif à notifier pour la demande de ${demande.email}`);
     return;
   }
 
-  const lienDemandes = `${config.appUrl.replace(/\/$/, '')}/demandes`;
+  const lienDemandes = `${config.appUrl.replace(/\/$/, '')}/admin/demandes`;
   const subject = `Nouvelle demande d'accès — ${demande.nom}`;
 
   const lignesTexte = [
-    "Une nouvelle demande d'accès a été déposée sur le Calendrier Événements Dunkerque.",
+    "Une nouvelle demande d'accès a été déposée sur DK Événementiel.",
     '',
     `Nom : ${demande.nom}`,
     `Email : ${demande.email}`,
@@ -95,7 +95,7 @@ export async function notifierNouvelleDemandeAcces(demande: {
   ].filter((ligne): ligne is string => ligne !== null);
 
   const html = `
-    <p>Une nouvelle demande d'accès a été déposée sur le <strong>Calendrier Événements Dunkerque</strong>.</p>
+    <p>Une nouvelle demande d'accès a été déposée sur <strong>DK Événementiel</strong>.</p>
     <ul>
       <li><strong>Nom</strong> : ${echapperHtml(demande.nom)}</li>
       <li><strong>Email</strong> : ${echapperHtml(demande.email)}</li>

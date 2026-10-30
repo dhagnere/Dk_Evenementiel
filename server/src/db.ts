@@ -85,7 +85,29 @@ const TABLES = {
     json: [],
   },
   utilisateurs: {
-    colonnes: ['_id', 'nom', 'email', 'role', 'statut', 'hash', 'sel', 'derniereConnexion', 'createdAt', 'updatedAt'],
+    colonnes: [
+      '_id', 'nom', 'email', 'superAdmin', 'directionId', 'statut', 'hash', 'sel', 'derniereConnexion', 'createdAt',
+      'updatedAt',
+    ],
+    json: [],
+  },
+  droits_modules: {
+    colonnes: ['utilisateurId', 'module', 'niveau', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  directions: {
+    colonnes: ['_id', 'nom', 'actif', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  parametres: {
+    colonnes: ['cle', 'valeur', 'createdAt', 'updatedAt'],
+    json: ['valeur'],
+  },
+  fichiers: {
+    colonnes: [
+      '_id', 'cleStockage', 'nomOrigine', 'typeMime', 'taille', 'module', 'rattachement', 'deposePar', 'createdAt',
+      'updatedAt',
+    ],
     json: [],
   },
   demandes_acces: {

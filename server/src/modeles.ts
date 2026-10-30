@@ -38,7 +38,8 @@ export interface Utilisateur {
   _id: string;
   nom: string;
   email: string;
-  role: 'Administrateur' | 'Consultant';
+  superAdmin: boolean;
+  directionId: string | null;
   statut: string; // Actif | Suspendu | Mot de passe à définir
   hash: string;
   sel: string;
@@ -78,6 +79,27 @@ export interface JournalAction {
   action: string;
   cible: string;
   details: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Direction {
+  _id: string;
+  nom: string;
+  actif: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Fichier {
+  _id: string;
+  cleStockage: string;
+  nomOrigine: string;
+  typeMime: string;
+  taille: number;
+  module: string;
+  rattachement: string;
+  deposePar: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

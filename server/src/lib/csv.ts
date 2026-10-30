@@ -1,5 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import { stringify } from 'csv-stringify/sync';
+import { droitsDepuisTexte, droitsEnTexte, profilDepuisRoleHerite, type Droits } from './droits.js';
 
 /** Colonnes du CSV des événements (correspondance directe avec le modèle Event). */
 export const EVENT_CSV_COLUMNS = [
@@ -25,8 +26,21 @@ export const EVENT_CSV_COLUMNS = [
   'statutDimport',
 ] as const;
 
-/** Colonnes du CSV des utilisateurs. motDePasseInitial n'est utilisé qu'à l'import (jamais réexporté). */
-export const USER_CSV_COLUMNS = ['nom', 'email', 'role', 'statut', 'motDePasseInitial', 'derniereConnexion'] as const;
+/**
+ * Colonnes du CSV des utilisateurs. motDePasseInitial n'est utilisé qu'à l'import (jamais réexporté).
+ * droits : « calendrier:lecture;stock:validation ». Un fichier de l'ancien Dk_Calendar, avec une
+ * colonne role (Administrateur / Consultant), reste accepté à l'import.
+ */
+export const USER_CSV_COLUMNS = [
+  'nom',
+  'email',
+  'superAdmin',
+  'direction',
+  'droits',
+  'statut',
+  'motDePasseInitial',
+  'derniereConnexion',
+] as const;
 
 /**
  * Parse une date au format JJ/MM/AAAA, avec une heure optionnelle (JJ/MM/AAAA HH:mm[:ss]) telle que
@@ -268,7 +282,9 @@ export function stringifyEventsCsv(
 export interface UserCsvRow {
   nom: string;
   email: string;
-  role: string;
+  superAdmin: boolean;
+  direction: string;
+  droits: Droits;
   statut: string;
   motDePasseInitial: string;
   derniereConnexion: Date | null;
@@ -291,10 +307,16 @@ export function parseUsersCsv(content: string): { rows: UserCsvRow[]; errors: st
       errors.push(`Ligne ${index + 2} ignorée : email manquant`);
       return;
     }
+    const profil =
+      record.superAdmin === undefined && record.droits === undefined
+        ? profilDepuisRoleHerite(record.role?.trim())
+        : { superAdmin: parseBoolFr(record.superAdmin), droits: droitsDepuisTexte(record.droits ?? '') };
     rows.push({
-      nom: record.nom?.trim() ?? email,
+      nom: record.nom?.trim() || email,
       email,
-      role: record.role?.trim() === 'Administrateur' ? 'Administrateur' : 'Consultant',
+      superAdmin: profil.superAdmin,
+      direction: record.direction?.trim() ?? '',
+      droits: profil.superAdmin ? {} : profil.droits,
       statut: record.statut?.trim() || 'Actif',
       motDePasseInitial: record.motDePasseInitial?.trim() ?? '',
       derniereConnexion: parseDateFr(record.derniereConnexion),
@@ -305,12 +327,22 @@ export function parseUsersCsv(content: string): { rows: UserCsvRow[]; errors: st
 }
 
 export function stringifyUsersCsv(
-  users: Array<{ nom: string; email: string; role: string; statut: string; derniereConnexion?: Date | string | null }>
+  users: Array<{
+    nom: string;
+    email: string;
+    superAdmin: boolean;
+    direction: string | null;
+    droits: Droits;
+    statut: string;
+    derniereConnexion?: Date | string | null;
+  }>
 ): string {
   const rows = users.map((u) => ({
     nom: u.nom,
     email: u.email,
-    role: u.role,
+    superAdmin: formatBoolFr(u.superAdmin),
+    direction: u.direction ?? '',
+    droits: u.superAdmin ? '' : droitsEnTexte(u.droits),
     statut: u.statut,
     motDePasseInitial: '',
     derniereConnexion: formatDateFr(u.derniereConnexion ?? null),

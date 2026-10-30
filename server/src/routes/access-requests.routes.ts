@@ -5,8 +5,10 @@ import { insererUn, requete, requeteUne, transaction } from '../db.js';
 import type { DemandeAcces } from '../modeles.js';
 import { genererHash } from '../lib/password.js';
 import { notifierNouvelleDemandeAcces } from '../lib/email.js';
-import { requireAdmin } from '../middleware/auth.js';
+import { requireSuperAdmin } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
+import { ecrireDroits } from '../lib/comptes.js';
+import { directionValide, schemaProfil } from './accounts.routes.js';
 
 export const accessRequestsRouter = Router();
 
@@ -67,8 +69,8 @@ accessRequestsRouter.post('/', limiteurDemandeAcces, async (req, res) => {
   res.json({ ok: true, message: 'Votre demande a été envoyée. Un administrateur vous contactera.' });
 });
 
-// Tout ce qui suit est réservé aux administrateurs.
-accessRequestsRouter.use(requireAdmin);
+// Tout ce qui suit est réservé aux super-administrateurs.
+accessRequestsRouter.use(requireSuperAdmin);
 
 /** Liste les demandes en attente. */
 accessRequestsRouter.get('/', async (_req, res) => {
@@ -76,14 +78,11 @@ accessRequestsRouter.get('/', async (_req, res) => {
   res.json({ demandes });
 });
 
-/** Approuve une demande : crée le compte utilisateur avec le rôle choisi par l'administrateur. */
+/** Approuve une demande : crée le compte avec le profil d'accès choisi par le super-administrateur. */
 accessRequestsRouter.post('/:id/approuver', async (req, res) => {
-  const schema = z.object({
-    role: z.enum(['Administrateur', 'Consultant']),
-    motDePasseTemporaire: z.string().min(10),
-  });
+  const schema = schemaProfil.extend({ motDePasseTemporaire: z.string().min(10) });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
+  if (!parsed.success || !(await directionValide(parsed.data.directionId))) {
     res.status(400).json({ ok: false, message: 'Données invalides' });
     return;
   }
@@ -105,18 +104,24 @@ accessRequestsRouter.post('/:id/approuver', async (req, res) => {
   }
 
   // Création du compte et clôture de la demande vont ensemble : jamais l'un sans l'autre.
+  const { superAdmin, directionId, droits } = parsed.data;
   const { hash, sel } = await genererHash(parsed.data.motDePasseTemporaire);
   await transaction(async (client) => {
-    await insererUn(
+    const compte = await insererUn<{ _id: string }>(
       'utilisateurs',
-      { nom: demande.nom, email: demande.email, role: parsed.data.role, statut: 'Mot de passe à définir', hash, sel },
+      { nom: demande.nom, email: demande.email, superAdmin, directionId, statut: 'Mot de passe à définir', hash, sel },
       client
     );
+    if (!superAdmin) await ecrireDroits(compte._id, droits, client);
     await marquerApprouvee(client);
   });
 
-  console.log(`[demandes-acces] Demande approuvée pour ${demande.email} (${parsed.data.role}) — mot de passe temporaire : ${parsed.data.motDePasseTemporaire}`);
-  await consigner(identiteDeRequete(req), 'approbation_demande_acces', demande.email, { role: parsed.data.role });
+  console.log(`[demandes-acces] Demande approuvée pour ${demande.email} — mot de passe temporaire : ${parsed.data.motDePasseTemporaire}`);
+  await consigner(identiteDeRequete(req), 'approbation_demande_acces', demande.email, {
+    superAdmin,
+    directionId,
+    droits: superAdmin ? {} : droits,
+  });
   res.json({ ok: true, message: 'Compte créé avec succès', email: demande.email });
 });
 

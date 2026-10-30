@@ -1,32 +1,43 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { insererUn, requete, requeteUne } from '../db.js';
+import { insererUn, requeteUne, transaction } from '../db.js';
 import type { Utilisateur } from '../modeles.js';
 import { genererHash } from '../lib/password.js';
-import { requireAdmin } from '../middleware/auth.js';
+import { requireSuperAdmin } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
+import { chargerCompte, compterSuperAdminsActifs, ecrireDroits, listerComptes } from '../lib/comptes.js';
+import { NIVEAUX, CODES_MODULES } from '../lib/droits.js';
 
 export const accountsRouter = Router();
 
-// Toutes les routes de gestion des comptes sont réservées aux administrateurs.
-accountsRouter.use(requireAdmin);
+// Toutes les routes de gestion des comptes sont réservées aux super-administrateurs.
+accountsRouter.use(requireSuperAdmin);
+
+/** Profil d'accès saisi à la création d'un compte, à l'approbation d'une demande ou dans l'écran des droits. */
+export const schemaProfil = z.object({
+  superAdmin: z.boolean(),
+  directionId: z.string().min(1).nullable(),
+  droits: z.record(z.enum(CODES_MODULES as [string, ...string[]]), z.enum(NIVEAUX)),
+});
+
+/** La direction choisie existe-t-elle ? (null = aucune direction, toujours accepté) */
+export async function directionValide(directionId: string | null): Promise<boolean> {
+  if (directionId === null) return true;
+  return (await requeteUne('SELECT 1 FROM directions WHERE id = $1', [directionId])) !== null;
+}
 
 accountsRouter.get('/', async (_req, res) => {
-  const comptes = await requete(
-    'SELECT id, nom, email, role, statut, derniere_connexion, created_at, updated_at FROM utilisateurs ORDER BY nom'
-  );
-  res.json({ comptes });
+  res.json({ comptes: await listerComptes() });
 });
 
 accountsRouter.post('/', async (req, res) => {
-  const schema = z.object({
+  const schema = schemaProfil.extend({
     nom: z.string().min(1),
     email: z.string().email(),
-    role: z.enum(['Administrateur', 'Consultant']),
     motDePasseTemporaire: z.string().min(10),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
+  if (!parsed.success || !(await directionValide(parsed.data.directionId))) {
     res.status(400).json({ ok: false, message: 'Données invalides' });
     return;
   }
@@ -38,19 +49,52 @@ accountsRouter.post('/', async (req, res) => {
     return;
   }
 
+  const { superAdmin, directionId, droits } = parsed.data;
   const { hash, sel } = await genererHash(parsed.data.motDePasseTemporaire);
-  await insererUn('utilisateurs', {
-    nom: parsed.data.nom,
-    email,
-    role: parsed.data.role,
-    statut: 'Mot de passe à définir',
-    hash,
-    sel,
+  await transaction(async (client) => {
+    const compte = await insererUn<Utilisateur>(
+      'utilisateurs',
+      { nom: parsed.data.nom, email, superAdmin, directionId, statut: 'Mot de passe à définir', hash, sel },
+      client
+    );
+    if (!superAdmin) await ecrireDroits(compte._id, droits, client);
   });
 
-  console.log(`[accounts] Compte créé pour ${email} (${parsed.data.role}) — mot de passe temporaire : ${parsed.data.motDePasseTemporaire}`);
-  await consigner(identiteDeRequete(req), 'creation_compte', email, { role: parsed.data.role });
+  console.log(`[accounts] Compte créé pour ${email} — mot de passe temporaire : ${parsed.data.motDePasseTemporaire}`);
+  await consigner(identiteDeRequete(req), 'creation_compte', email, { superAdmin, directionId, droits: superAdmin ? {} : droits });
   res.json({ ok: true, message: 'Compte créé avec succès', email });
+});
+
+/** Modifie le profil d'accès d'un compte : super-administrateur, direction et droits par module. */
+accountsRouter.put('/:id/droits', async (req, res) => {
+  const parsed = schemaProfil.safeParse(req.body);
+  if (!parsed.success || !(await directionValide(parsed.data.directionId))) {
+    res.status(400).json({ ok: false, message: 'Données invalides' });
+    return;
+  }
+
+  const avant = await chargerCompte(req.params.id);
+  if (!avant) {
+    res.status(404).json({ ok: false, message: 'Compte introuvable' });
+    return;
+  }
+
+  const { superAdmin, directionId, droits } = parsed.data;
+  if (avant.superAdmin && !superAdmin && (await compterSuperAdminsActifs(avant._id)) === 0) {
+    res.json({ ok: false, message: 'Impossible : ce compte est le dernier super-administrateur actif' });
+    return;
+  }
+
+  await transaction(async (client) => {
+    await requeteUne('UPDATE utilisateurs SET super_admin = $2, direction_id = $3 WHERE id = $1', [avant._id, superAdmin, directionId], client);
+    await ecrireDroits(avant._id, superAdmin ? {} : droits, client);
+  });
+
+  await consigner(identiteDeRequete(req), 'modification_droits', avant.email, {
+    avant: { superAdmin: avant.superAdmin, directionId: avant.directionId, droits: avant.droits },
+    apres: { superAdmin, directionId, droits: superAdmin ? {} : droits },
+  });
+  res.json({ ok: true, message: 'Droits mis à jour' });
 });
 
 accountsRouter.post('/:id/statut', async (req, res) => {
@@ -59,6 +103,17 @@ accountsRouter.post('/:id/statut', async (req, res) => {
   if (!parsed.success) {
     res.status(400).json({ ok: false, message: 'Données invalides' });
     return;
+  }
+  if (parsed.data.statut === 'Suspendu') {
+    if (req.session?.userId === req.params.id) {
+      res.status(400).json({ ok: false, message: 'Vous ne pouvez pas suspendre votre propre compte' });
+      return;
+    }
+    const cible = await chargerCompte(req.params.id);
+    if (cible?.superAdmin && (await compterSuperAdminsActifs(cible._id)) === 0) {
+      res.json({ ok: false, message: 'Impossible : ce compte est le dernier super-administrateur actif' });
+      return;
+    }
   }
   const updated = await requeteUne<Utilisateur>('UPDATE utilisateurs SET statut = $2 WHERE id = $1 RETURNING email', [
     req.params.id,
@@ -76,10 +131,15 @@ accountsRouter.post('/:id/statut', async (req, res) => {
   res.json({ ok: true, message: `Compte ${parsed.data.statut === 'Suspendu' ? 'suspendu' : 'activé'}` });
 });
 
-/** Supprime un compte. Un administrateur ne peut pas se supprimer lui-même. */
+/** Supprime un compte. On ne peut supprimer ni son propre compte ni le dernier super-administrateur. */
 accountsRouter.delete('/:id', async (req, res) => {
   if (req.session?.userId === req.params.id) {
     res.status(400).json({ ok: false, message: 'Vous ne pouvez pas supprimer votre propre compte' });
+    return;
+  }
+  const cible = await chargerCompte(req.params.id);
+  if (cible?.superAdmin && (await compterSuperAdminsActifs(cible._id)) === 0) {
+    res.json({ ok: false, message: 'Impossible : ce compte est le dernier super-administrateur actif' });
     return;
   }
   const supprime = await requeteUne<Utilisateur>('DELETE FROM utilisateurs WHERE id = $1 RETURNING email', [req.params.id]);

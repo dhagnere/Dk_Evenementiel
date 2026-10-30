@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { requete } from '../db.js';
-import { requireAdmin } from '../middleware/auth.js';
+import { requireSuperAdmin } from '../middleware/auth.js';
 import { queryString } from '../lib/queryString.js';
 
 export const journalRouter = Router();
 
-// Réservé aux administrateurs : le journal expose l'activité de tous les comptes.
-journalRouter.use(requireAdmin);
+// Réservé aux super-administrateurs : le journal expose l'activité de tous les comptes.
+journalRouter.use(requireSuperAdmin);
 
 /** Liste paginée du journal d'audit, filtrable par utilisateur et par type d'action. */
 journalRouter.get('/', async (req, res) => {

@@ -1,15 +1,15 @@
 import { Router } from 'express';
 import { executer, inserer, preparerLigne, requete, requeteUne, transaction } from '../db.js';
 import type { Sauvegarde } from '../modeles.js';
-import { requireAdmin } from '../middleware/auth.js';
-import { creerSauvegarde } from '../lib/backup.js';
+import { requireSuperAdmin } from '../middleware/auth.js';
+import { creerSauvegarde, restaurerUtilisateurs } from '../lib/backup.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
 
 export const backupsRouter = Router();
 
 // Les sauvegardes exposent l'intégralité des données (y compris les empreintes de mots de passe des
-// comptes) : réservé aux administrateurs.
-backupsRouter.use(requireAdmin);
+// comptes) : réservé aux super-administrateurs.
+backupsRouter.use(requireSuperAdmin);
 
 /** Liste les sauvegardes (métadonnées seulement, sans le contenu). */
 backupsRouter.get('/', async (_req, res) => {
@@ -58,7 +58,7 @@ backupsRouter.post('/:id/restaurer', async (req, res) => {
     await executer('DELETE FROM evenements', [], client);
     await inserer('evenements', sauvegarde.evenements.map((e) => preparerLigne('evenements', e)), client);
     await executer('DELETE FROM utilisateurs', [], client);
-    await inserer('utilisateurs', sauvegarde.utilisateurs.map((u) => preparerLigne('utilisateurs', u)), client);
+    await restaurerUtilisateurs(sauvegarde.utilisateurs, client);
   });
 
   console.log(

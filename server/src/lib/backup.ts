@@ -1,4 +1,6 @@
-import { insererUn, requete, requeteUne } from '../db.js';
+import { inserer, insererUn, preparerLigne, requete, requeteUne, type Executant } from '../db.js';
+import { directionParNom, ecrireDroits, listerComptes } from './comptes.js';
+import { nettoyerDroits, profilDepuisRoleHerite } from './droits.js';
 
 export type TypeSauvegarde =
   | 'quotidienne'
@@ -13,10 +15,15 @@ const RETENTION = 30;
 
 /** Capture l'état actuel des événements et utilisateurs dans une nouvelle sauvegarde. */
 export async function creerSauvegarde(type: TypeSauvegarde): Promise<void> {
-  const [evenements, utilisateurs] = await Promise.all([
+  // Chaque compte est sauvegardé avec le nom de sa direction et ses droits par module, pour pouvoir
+  // être restauré tel quel.
+  const [evenements, comptes, secrets] = await Promise.all([
     requete('SELECT * FROM evenements'),
-    requete('SELECT * FROM utilisateurs'),
+    listerComptes(),
+    requete<{ _id: string; hash: string; sel: string }>('SELECT id, hash, sel FROM utilisateurs'),
   ]);
+  const secretsParId = new Map(secrets.map((s) => [s._id, s]));
+  const utilisateurs = comptes.map((c) => ({ ...c, ...secretsParId.get(c._id) }));
 
   await insererUn('sauvegardes', {
     type,
@@ -59,4 +66,22 @@ export function demarrerSauvegardeQuotidienne(): void {
 
   verifier();
   setInterval(verifier, UNE_HEURE_MS);
+}
+
+/**
+ * Recrée des comptes à partir de leur forme sauvegardée (voir creerSauvegarde) : directions
+ * retrouvées ou recréées par leur nom, droits par module rétablis. Une sauvegarde de l'ancien
+ * Dk_Calendar, où chaque compte n'avait qu'un rôle, est convertie (voir profilDepuisRoleHerite).
+ */
+export async function restaurerUtilisateurs(utilisateurs: Record<string, unknown>[], executant: Executant): Promise<void> {
+  for (const u of utilisateurs) {
+    const profil =
+      'superAdmin' in u
+        ? { superAdmin: u.superAdmin === true, droits: nettoyerDroits(u.droits) }
+        : profilDepuisRoleHerite(u.role);
+    const directionId = typeof u.direction === 'string' ? await directionParNom(u.direction, executant) : null;
+    const ligne = preparerLigne('utilisateurs', { ...u, superAdmin: profil.superAdmin, directionId });
+    const [compte] = await inserer<{ _id: string }>('utilisateurs', [ligne], executant);
+    if (!profil.superAdmin) await ecrireDroits(compte._id, profil.droits, executant);
+  }
 }

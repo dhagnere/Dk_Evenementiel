@@ -15,7 +15,11 @@ import { importRouter } from './routes/import.routes.js';
 import { accessRequestsRouter } from './routes/access-requests.routes.js';
 import { backupsRouter } from './routes/backups.routes.js';
 import { journalRouter } from './routes/journal.routes.js';
+import { directionsRouter } from './routes/directions.routes.js';
+import { rgpdRouter } from './routes/rgpd.routes.js';
+import { systemeRouter } from './routes/systeme.routes.js';
 import { demarrerSauvegardeQuotidienne } from './lib/backup.js';
+import { demarrerPurgeQuotidienne } from './lib/rgpd.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,6 +27,7 @@ async function main() {
   await connectDb();
 
   const app = express();
+  if (config.trustProxy > 0) app.set('trust proxy', config.trustProxy);
   // La politique de sécurité de contenu (CSP) n'est pas activée ici : la mettre en place correctement
   // pour une appli servie en statique (scripts/styles Vite avec hash) demande un réglage dédié, hors
   // périmètre de ce durcissement. Les autres en-têtes de helmet (X-Content-Type-Options,
@@ -41,8 +46,12 @@ async function main() {
   app.use('/api/demandes-acces', accessRequestsRouter);
   app.use('/api/sauvegardes', backupsRouter);
   app.use('/api/journal', journalRouter);
+  app.use('/api/directions', directionsRouter);
+  app.use('/api/rgpd', rgpdRouter);
+  app.use('/api/systeme', systemeRouter);
 
   demarrerSauvegardeQuotidienne();
+  demarrerPurgeQuotidienne();
 
   // En production, le build du client (client/dist) est servi directement par ce serveur.
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');

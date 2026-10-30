@@ -2,24 +2,26 @@ import jwt from 'jsonwebtoken';
 import type { Response } from 'express';
 import { config } from '../config.js';
 
-export interface SessionPayload {
+/**
+ * Contenu du jeton de session : l'identifiant suffit. Les droits sont relus en base à chaque requête
+ * (voir middleware/auth.ts), pour qu'un changement de droits ou une suspension s'applique aussitôt.
+ */
+export interface JetonSession {
   userId: string;
-  email: string;
-  nom: string;
-  role: 'Administrateur' | 'Consultant';
 }
 
 const EXPIRES_IN_SECONDS = 8 * 60 * 60; // 8h, comme l'application d'origine
 
-export function signSession(payload: SessionPayload): string {
-  return jwt.sign(payload, config.jwtSecret, { expiresIn: EXPIRES_IN_SECONDS, algorithm: 'HS256' });
+export function signSession(payload: JetonSession): string {
+  return jwt.sign({ userId: payload.userId }, config.jwtSecret, { expiresIn: EXPIRES_IN_SECONDS, algorithm: 'HS256' });
 }
 
-export function verifySession(token: string): SessionPayload | null {
+export function verifySession(token: string): JetonSession | null {
   try {
     // Restreint explicitement l'algorithme accepté : sans cela, jwt.verify accepterait tout
     // algorithme déclaré dans l'en-tête du jeton fourni par le client.
-    return jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] }) as SessionPayload;
+    const payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] });
+    return typeof payload === 'object' && typeof payload.userId === 'string' ? { userId: payload.userId } : null;
   } catch {
     return null;
   }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { executer, inserer, requete, requeteUne, transaction, type Executant } from '../db.js';
 import type { Evenement } from '../modeles.js';
-import { requireAdmin, requireAuth } from '../middleware/auth.js';
+import { requireModule } from '../middleware/auth.js';
 import { LIMITES_CUD, geocoderPlusieursAdresses } from '../lib/geocodage.js';
 import { motifRechercheInsensibleAccents } from '../lib/rechercheAccents.js';
 import { cleIdentite } from '../lib/identiteEvenement.js';
@@ -38,7 +38,7 @@ const DATE_REFERENCE = 'COALESCE(date_de_debut, date_clef)';
  * « archivé » : plus besoin de déclencher cela manuellement. Par défaut ces événements archivés sont
  * masqués ; passer `avecEvenementsArchives=true` les inclut à nouveau (déclencheur côté client).
  */
-eventsRouter.get('/', async (req, res) => {
+eventsRouter.get('/', requireModule('calendrier', 'lecture'), async (req, res) => {
   // Chaque valeur passe par queryString() : le parseur de requête d'Express transforme
   // ?quartier[x]= ou ?quartier=a&quartier=b en objet ou en tableau, alors qu'on attend un texte
   // simple — cette route est publique, sans authentification. Les valeurs ne sont ensuite jamais
@@ -119,7 +119,7 @@ function compterPar(colonne: 'quartier' | 'nature' | 'statut' | 'type'): Promise
 }
 
 /** Options disponibles pour les filtres (quartiers/natures/statuts/types avec comptage). */
-eventsRouter.get('/options-filtres', async (_req, res) => {
+eventsRouter.get('/options-filtres', requireModule('calendrier', 'lecture'), async (_req, res) => {
   const [quartiers, natures, statuts, types] = await Promise.all([
     compterPar('quartier'),
     compterPar('nature'),
@@ -130,7 +130,7 @@ eventsRouter.get('/options-filtres', async (_req, res) => {
 });
 
 /** Valeurs de référence (listes fermées) pour les champs à choix de la Fiche de renseignement. */
-eventsRouter.get('/valeurs-reference', requireAuth, (_req, res) => {
+eventsRouter.get('/valeurs-reference', requireModule('calendrier', 'lecture'), (_req, res) => {
   res.json({ quartiers: VALID_QUARTIERS, natures: VALID_NATURES, niveaux: VALID_NIVEAUX, types: VALID_TYPES });
 });
 
@@ -157,7 +157,7 @@ const schemaFicheRenseignement = z.object({
  * date, voir POST /:id/dates plus bas). L'événement créé entre dans le circuit d'arbitrage habituel
  * (statut « À valider », non validé) : rien ne le distingue ensuite d'un événement importé par CSV.
  */
-eventsRouter.post('/', requireAuth, async (req, res) => {
+eventsRouter.post('/', requireModule('calendrier', 'contribution'), async (req, res) => {
   const parsed = schemaFicheRenseignement.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ ok: false, message: 'Données invalides' });
@@ -227,7 +227,7 @@ eventsRouter.post('/', requireAuth, async (req, res) => {
  * que l'import (eventId, sinon nom normalisé + jour), et ne renvoie que les groupes de 2 lignes ou
  * plus. Réservé aux administrateurs, qui décident lesquelles conserver.
  */
-eventsRouter.get('/doublons', requireAdmin, async (_req, res) => {
+eventsRouter.get('/doublons', requireModule('calendrier', 'administration'), async (_req, res) => {
   const evenements = await requete<Evenement>('SELECT * FROM evenements ORDER BY nom');
   const groupes = new Map<string, Evenement[]>();
   for (const e of evenements) {
@@ -245,7 +245,7 @@ eventsRouter.get('/doublons', requireAdmin, async (_req, res) => {
  * conservés tels quels). Une sauvegarde de sécurité de l'état actuel est créée juste avant, pour
  * pouvoir annuler la fusion si le mauvais exemplaire a été supprimé par erreur.
  */
-eventsRouter.post('/doublons/fusionner', requireAdmin, async (req, res) => {
+eventsRouter.post('/doublons/fusionner', requireModule('calendrier', 'administration'), async (req, res) => {
   const schema = z.object({ idsASupprimer: z.array(z.string()).min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -265,7 +265,7 @@ eventsRouter.post('/doublons/fusionner', requireAdmin, async (req, res) => {
 const ANNEE_PLANCHER_TOTAL_KPI = 2015;
 
 /** Statistiques KPI (total depuis 2015, validés, en attente, année en cours). */
-eventsRouter.get('/stats', async (_req, res) => {
+eventsRouter.get('/stats', requireModule('calendrier', 'lecture'), async (_req, res) => {
   const anneeActuelle = new Date().getFullYear();
   const debutAnneeActuelle = new Date(anneeActuelle, 0, 1);
   const debutAnneeSuivante = new Date(anneeActuelle + 1, 0, 1);
@@ -309,7 +309,7 @@ const NON_GEOCODE = "statut_geocodage NOT IN ('ok', 'echec')";
  * d'une requête HTTP. Le client rappelle cette route en boucle jusqu'à ce que `restants` soit à 0.
  * Les adresses partagées par plusieurs événements (un même lieu) ne sont géocodées qu'une fois.
  */
-eventsRouter.post('/geocoder', requireAdmin, async (_req, res) => {
+eventsRouter.post('/geocoder', requireModule('calendrier', 'administration'), async (_req, res) => {
   try {
     // Événements déjà géocodés lors d'exécutions précédentes (avant la contrainte géographique
     // ci-dessus) dont les coordonnées tombent hors de la CUD : à reprendre avec la recherche bornée.
@@ -372,7 +372,7 @@ eventsRouter.post('/geocoder', requireAdmin, async (_req, res) => {
  * par un import répété) n'est en revanche jamais supprimé automatiquement : seul le document ciblé
  * l'est, l'autre reste en base — il doit toujours en rester un.
  */
-eventsRouter.delete('/:id', requireAdmin, async (req, res) => {
+eventsRouter.delete('/:id', requireModule('calendrier', 'administration'), async (req, res) => {
   const cible = await lireEvenement(req.params.id);
   if (!cible) {
     res.status(404).json({ ok: false, message: 'Événement introuvable' });
@@ -387,7 +387,7 @@ eventsRouter.delete('/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-eventsRouter.get('/:id', async (req, res) => {
+eventsRouter.get('/:id', requireModule('calendrier', 'lecture'), async (req, res) => {
   const item = await lireEvenement(req.params.id);
   if (!item) {
     res.status(404).json({ ok: false, message: 'Événement introuvable' });
@@ -397,7 +397,7 @@ eventsRouter.get('/:id', async (req, res) => {
 });
 
 /** Met à jour le statut d'un événement. */
-eventsRouter.post('/:id/statut', requireAdmin, async (req, res) => {
+eventsRouter.post('/:id/statut', requireModule('calendrier', 'validation'), async (req, res) => {
   const schema = z.object({ statut: z.enum(['Validée', 'Annulée', 'À valider', 'Brouillon']) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -437,7 +437,7 @@ function lireEvenement(id: string, executant?: Executant): Promise<Evenement | n
  * ligne par jour (dateClef), la validation d'un seul jour est répercutée sur toute la série pour que
  * tous les jours affichent le même état.
  */
-eventsRouter.post('/:id/validations', requireAdmin, async (req, res) => {
+eventsRouter.post('/:id/validations', requireModule('calendrier', 'validation'), async (req, res) => {
   const schema = z.object({ validationTechnique: z.boolean().optional(), validationPolitique: z.boolean().optional() });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -490,7 +490,7 @@ function parseJourCivil(value: string): Date | null {
  * etc.) tels qu'ils étaient. Les identifiants des nouvelles lignes sont donc différents de ceux de
  * l'ancienne série.
  */
-eventsRouter.post('/:id/dates', requireAdmin, async (req, res) => {
+eventsRouter.post('/:id/dates', requireModule('calendrier', 'validation'), async (req, res) => {
   const schema = z.object({ dateDeDebut: z.string().min(1), dateDeFin: z.string().nullable() });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -549,7 +549,7 @@ eventsRouter.post('/:id/dates', requireAdmin, async (req, res) => {
  * Valide un événement en un clic : statut "Validée" + les deux validations cochées. Répercuté sur
  * toute la série (voir filtreSerie) pour qu'un événement sur plusieurs jours soit validé d'un bloc.
  */
-eventsRouter.post('/:id/valider', requireAdmin, async (req, res) => {
+eventsRouter.post('/:id/valider', requireModule('calendrier', 'validation'), async (req, res) => {
   const viaPastilleDateClef = z.boolean().optional().parse(req.body?.viaPastilleDateClef);
   const cible = await lireEvenement(req.params.id);
   if (!cible) {

@@ -13,6 +13,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { appliquerMigrations, executer, inserer, pool, preparerLigne, requete, transaction } from './db.js';
+import { restaurerUtilisateurs } from './lib/backup.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -27,7 +28,7 @@ async function main() {
     utilisateurs?: Record<string, unknown>[];
   };
   if (!Array.isArray(contenu.evenements) || !Array.isArray(contenu.utilisateurs)) {
-    throw new Error("Ce fichier n'est pas une sauvegarde DK_Calendar (champs evenements et utilisateurs attendus)");
+    throw new Error("Ce fichier n'est pas une sauvegarde DK_Calendar ou DK Événementiel (champs evenements et utilisateurs attendus)");
   }
 
   await appliquerMigrations();
@@ -48,7 +49,7 @@ async function main() {
       await executer('DELETE FROM utilisateurs', [], client);
     }
     await inserer('evenements', contenu.evenements!.map((e) => preparerLigne('evenements', e)), client);
-    await inserer('utilisateurs', contenu.utilisateurs!.map((u) => preparerLigne('utilisateurs', u)), client);
+    await restaurerUtilisateurs(contenu.utilisateurs!, client);
   });
 
   console.log(

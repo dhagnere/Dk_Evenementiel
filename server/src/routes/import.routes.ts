@@ -3,7 +3,7 @@ import multer from 'multer';
 import { inserer, insererUn, requete, requeteUne, transaction } from '../db.js';
 import type { Evenement, Utilisateur } from '../modeles.js';
 import { genererHash, genererSel } from '../lib/password.js';
-import { requireAdmin, requireAuth } from '../middleware/auth.js';
+import { requireModule, requireSuperAdmin } from '../middleware/auth.js';
 import {
   parseEventsCsv,
   stringifyEventsCsv,
@@ -13,6 +13,7 @@ import {
 import { creerSauvegarde } from '../lib/backup.js';
 import { cleIdentite } from '../lib/identiteEvenement.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
+import { compterSuperAdminsActifs, directionParNom, ecrireDroits, listerComptes } from '../lib/comptes.js';
 import { synchroniserEvenementsVersGithub } from '../lib/github.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -36,7 +37,7 @@ export const importRouter = Router();
  * en un seul lot (au lieu de deux allers-retours base par ligne) : avec un gros fichier, la version
  * ligne par ligne pouvait dépasser le délai d'attente du serveur (erreur 502).
  */
-importRouter.post('/evenements', requireAdmin, upload.single('fichier'), async (req, res) => {
+importRouter.post('/evenements', requireModule('calendrier', 'administration'), upload.single('fichier'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ ok: false, message: 'Aucun fichier reçu' });
     return;
@@ -97,7 +98,7 @@ importRouter.post('/evenements', requireAdmin, upload.single('fichier'), async (
 });
 
 /** Exporte tous les événements au format CSV. */
-importRouter.get('/evenements/export', requireAuth, async (_req, res) => {
+importRouter.get('/evenements/export', requireModule('calendrier', 'lecture'), async (_req, res) => {
   const events = await requete<Evenement>('SELECT * FROM evenements ORDER BY nom');
   const csv = stringifyEventsCsv(events);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -106,7 +107,7 @@ importRouter.get('/evenements/export', requireAuth, async (_req, res) => {
 });
 
 /** Importe (upsert) des utilisateurs depuis un fichier CSV. */
-importRouter.post('/utilisateurs', requireAdmin, upload.single('fichier'), async (req, res) => {
+importRouter.post('/utilisateurs', requireSuperAdmin, upload.single('fichier'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ ok: false, message: 'Aucun fichier reçu' });
     return;
@@ -125,19 +126,22 @@ importRouter.post('/utilisateurs', requireAdmin, upload.single('fichier'), async
     await transaction(async (client) => {
       for (const row of rows) {
         const existant = await requeteUne<Utilisateur>('SELECT id FROM utilisateurs WHERE email = $1', [row.email], client);
+        const directionId = await directionParNom(row.direction, client);
+        let id: string;
 
         if (existant) {
+          id = existant._id;
           if (row.motDePasseInitial) {
             const { hash, sel } = await genererHash(row.motDePasseInitial);
             await requete(
-              "UPDATE utilisateurs SET nom = $2, role = $3, statut = 'Mot de passe à définir', hash = $4, sel = $5 WHERE id = $1",
-              [existant._id, row.nom, row.role, hash, sel],
+              "UPDATE utilisateurs SET nom = $2, super_admin = $3, direction_id = $4, statut = 'Mot de passe à définir', hash = $5, sel = $6 WHERE id = $1",
+              [id, row.nom, row.superAdmin, directionId, hash, sel],
               client
             );
           } else {
             await requete(
-              'UPDATE utilisateurs SET nom = $2, role = $3, statut = $4 WHERE id = $1',
-              [existant._id, row.nom, row.role, row.statut],
+              'UPDATE utilisateurs SET nom = $2, super_admin = $3, direction_id = $4, statut = $5 WHERE id = $1',
+              [id, row.nom, row.superAdmin, directionId, row.statut],
               client
             );
           }
@@ -145,14 +149,19 @@ importRouter.post('/utilisateurs', requireAdmin, upload.single('fichier'), async
         } else {
           const motDePasse = row.motDePasseInitial || genererSel().slice(0, 12);
           const { hash, sel } = await genererHash(motDePasse);
-          await insererUn(
+          const compte = await insererUn<Utilisateur>(
             'utilisateurs',
-            { nom: row.nom, email: row.email, role: row.role, statut: 'Mot de passe à définir', hash, sel },
+            { nom: row.nom, email: row.email, superAdmin: row.superAdmin, directionId, statut: 'Mot de passe à définir', hash, sel },
             client
           );
+          id = compte._id;
           motsDePasseGeneres.push({ email: row.email, motDePasse });
           created++;
         }
+        await ecrireDroits(id, row.droits, client);
+      }
+      if ((await compterSuperAdminsActifs(undefined, client)) === 0) {
+        throw new Error('le fichier retirerait le dernier super-administrateur actif');
       }
     });
 
@@ -175,9 +184,8 @@ importRouter.post('/utilisateurs', requireAdmin, upload.single('fichier'), async
 });
 
 /** Exporte tous les utilisateurs (sans mot de passe) au format CSV. */
-importRouter.get('/utilisateurs/export', requireAdmin, async (_req, res) => {
-  const users = await requete<Utilisateur>('SELECT * FROM utilisateurs ORDER BY nom');
-  const csv = stringifyUsersCsv(users);
+importRouter.get('/utilisateurs/export', requireSuperAdmin, async (_req, res) => {
+  const csv = stringifyUsersCsv(await listerComptes());
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="utilisateurs.csv"');
   res.send(csv);
