@@ -18,7 +18,27 @@ pg.types.setTypeParser(pg.types.builtins.NUMERIC, (valeur) => parseFloat(valeur)
 // la décalerait selon le fuseau du serveur.
 pg.types.setTypeParser(pg.types.builtins.DATE, (valeur) => valeur);
 
-export const pool = new pg.Pool({ connectionString: config.databaseUrl });
+/**
+ * Paramètres de connexion. Chiffrement :
+ * - DATABASE_CA_CERT (contenu PEM du certificat de l'autorité de l'hébergeur) : connexion chiffrée et
+ *   certificat vérifié avec cette autorité, la configuration recommandée en production ;
+ * - DATABASE_SSL=no-verify : chiffrée sans vérification du certificat, en dépannage seulement ;
+ * - sinon, ce que dit l'URL (sslmode). Avec la bibliothèque pg, sslmode=require ou prefer vérifie
+ *   le certificat avec les autorités publiques.
+ * Quand l'un des deux réglages est présent, il remplace le sslmode de l'URL (qui sinon l'emporterait).
+ */
+function parametresConnexion(): pg.PoolConfig {
+  const { databaseCaCert, databaseSsl } = config;
+  if (!databaseCaCert && databaseSsl !== 'no-verify') return { connectionString: config.databaseUrl };
+  const url = new URL(config.databaseUrl);
+  for (const cle of ['sslmode', 'sslrootcert', 'uselibpqcompat']) url.searchParams.delete(cle);
+  return {
+    connectionString: url.toString(),
+    ssl: databaseCaCert ? { ca: databaseCaCert.replace(/\\n/g, '\n'), rejectUnauthorized: true } : { rejectUnauthorized: false },
+  };
+}
+
+export const pool = new pg.Pool(parametresConnexion());
 
 /** Le pool, ou un client déjà engagé dans une transaction : les deux exposent `query`. */
 export type Executant = pg.Pool | pg.PoolClient;

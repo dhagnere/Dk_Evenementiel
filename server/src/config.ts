@@ -28,6 +28,10 @@ export const config = {
     process.env.SCALINGO_POSTGRESQL_URL ?? (isProduction ? undefined : 'postgres://dk_calendar:dk_calendar@127.0.0.1:5432/dk_calendar')
   ),
   jwtSecret,
+  // Chiffrement de la connexion à PostgreSQL (voir db.ts) : certificat de l'autorité de l'hébergeur,
+  // ou « no-verify » en dépannage.
+  databaseCaCert: process.env.DATABASE_CA_CERT,
+  databaseSsl: process.env.DATABASE_SSL,
   cookieName: 'dk_session',
   isProduction,
   // Nombre de proxys de confiance devant l'application (le routeur Scalingo en production) : sans
