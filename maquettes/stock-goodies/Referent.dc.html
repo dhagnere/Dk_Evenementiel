@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=Source+Serif+4:opsz,wght@8..60,700&amp;display=swap">
+  <style>
+    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; background: #eef1f4; color: #17212b; }
+    a { color: #1f5f8b; } a:hover { color: #123d5c; }
+    button, input { font-family: inherit; }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+  </style>
+</helmet>
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: #eef1f4; overflow: hidden;">
+  <div style="background: #14263d; color: #ffffff; padding: 22px 20px 18px; display: flex; flex-direction: column; gap: 4px;">
+    <a href="Main.dc.html" style="color: #b9c6d3; font-size: 13px; text-decoration: none; min-height: 28px; display: flex; align-items: center;">Retour à l'application</a>
+    <div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 22px; font-weight: 700;">Stock déporté</div>
+    <div style="font-size: 13px; color: #b9c6d3;">Direction des Sports · [Référent Sports]</div>
+  </div>
+
+  <div style="display: flex; gap: 8px; padding: 14px 20px 0;">
+    <sc-for list="{{modes}}" as="m" hint-placeholder-count="2">
+      <button type="button" onClick="{{m.pick}}" style="flex-grow: 1; min-height: 44px; border-radius: 22px; font-size: 14px; font-weight: 600; {{m.style}}">{{m.label}}</button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{done}}" hint-placeholder-val="{{false}}">
+    <div style="flex-grow: 1; padding: 28px 20px; display: flex; flex-direction: column; gap: 16px;">
+      <div style="background: #ffffff; border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 22px; font-weight: 700; color: #1e4d2b;">Déclaration enregistrée</div>
+        <div style="font-size: 14px; line-height: 1.5;">{{summary}}</div>
+        <div style="font-size: 13px; color: #4a5561;">Le stock déporté est à jour et le service événementiel est informé.</div>
+      </div>
+      <button type="button" onClick="{{reset}}" style="min-height: 50px; border-radius: 10px; border: none; background: #1f5f8b; color: #ffffff; font-size: 15px; font-weight: 600;">Nouvelle déclaration</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{editing}}" hint-placeholder-val="{{true}}">
+    <div style="flex-grow: 1; overflow: auto; padding: 14px 20px 20px; display: flex; flex-direction: column; gap: 14px;">
+      <button type="button" onClick="{{scan}}" style="min-height: 56px; border-radius: 12px; border: 2px dashed #1f5f8b; background: #ffffff; color: #1f5f8b; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V3h4M17 3h4v4M21 17v4h-4M7 21H3v-4M7 12h10"></path></svg>
+        <span>{{scanLabel}}</span>
+      </button>
+
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label for="r-evt" style="font-size: 13px; font-weight: 500;">Événement</label>
+        <input id="r-evt" type="text" value="{{evt}}" onChange="{{onEvt}}" placeholder="Nom de la manifestation" style="min-height: 46px; padding: 0 12px; border: 1px solid #b9c3cd; border-radius: 8px; font-size: 15px; box-sizing: border-box;">
+      </div>
+
+      <div style="font-size: 13px; font-weight: 600; color: #4a5561;">{{listTitle}}</div>
+      <sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+        <div style="background: #ffffff; border-radius: 12px; padding: 14px; display: flex; align-items: center; gap: 12px; {{it.ring}}">
+          <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 15px; font-weight: 600;">{{it.lib}}</span>
+            <span style="font-size: 12px; color: #4a5561;">{{it.id}} · en stock : {{it.stock}}</span>
+          </div>
+          <button type="button" onClick="{{it.minus}}" aria-label="Diminuer" style="width: 44px; height: 44px; border-radius: 22px; border: 1px solid #b9c3cd; background: #ffffff; font-size: 20px;">−</button>
+          <span style="min-width: 28px; text-align: center; font-size: 17px; font-weight: 600;">{{it.q}}</span>
+          <button type="button" onClick="{{it.plus}}" aria-label="Augmenter" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: #1f5f8b; color: #ffffff; font-size: 20px;">+</button>
+        </div>
+      </sc-for>
+    </div>
+    <div style="padding: 14px 20px 22px; background: #ffffff; border-top: 1px solid #d5dbe1; display: flex; flex-direction: column; gap: 8px;">
+      <div style="font-size: 13px; color: #4a5561;">{{totalLabel}}</div>
+      <button type="button" onClick="{{declare}}" disabled="{{cannot}}" style="min-height: 52px; border-radius: 10px; border: none; background: #2e6b3f; color: #ffffff; font-size: 16px; font-weight: 600;">{{declareLabel}}</button>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      mode: 'sortie', done: false, scanned: '', evt: '', summary: '',
+      stock: [
+        { id: 'G-001', lib: 'Stylo bille CUD', stock: 180 },
+        { id: 'G-002', lib: 'Tote bag coton', stock: 45 },
+        { id: 'G-004', lib: 'Gourde inox', stock: 22 },
+        { id: 'G-005', lib: 'Bracelet silicone', stock: 300 }
+      ],
+      qty: {}
+    };
+  }
+  renderVals() {
+    const s = this.state, self = this;
+    const isSortie = s.mode === 'sortie';
+    const modes = [{ id: 'sortie', label: 'Sortie' }, { id: 'retour', label: 'Retour' }].map((m) => ({
+      label: m.label,
+      style: s.mode === m.id ? 'border: none; background: #14263d; color: #ffffff;' : 'border: 1px solid #b9c3cd; background: #ffffff; color: #17212b;',
+      pick: () => self.setState({ mode: m.id, qty: {}, scanned: '', done: false })
+    }));
+    const setQ = (id, v) => self.setState({ qty: Object.assign({}, self.state.qty, { [id]: v }) });
+    const items = s.stock.map((it) => {
+      const q = s.qty[it.id] || 0;
+      const max = isSortie ? it.stock : 999;
+      return Object.assign({}, it, {
+        q,
+        ring: s.scanned === it.id ? 'box-shadow: 0 0 0 2px #1f5f8b;' : '',
+        minus: () => setQ(it.id, Math.max(0, q - 1)),
+        plus: () => setQ(it.id, Math.min(max, q + (it.stock >= 100 ? 10 : 1)))
+      });
+    });
+    const total = items.reduce((t, i) => t + i.q, 0);
+    const lines = items.filter((i) => i.q > 0).map((i) => i.q + ' × ' + i.lib).join(', ');
+    return {
+      modes, items, done: s.done, editing: !s.done,
+      evt: s.evt, onEvt: (e) => self.setState({ evt: e.target.value }),
+      scanLabel: s.scanned ? 'Article scanné : ' + s.scanned : 'Scanner un QR code',
+      scan: () => {
+        const next = s.stock[(s.stock.findIndex((x) => x.id === s.scanned) + 1) % s.stock.length];
+        setQ(next.id, (s.qty[next.id] || 0) + 1);
+        self.setState({ scanned: next.id });
+      },
+      listTitle: isSortie ? 'Quantités sorties pour l\'événement' : 'Quantités non distribuées à réintégrer',
+      totalLabel: total + ' article(s) sélectionné(s)',
+      declareLabel: isSortie ? 'Déclarer la sortie' : 'Déclarer le retour',
+      cannot: total === 0 || !s.evt.trim(),
+      declare: () => {
+        const stock = s.stock.map((x) => Object.assign({}, x, { stock: x.stock + (isSortie ? -1 : 1) * (s.qty[x.id] || 0) }));
+        self.setState({ stock, done: true, qty: {}, scanned: '', summary: (isSortie ? 'Sortie' : 'Retour') + ' pour « ' + s.evt + ' » : ' + lines + '.' });
+      },
+      summary: s.summary,
+      reset: () => self.setState({ done: false, evt: '' })
+    };
+  }
+}
+</script>
+</body>
+</html>
