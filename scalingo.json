@@ -3,12 +3,39 @@
   "description": "DK Événementiel : calendrier des événements, stock et protocole, projets événementiels",
   "repository": "https://github.com/dhagnere/DK_Evenementiel",
   "env": {
-    "NODE_ENV": { "value": "production" },
-    "JWT_SECRET": { "generator": "secret" },
-    "TRUST_PROXY": { "value": "1" },
-    "CLIENT_ORIGIN": { "description": "URL publique de l'application, ex. https://dk-evenementiel.osc-fr1.scalingo.io" },
-    "APP_URL": { "description": "Même valeur que CLIENT_ORIGIN (liens dans les courriels)" }
+    "NODE_ENV": {
+      "value": "production"
+    },
+    "NPM_CONFIG_PRODUCTION": {
+      "value": "false",
+      "description": "Installe aussi les outils de construction (TypeScript, Vite) pendant le build"
+    },
+    "JWT_SECRET": {
+      "generator": "secret"
+    },
+    "TRUST_PROXY": {
+      "value": "1"
+    },
+    "CLIENT_ORIGIN": {
+      "description": "URL publique de l'application, ex. https://dk-evenementiel-recette.osc-fr1.scalingo.io"
+    },
+    "APP_URL": {
+      "description": "Même valeur que CLIENT_ORIGIN (liens dans les courriels)"
+    },
+    "DATABASE_CA_CERT": {
+      "description": "Certificat de l'autorité de la base PostgreSQL (PEM), si la connexion chiffrée l'exige",
+      "required": false
+    }
   },
-  "addons": [{ "plan": "postgresql:postgresql-starter-512" }],
-  "formation": { "web": { "amount": 1, "size": "S" } }
+  "addons": [
+    {
+      "plan": "postgresql:postgresql-starter-512"
+    }
+  ],
+  "formation": {
+    "web": {
+      "amount": 1,
+      "size": "S"
+    }
+  }
 }
