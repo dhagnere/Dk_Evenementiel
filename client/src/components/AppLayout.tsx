@@ -1,21 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button, Divider, Drawer, Grid, Image, Layout, Space, Tag, Typography } from 'antd';
-import {
-  CalendarOutlined,
-  CloudUploadOutlined,
-  CopyOutlined,
-  EnvironmentOutlined,
-  FileTextOutlined,
-  MenuOutlined,
-  SolutionOutlined,
-  TeamOutlined,
-  UnorderedListOutlined,
-  UserAddOutlined,
-  WarningOutlined,
-} from '@ant-design/icons';
+import { HomeOutlined, MenuOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import { LOGO_DUNKERQUE_CUD } from '../logos';
+import { SECTIONS, sectionDuChemin, type SectionNavigation } from '../lib/navigation';
 
 const { Header, Content } = Layout;
 const { Text } = Typography;
@@ -37,6 +26,7 @@ function NavItem({
   return (
     <button
       onClick={onClick}
+      aria-current={actif ? 'page' : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -59,7 +49,7 @@ function NavItem({
 }
 
 export function AppLayout() {
-  const { session, loading, estAdministrateur, deconnexion } = useAuth();
+  const { session, loading, estSuperAdmin, peut, deconnexion } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const breakpoint = useBreakpoint();
@@ -75,27 +65,23 @@ export function AppLayout() {
   }
   if (!session) return <Navigate to="/connexion" replace />;
 
-  const items = [
-    { key: '/', label: 'Calendrier', icone: <CalendarOutlined /> },
-    { key: '/liste', label: 'Liste', icone: <UnorderedListOutlined /> },
-    { key: '/carte', label: 'Carte', icone: <EnvironmentOutlined /> },
-    { key: '/conflits', label: 'Conflits', icone: <WarningOutlined /> },
-    { key: '/fiche-renseignement', label: 'Fiche de renseignement', icone: <SolutionOutlined /> },
-    ...(estAdministrateur
-      ? [
-          { key: '/comptes', label: 'Comptes', icone: <TeamOutlined /> },
-          { key: '/demandes', label: "Demandes d'accès", icone: <UserAddOutlined /> },
-          { key: '/sauvegardes', label: 'Sauvegardes', icone: <CloudUploadOutlined /> },
-          { key: '/doublons', label: 'Doublons', icone: <CopyOutlined /> },
-          { key: '/journal', label: 'Journal', icone: <FileTextOutlined /> },
-        ]
-      : []),
-  ];
+  // Sections visibles : modules accessibles au moins en lecture, administration pour les super-administrateurs.
+  const pagesVisibles = (section: SectionNavigation) =>
+    section.code === 'admin' ? section.pages : section.pages.filter((p) => peut(section.code, p.niveau ?? 'lecture'));
+  const sections = SECTIONS.filter((s) => (s.code === 'admin' ? estSuperAdmin : peut(s.code, 'lecture')));
+  const sectionCourante = sectionDuChemin(location.pathname);
+  const pagesCourantes = sectionCourante ? pagesVisibles(sectionCourante) : [];
 
   const allerA = (chemin: string) => {
     navigate(chemin);
     setMenuOuvert(false);
   };
+
+  const profil = estSuperAdmin ? (
+    <Tag color="gold">Super-administrateur</Tag>
+  ) : session.direction ? (
+    <Tag>{session.direction}</Tag>
+  ) : null;
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -103,43 +89,63 @@ export function AppLayout() {
         style={{
           background: '#fff',
           borderBottom: '1px solid #f0f0f0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          rowGap: 8,
           height: 'auto',
           lineHeight: 'normal',
           padding: mobile ? '10px 12px' : '10px 24px',
         }}
       >
-        <Space size={mobile ? 'small' : 'large'} align="center" wrap>
-          <Image src={LOGO_DUNKERQUE_CUD} alt="Dunkerque / Communauté urbaine" height={mobile ? 28 : 36} preview={false} />
-          <Text strong style={{ fontSize: mobile ? 15 : 18, whiteSpace: 'nowrap' }}>
-            Calendrier Événements
-          </Text>
-          {!mobile && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-              {items.map((item) => (
-                <NavItem
-                  key={item.key}
-                  actif={location.pathname === item.key}
-                  icone={item.icone}
-                  label={item.label}
-                  onClick={() => allerA(item.key)}
-                />
-              ))}
-            </div>
-          )}
-        </Space>
-        {mobile ? (
-          <Button icon={<MenuOutlined />} onClick={() => setMenuOuvert(true)} aria-label="Menu" />
-        ) : (
-          <Space style={{ flexShrink: 0, whiteSpace: 'nowrap' }} align="center">
-            {!estAdministrateur && <Tag color="blue">Consultation seule</Tag>}
-            <Text type="secondary">{session.nom}</Text>
-            <Button onClick={() => deconnexion()}>Déconnexion</Button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 8 }}>
+          <Space size={mobile ? 'small' : 'large'} align="center" wrap>
+            <button
+              onClick={() => allerA('/')}
+              aria-label="Accueil"
+              style={{ display: 'flex', alignItems: 'center', gap: 12, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
+            >
+              <Image src={LOGO_DUNKERQUE_CUD} alt="Dunkerque / Communauté urbaine" height={mobile ? 28 : 36} preview={false} />
+              <Text strong style={{ fontSize: mobile ? 15 : 18, whiteSpace: 'nowrap' }}>
+                DK Événementiel
+              </Text>
+            </button>
+            {!mobile && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                <NavItem actif={location.pathname === '/'} icone={<HomeOutlined />} label="Accueil" onClick={() => allerA('/')} />
+                {sections.map((s) => (
+                  <NavItem
+                    key={s.code}
+                    actif={sectionCourante?.code === s.code}
+                    icone={s.icone}
+                    label={s.libelle}
+                    onClick={() => allerA(s.racine)}
+                  />
+                ))}
+              </div>
+            )}
           </Space>
+          {mobile ? (
+            <Button icon={<MenuOutlined />} onClick={() => setMenuOuvert(true)} aria-label="Menu" />
+          ) : (
+            <Space style={{ flexShrink: 0, whiteSpace: 'nowrap' }} align="center">
+              {profil}
+              <Text type="secondary">{session.nom}</Text>
+              <Button onClick={() => deconnexion()}>Déconnexion</Button>
+            </Space>
+          )}
+        </div>
+        {!mobile && pagesCourantes.length > 1 && (
+          <nav
+            aria-label={`Pages ${sectionCourante?.libelle ?? ''}`}
+            style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 10, paddingTop: 8, borderTop: '1px solid #f5f5f5' }}
+          >
+            {pagesCourantes.map((p) => (
+              <NavItem
+                key={p.chemin}
+                actif={location.pathname === p.chemin}
+                icone={p.icone}
+                label={p.libelle}
+                onClick={() => allerA(p.chemin)}
+              />
+            ))}
+          </nav>
         )}
       </Header>
 
@@ -151,24 +157,28 @@ export function AppLayout() {
         width={Math.min(300, typeof window !== 'undefined' ? window.innerWidth - 32 : 300)}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {items.map((item) => (
-            <NavItem
-              key={item.key}
-              bloc
-              actif={location.pathname === item.key}
-              icone={item.icone}
-              label={item.label}
-              onClick={() => allerA(item.key)}
-            />
+          <NavItem bloc actif={location.pathname === '/'} icone={<HomeOutlined />} label="Accueil" onClick={() => allerA('/')} />
+          {sections.map((s) => (
+            <div key={s.code} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Text type="secondary" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '12px 0 4px 14px' }}>
+                {s.libelle}
+              </Text>
+              {pagesVisibles(s).map((p) => (
+                <NavItem
+                  key={p.chemin}
+                  bloc
+                  actif={location.pathname === p.chemin}
+                  icone={p.icone}
+                  label={p.libelle}
+                  onClick={() => allerA(p.chemin)}
+                />
+              ))}
+            </div>
           ))}
         </div>
         <Divider />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {!estAdministrateur && (
-            <Tag color="blue" style={{ width: 'fit-content' }}>
-              Consultation seule
-            </Tag>
-          )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+          {profil}
           <Text type="secondary">{session.nom}</Text>
           <Button block onClick={() => deconnexion()}>
             Déconnexion

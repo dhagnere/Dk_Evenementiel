@@ -131,7 +131,8 @@ function filtrerParFenetre(evenements: Evenement[], pas: PasSlider): Evenement[]
 }
 
 export default function Carte() {
-  const { estAdministrateur } = useAuth();
+  const { peut } = useAuth();
+  const peutGeocoder = peut('calendrier', 'administration');
   const breakpoint = useBreakpoint();
   const mobile = !breakpoint.sm;
   const { enCours: geocodageEnCours, secondesRestantesEstimees, derniereMiseAJour, demarrer: demarrerGeocodage } = useGeocodage();
@@ -206,7 +207,7 @@ export default function Carte() {
             tooltip={{ formatter: (i) => (i !== undefined ? ETAPES_SLIDER[i].label : '') }}
           />
         </div>
-        {estAdministrateur && (
+        {peutGeocoder && (
           <Space direction="vertical" size={4} style={{ width: mobile ? '100%' : undefined }}>
             <Button block={mobile} icon={<EnvironmentOutlined />} loading={geocodageEnCours} onClick={demarrerGeocodage}>
               Géocoder les événements
@@ -223,7 +224,7 @@ export default function Carte() {
       <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
         {lieux.length} lieu(x) géolocalisé(s) — {lieux.reduce((n, l) => n + l.evenements.length, 0)} événement(s) affiché(s) sur la
         carte
-        {nonGeolocalises > 0 && !estAdministrateur && ` (${nonGeolocalises} événement(s) non géolocalisé(s) non affiché(s))`}
+        {nonGeolocalises > 0 && !peutGeocoder && ` (${nonGeolocalises} événement(s) non géolocalisé(s) non affiché(s))`}
       </Text>
 
       <div style={{ border: '1px solid #d9d9d9', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
@@ -306,7 +307,7 @@ export default function Carte() {
           style={{ marginTop: 16 }}
           message="Aucun événement géolocalisé pour le moment."
           description={
-            estAdministrateur
+            peutGeocoder
               ? 'Cliquez sur « Géocoder les événements » ci-dessus pour localiser les événements à partir de leur lieu.'
               : "Revenez plus tard, une fois que les lieux des événements auront été géolocalisés."
           }

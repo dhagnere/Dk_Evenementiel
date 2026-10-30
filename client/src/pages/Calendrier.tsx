@@ -3,7 +3,6 @@ import dayjs from 'dayjs';
 import { Button, Card, Col, DatePicker, Grid, Modal, Row, Select, Switch, Typography } from 'antd';
 import { FilePdfOutlined } from '@ant-design/icons';
 import { api } from '../api';
-import { useAuth } from '../context/AuthContext';
 import { estBrouillon, estValide, type Evenement } from '../types';
 import { COULEUR_BROUILLON, COULEUR_DATE_CLEF, COULEUR_NON_VALIDE, COULEUR_VALIDE } from '../lib/validationColors';
 import { ImportExportEvenements } from '../components/ImportExportEvenements';
@@ -105,7 +104,6 @@ function FiltreSelect({
 }
 
 export default function Calendrier() {
-  const { estAdministrateur } = useAuth();
   const breakpoint = useBreakpoint();
   const mobile = !breakpoint.sm;
   const tablette = !breakpoint.md;
@@ -471,7 +469,6 @@ export default function Calendrier() {
             <FicheEvenement
               key={e._id}
               evenement={e}
-              estAdministrateur={estAdministrateur}
               onToggleValidation={toggleValidation}
               onValider={validerUnClic}
               onSupprimer={supprimer}

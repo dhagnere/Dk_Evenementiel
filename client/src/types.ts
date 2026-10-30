@@ -28,13 +28,40 @@ export interface Evenement {
   createdAt?: string;
 }
 
-export interface Compte {
+export const NIVEAUX = ['lecture', 'contribution', 'validation', 'administration'] as const;
+export type Niveau = (typeof NIVEAUX)[number];
+export type Droits = Partial<Record<string, Niveau>>;
+
+/** Module de l'application, tel que décrit par le serveur (GET /auth/moi). */
+export interface DefinitionModule {
+  code: string;
+  libelle: string;
+  description: string;
+  disponible: boolean;
+  niveaux: Record<Niveau, string>;
+}
+
+/** Profil d'accès d'un compte : super-administrateur, direction de rattachement et droits par module. */
+export interface ProfilAcces {
+  superAdmin: boolean;
+  directionId: string | null;
+  droits: Droits;
+}
+
+export interface Compte extends ProfilAcces {
   _id: string;
   nom: string;
   email: string;
-  role: 'Administrateur' | 'Consultant';
+  direction: string | null;
   statut: string;
   derniereConnexion: string | null;
+}
+
+export interface Direction {
+  _id: string;
+  nom: string;
+  actif: boolean;
+  nombreComptes: number;
 }
 
 export function estValide(e: Pick<Evenement, 'validationTechnique' | 'validationPolitique'>): boolean {

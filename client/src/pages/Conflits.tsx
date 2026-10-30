@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Collapse, Grid, Modal, Typography } from 'antd';
 import { api } from '../api';
-import { useAuth } from '../context/AuthContext';
 import { estBrouillon, estValide, type Evenement } from '../types';
 import { COULEUR_BROUILLON, COULEUR_NON_VALIDE, COULEUR_VALIDE } from '../lib/validationColors';
 import { formatTitreEvenement } from '../lib/formatTitre';
@@ -74,7 +73,6 @@ interface JourConflit {
 }
 
 export default function Conflits() {
-  const { estAdministrateur } = useAuth();
   const breakpoint = useBreakpoint();
   const mobile = !breakpoint.sm;
   const [evenements, setEvenements] = useState<Evenement[]>([]);
@@ -266,7 +264,6 @@ export default function Conflits() {
         {evenementOuvert && (
           <FicheEvenement
             evenement={evenementOuvert}
-            estAdministrateur={estAdministrateur}
             onToggleValidation={toggleValidation}
             onValider={validerUnClic}
             onSupprimer={supprimer}

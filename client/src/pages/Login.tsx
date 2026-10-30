@@ -104,10 +104,10 @@ export default function Login() {
         <Card>
           <Title level={4} style={{ marginTop: 0 }}>
             {adminExiste === false
-              ? 'Créer le compte administrateur'
+              ? 'Créer le compte super-administrateur'
               : vue === 'demande'
                 ? 'Demander un accès'
-                : 'Connexion — Calendrier Dunkerque'}
+                : 'Connexion — DK Événementiel'}
           </Title>
 
           {message && (
@@ -138,7 +138,7 @@ export default function Login() {
                 required
               />
               <Button type="primary" htmlType="submit" block loading={envoi}>
-                Créer le compte administrateur
+                Créer le compte super-administrateur
               </Button>
             </form>
           )}

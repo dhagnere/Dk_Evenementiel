@@ -84,7 +84,9 @@ function regrouperParSemaine(evenements: Evenement[]): LigneListe[] {
 }
 
 export default function Liste() {
-  const { estAdministrateur } = useAuth();
+  const { peut } = useAuth();
+  const peutValider = peut('calendrier', 'validation');
+  const peutAdministrer = peut('calendrier', 'administration');
   const breakpoint = useBreakpoint();
   const mobile = !breakpoint.sm;
   const [evenements, setEvenements] = useState<Evenement[]>([]);
@@ -182,7 +184,7 @@ export default function Liste() {
     { title: 'Quartier', key: 'quartier', width: 150, render: (e) => e.quartier },
     { title: 'Nature', key: 'nature', width: 130, render: (e) => e.nature },
     { title: 'Validation', key: 'validation', width: 130, render: (e) => <ValidationBadge evenement={e} /> },
-    ...(estAdministrateur
+    ...(peutValider
       ? [
           {
             title: 'Actions',
@@ -219,16 +221,18 @@ export default function Liste() {
                 >
                   Date Clef
                 </Button>
-                <Popconfirm
-                  title="Supprimer cet événement ?"
-                  description="Cette action est définitive."
-                  okText="Supprimer"
-                  okButtonProps={{ danger: true }}
-                  cancelText="Annuler"
-                  onConfirm={() => supprimer(e._id)}
-                >
-                  <Button size="small" danger icon={<DeleteOutlined />} />
-                </Popconfirm>
+                {peutAdministrer && (
+                  <Popconfirm
+                    title="Supprimer cet événement ?"
+                    description="Cette action est définitive."
+                    okText="Supprimer"
+                    okButtonProps={{ danger: true }}
+                    cancelText="Annuler"
+                    onConfirm={() => supprimer(e._id)}
+                  >
+                    <Button size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                )}
               </div>
             ),
           },
@@ -345,7 +349,6 @@ export default function Liste() {
         {evenementOuvert && (
           <FicheEvenement
             evenement={evenementOuvert}
-            estAdministrateur={estAdministrateur}
             onToggleValidation={toggleValidation}
             onValider={validerUnClic}
             onSupprimer={supprimer}

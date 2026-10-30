@@ -16,7 +16,7 @@ interface Props {
  * lecture) et d'import CSV (admin uniquement), avec message de résultat.
  */
 export function ImportExportEvenements({ onImported, onExporterPdf }: Props) {
-  const { estAdministrateur } = useAuth();
+  const { peut } = useAuth();
   const { demarrer: demarrerGeocodage } = useGeocodage();
   const [message, setMessage] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -77,7 +77,7 @@ export function ImportExportEvenements({ onImported, onExporterPdf }: Props) {
             Exporter PDF
           </Button>
         )}
-        {estAdministrateur && (
+        {peut('calendrier', 'administration') && (
           <>
             <Button type="primary" icon={<UploadOutlined />} loading={enCours} onClick={() => inputRef.current?.click()}>
               Importer CSV

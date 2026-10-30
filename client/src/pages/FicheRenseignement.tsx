@@ -17,8 +17,8 @@ interface ValeursReference {
 
 /**
  * Formulaire de saisie manuelle d'un nouvel événement, ouvert à tout compte connecté (à la
- * différence de l'import CSV, réservé aux administrateurs). L'événement créé entre dans le circuit
- * d'arbitrage habituel (statut « À valider ») : un administrateur le valide ensuite normalement,
+ * différence de l'import CSV, réservé aux administrateurs du module). L'événement créé entre dans le circuit
+ * d'arbitrage habituel (statut « À valider ») : un valideur le valide ensuite normalement,
  * depuis le Calendrier, la Liste ou les Conflits.
  */
 export default function FicheRenseignement() {
@@ -98,7 +98,7 @@ export default function FicheRenseignement() {
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
         Renseignez ici une nouvelle manifestation à ajouter au calendrier. Une fois créée, elle
         apparaît avec le statut « À valider », comme n'importe quel événement importé — un
-        administrateur la valide ensuite normalement depuis le Calendrier, la Liste ou les Conflits.
+        valideur la valide ensuite normalement depuis le Calendrier, la Liste ou les Conflits.
       </Text>
 
       {message && (

@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Select, Typography } from 'antd';
+import { Button, Card, Drawer, Grid, Space, Typography } from 'antd';
 import { api } from '../api';
-import type { DemandeAcces } from '../types';
+import type { DemandeAcces, ProfilAcces } from '../types';
 import { genererMotDePasse } from '../lib/generatePassword';
+import { EditeurDroits, PROFIL_PAR_DEFAUT, useDirections } from '../components/EditeurDroits';
 
 const { Text } = Typography;
+const { useBreakpoint } = Grid;
 
 export default function Demandes() {
   const [demandes, setDemandes] = useState<DemandeAcces[]>([]);
   const [message, setMessage] = useState<string | null>(null);
-  const [roleParDemande, setRoleParDemande] = useState<Record<string, 'Administrateur' | 'Consultant'>>({});
+  const mobile = !useBreakpoint().sm;
+  const directions = useDirections();
+  // Demande en cours d'approbation et profil d'accès choisi pour le futur compte.
+  const [enApprobation, setEnApprobation] = useState<DemandeAcces | null>(null);
+  const [profil, setProfil] = useState<ProfilAcces>(PROFIL_PAR_DEFAUT);
+  const [envoi, setEnvoi] = useState(false);
 
   const charger = async () => {
     const data = await api.get<{ demandes: DemandeAcces[] }>('/demandes-acces');
@@ -20,20 +27,27 @@ export default function Demandes() {
     charger();
   }, []);
 
-  const roleDe = (id: string) => roleParDemande[id] ?? 'Consultant';
+  const ouvrirApprobation = (demande: DemandeAcces) => {
+    setProfil(PROFIL_PAR_DEFAUT);
+    setEnApprobation(demande);
+  };
 
-  const approuver = async (demande: DemandeAcces) => {
-    const motDePasseTemporaire = genererMotDePasse();
-    const res = await api.post<{ ok: boolean; message: string }>(`/demandes-acces/${demande._id}/approuver`, {
-      role: roleDe(demande._id),
-      motDePasseTemporaire,
-    });
-    if (res.ok) {
-      setMessage(`Compte créé pour ${demande.email} (${roleDe(demande._id)}). Mot de passe temporaire : ${motDePasseTemporaire}`);
-    } else {
-      setMessage(res.message);
+  const approuver = async () => {
+    if (!enApprobation) return;
+    const demande = enApprobation;
+    setEnvoi(true);
+    try {
+      const motDePasseTemporaire = genererMotDePasse();
+      const res = await api.post<{ ok: boolean; message: string }>(`/demandes-acces/${demande._id}/approuver`, {
+        ...profil,
+        motDePasseTemporaire,
+      });
+      setMessage(res.ok ? `Compte créé pour ${demande.email}. Mot de passe temporaire à transmettre : ${motDePasseTemporaire}` : res.message);
+      setEnApprobation(null);
+      charger();
+    } finally {
+      setEnvoi(false);
     }
-    charger();
   };
 
   const rejeter = async (demande: DemandeAcces) => {
@@ -74,17 +88,8 @@ export default function Demandes() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <Select
-                    value={roleDe(d._id)}
-                    onChange={(v) => setRoleParDemande((r) => ({ ...r, [d._id]: v as 'Administrateur' | 'Consultant' }))}
-                    style={{ width: 160 }}
-                    options={[
-                      { value: 'Consultant', label: 'Consultant' },
-                      { value: 'Administrateur', label: 'Administrateur' },
-                    ]}
-                  />
-                  <Button type="primary" size="small" onClick={() => approuver(d)}>
-                    Approuver
+                  <Button type="primary" size="small" onClick={() => ouvrirApprobation(d)}>
+                    Approuver…
                   </Button>
                   <Button danger size="small" onClick={() => rejeter(d)}>
                     Rejeter
@@ -95,6 +100,31 @@ export default function Demandes() {
           ))}
         </div>
       </Card>
+
+      <Drawer
+        title={enApprobation ? `Accès de ${enApprobation.nom}` : ''}
+        open={enApprobation !== null}
+        onClose={() => setEnApprobation(null)}
+        width={mobile ? '100%' : 520}
+        extra={
+          <Space>
+            <Button onClick={() => setEnApprobation(null)}>Annuler</Button>
+            <Button type="primary" loading={envoi} onClick={approuver}>
+              Créer le compte
+            </Button>
+          </Space>
+        }
+      >
+        {enApprobation && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Text type="secondary">
+              {enApprobation.email}
+              {enApprobation.organisation ? ` · ${enApprobation.organisation}` : ''}
+            </Text>
+            <EditeurDroits valeur={profil} onChange={setProfil} directions={directions} />
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }

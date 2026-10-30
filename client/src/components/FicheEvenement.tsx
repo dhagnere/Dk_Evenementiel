@@ -8,12 +8,12 @@ import { formatDate } from '../lib/formatDate';
 import { formatTitreEvenement } from '../lib/formatTitre';
 import { COULEUR_BROUILLON, COULEUR_DATE_CLEF, COULEUR_NON_VALIDE, COULEUR_VALIDE } from '../lib/validationColors';
 import { ValidationBadge } from './ValidationBadge';
+import { useAuth } from '../context/AuthContext';
 
 const { RangePicker } = DatePicker;
 
 interface Props {
   evenement: Evenement;
-  estAdministrateur: boolean;
   onToggleValidation: (id: string, champ: 'validationTechnique' | 'validationPolitique', valeur: boolean) => void;
   onValider: (id: string) => void;
   onSupprimer?: (id: string) => Promise<void> | void;
@@ -23,12 +23,14 @@ interface Props {
 /** Fiche détaillée d'un événement, utilisée dans la pop-up du jour sélectionné (vue Calendrier). */
 export function FicheEvenement({
   evenement,
-  estAdministrateur,
   onToggleValidation,
   onValider,
   onSupprimer,
   onChangerDates,
 }: Props) {
+  const { peut } = useAuth();
+  const peutValider = peut('calendrier', 'validation');
+  const peutAdministrer = peut('calendrier', 'administration');
   const [plage, setPlage] = useState<[Dayjs, Dayjs] | null>([
     evenement.dateDeDebut ? dayjs(evenement.dateDeDebut) : dayjs(),
     evenement.dateDeFin ? dayjs(evenement.dateDeFin) : evenement.dateDeDebut ? dayjs(evenement.dateDeDebut) : dayjs(),
@@ -107,7 +109,7 @@ export function FicheEvenement({
     >
       <Descriptions column={{ xs: 1, sm: 2 }} size="small" items={items} />
 
-      {estAdministrateur && (
+      {peutValider && (
         <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <Checkbox
             checked={evenement.validationTechnique}
@@ -127,7 +129,7 @@ export function FicheEvenement({
         </div>
       )}
 
-      {estAdministrateur && (onChangerDates || onSupprimer) && (
+      {peutValider && (onChangerDates || (peutAdministrer && onSupprimer)) && (
         <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid #f0f0f0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             {onChangerDates && (
@@ -144,7 +146,7 @@ export function FicheEvenement({
                 </Button>
               </>
             )}
-            {onSupprimer && (
+            {peutAdministrer && onSupprimer && (
               <Popconfirm
                 title="Supprimer cet événement ?"
                 description="Cette action est définitive."
