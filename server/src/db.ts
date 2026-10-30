@@ -124,7 +124,7 @@ const TABLES = {
     colonnes: [
       '_id', 'numero', 'directionId', 'directionNom', 'evenement', 'evenementId', 'articleId', 'quantite', 'dateBesoin',
       'motifTardif', 'beneficiaire', 'occasion', 'elu', 'valeur', 'circuit', 'statut', 'motifRefus', 'demandeurId',
-      'demandeurNom', 'historique', 'createdAt', 'updatedAt',
+      'demandeurNom', 'historique', 'projetId', 'evenementNom', 'evenementDebut', 'evenementFin', 'createdAt', 'updatedAt',
     ],
     json: ['historique'],
   },
@@ -160,7 +160,7 @@ const TABLES = {
   projets: {
     colonnes: [
       '_id', 'titre', 'type', 'dateJour', 'dateFin', 'lieu', 'jauge', 'demandeur', 'referent', 'description', 'statut',
-      'inscritLe', 'demandeId', 'evenementId', 'montage', 'ouverture', 'fermeture', 'demontage', 'implantation', 'bilan',
+      'inscritLe', 'demandeId', 'evenementId', 'evenementNom', 'evenementDebut', 'evenementFin', 'montage', 'ouverture', 'fermeture', 'demontage', 'implantation', 'bilan',
       'createdAt', 'updatedAt',
     ],
     json: ['bilan'],

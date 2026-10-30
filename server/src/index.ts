@@ -21,6 +21,7 @@ import { systemeRouter } from './routes/systeme.routes.js';
 import { stockRouter } from './routes/stock.routes.js';
 import { projetsRouter } from './routes/projets.routes.js';
 import { fichiersRouter } from './routes/fichiers.routes.js';
+import { liaisonsRouter } from './routes/liaisons.routes.js';
 import { demarrerSauvegardeQuotidienne } from './lib/backup.js';
 import { demarrerPurgeQuotidienne } from './lib/rgpd.js';
 
@@ -56,6 +57,7 @@ async function main() {
   app.use('/api/stock', stockRouter);
   app.use('/api/projets', projetsRouter);
   app.use('/api/fichiers', fichiersRouter);
+  app.use('/api/liaisons', liaisonsRouter);
 
   demarrerSauvegardeQuotidienne();
   demarrerPurgeQuotidienne();

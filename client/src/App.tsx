@@ -33,6 +33,7 @@ import DeposerDemande from './pages/projets/DeposerDemande';
 import DemandesRecues from './pages/projets/DemandesRecues';
 import Materiel from './pages/projets/Materiel';
 import Modeles from './pages/projets/Modeles';
+import FicheEvenementUnique from './pages/FicheEvenementUnique';
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
       <Route path="/connexion" element={<Login />} />
       <Route element={<AppLayout />}>
         <Route path="/" element={<Accueil />} />
+        <Route path="/evenement/:id" element={<FicheEvenementUnique />} />
 
         <Route element={<RequireModule module="calendrier" niveau="lecture" />}>
           <Route path="/calendrier" element={<Calendrier />} />

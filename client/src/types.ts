@@ -147,6 +147,8 @@ export interface DemandeStock {
   demandeurId: string | null;
   demandeurNom: string;
   historique: EtapeDemande[];
+  projetId: string | null;
+  projetTitre: string | null;
   createdAt: string;
 }
 
@@ -319,6 +321,8 @@ export interface ConflitMateriel {
 }
 
 export interface FicheProjetComplete {
+  evenement: EvenementLie | null;
+  demandesStock: DemandeStockLiee[] | null;
   projet: Projet;
   taches: TacheProjet[];
   demarches: DemarcheProjet[];
@@ -356,4 +360,48 @@ export interface DemandeEvenement {
   projetTitre?: string | null;
   avancement?: number | null;
   createdAt: string;
+}
+
+// --- Liaisons entre modules ---
+
+export interface ResumeEvenementCalendrier {
+  _id: string;
+  nom: string;
+  dateDeDebut: string | null;
+  dateDeFin: string | null;
+  lieu: string;
+  quartier?: string;
+  pilote?: string;
+  directionPilote?: string;
+  organisateur?: string;
+  nature?: string;
+  statut: string;
+  valide?: boolean;
+  nombreJours?: number;
+}
+
+/** Événement du calendrier lié à un projet ; supprime : il n'existe plus dans le calendrier. */
+export type EvenementLie = (ResumeEvenementCalendrier & { supprime: false }) | { supprime: true; nom: string | null };
+
+export interface DemandeStockLiee {
+  _id: string;
+  numero: string;
+  directionNom: string;
+  quantite: number;
+  statut: string;
+  dateBesoin: string;
+  valeur: number;
+  reference: string;
+  libelle: string;
+}
+
+export interface FicheEvenementUnique {
+  evenement: ResumeEvenementCalendrier & { inscritLe: string };
+  projets: IndicateursProjet[] | null;
+  demandesStock: DemandeStockLiee[] | null;
+}
+
+export interface SyntheseAccueil {
+  aTraiter: { module: string; libelle: string; nombre: number; chemin: string; alerte?: boolean }[];
+  prochains: (ResumeEvenementCalendrier & { projet?: IndicateursProjet | null; goodies?: number })[];
 }

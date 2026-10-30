@@ -7,6 +7,7 @@ import { LIMITES_CUD, geocoderPlusieursAdresses } from '../lib/geocodage.js';
 import { motifRechercheInsensibleAccents } from '../lib/rechercheAccents.js';
 import { cleIdentite } from '../lib/identiteEvenement.js';
 import { creerSauvegarde } from '../lib/backup.js';
+import { reporterLiens } from '../lib/liaisons.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
 import { queryString } from '../lib/queryString.js';
 import { VALID_NATURES, VALID_NIVEAUX, VALID_OUI_NON, VALID_QUARTIERS, VALID_TYPES } from '../lib/reference-data.js';
@@ -535,8 +536,12 @@ eventsRouter.post('/:id/dates', requireModule('calendrier', 'validation'), async
   // Suppression de l'ancienne série et création de la nouvelle vont ensemble : jamais l'une sans l'autre.
   const serie = filtreSerie(cible);
   const crees = await transaction(async (client) => {
+    const anciens = await requete<{ _id: string }>(`SELECT id FROM evenements WHERE ${serie.condition}`, serie.params, client);
     await executer(`DELETE FROM evenements WHERE ${serie.condition}`, serie.params, client);
-    return inserer<Evenement>('evenements', nouvellesLignes, client);
+    const nouvelles = await inserer<Evenement>('evenements', nouvellesLignes, client);
+    // Le projet et les demandes de goodies liés suivent l'événement dans sa nouvelle série.
+    await reporterLiens(cible, anciens.map((a) => a._id), nouvelles[0], client);
+    return nouvelles;
   });
   await consigner(identiteDeRequete(req), 'report_date_evenement', cible.nom, {
     ancien: { dateDeDebut: cible.dateDeDebut, dateDeFin: cible.dateDeFin },

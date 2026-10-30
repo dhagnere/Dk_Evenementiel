@@ -9,6 +9,7 @@ import { formatTitreEvenement } from '../lib/formatTitre';
 import { COULEUR_BROUILLON, COULEUR_DATE_CLEF, COULEUR_NON_VALIDE, COULEUR_VALIDE } from '../lib/validationColors';
 import { ValidationBadge } from './ValidationBadge';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const { RangePicker } = DatePicker;
 
@@ -29,6 +30,7 @@ export function FicheEvenement({
   onChangerDates,
 }: Props) {
   const { peut } = useAuth();
+  const navigate = useNavigate();
   const peutValider = peut('calendrier', 'validation');
   const peutAdministrer = peut('calendrier', 'administration');
   const [plage, setPlage] = useState<[Dayjs, Dayjs] | null>([
@@ -105,7 +107,14 @@ export function FicheEvenement({
           </div>
         </div>
       }
-      extra={<ValidationBadge evenement={evenement} />}
+      extra={
+        <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+          <ValidationBadge evenement={evenement} />
+          <Button size="small" onClick={() => navigate(`/evenement/${evenement._id}`)}>
+            Fiche complète
+          </Button>
+        </span>
+      }
     >
       <Descriptions column={{ xs: 1, sm: 2 }} size="small" items={items} />
 

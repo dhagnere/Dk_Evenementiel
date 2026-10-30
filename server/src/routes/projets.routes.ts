@@ -9,6 +9,8 @@ import { envoyerEmail } from '../lib/email.js';
 import { config } from '../config.js';
 import { enregistrerFichier, stockageActif } from '../lib/stockage.js';
 import type { Niveau } from '../lib/droits.js';
+import { cleDeLigne, inscrireAuCalendrier } from '../lib/liaisons.js';
+import { demandesStockDuProjet, evenementDuProjet } from './liaisons.routes.js';
 import {
   CODES_TYPES,
   DELAI_INSCRIPTION_JOURS,
@@ -246,7 +248,10 @@ projetsRouter.get(
   '/:id',
   lecture,
   traiter(async (req, res) => {
-    const projet = await requeteUne('SELECT * FROM projets WHERE id = $1', [req.params.id]);
+    const projet = await requeteUne<{ _id: string; evenementId: string | null; evenementNom: string | null; evenementDebut: Date | null; evenementFin: Date | null }>(
+      'SELECT * FROM projets WHERE id = $1',
+      [req.params.id]
+    );
     if (!projet) return void res.status(404).json({ ok: false, message: 'Projet introuvable' });
     const [taches, demarches, prestataires, budget, materiel, conflits] = await Promise.all([
       requete('SELECT * FROM projet_taches WHERE projet_id = $1 ORDER BY decalage, created_at', [req.params.id]),
@@ -260,7 +265,17 @@ projetsRouter.get(
       ),
       conflitsMateriel(req.params.id),
     ]);
-    res.json({ projet, taches, demarches, prestataires, budget, materiel, conflits });
+    res.json({
+      projet,
+      taches,
+      demarches,
+      prestataires,
+      budget,
+      materiel,
+      conflits,
+      evenement: await evenementDuProjet(projet),
+      demandesStock: await demandesStockDuProjet(req, projet),
+    });
   })
 );
 
@@ -689,12 +704,17 @@ projetsRouter.post(
   })
 );
 
-/** Acceptation : crée le projet et son rétroplanning ; l'inscription date du dépôt de la demande. */
+/**
+ * Acceptation : crée le projet et son rétroplanning ; l'inscription date du dépôt de la demande. Sur
+ * option, inscrit aussi la manifestation au calendrier (statut « À valider », pour l'arbitrage
+ * habituel) et y relie le projet.
+ */
 projetsRouter.post(
   '/demandes/:id/accepter',
   validation,
   traiter(async (req, res) => {
     const reponse = z.string().trim().max(2000).default('').parse(req.body?.reponse ?? '');
+    const inscrire = req.body?.inscrireCalendrier === true;
     const demande = await demandeEnCours(req.params.id);
     const besoins = demande.besoins.length ? `\nBesoins identifiés : ${demande.besoins.join(', ')}.` : '';
     const projet = await creerProjet({
@@ -710,14 +730,34 @@ projetsRouter.post(
       inscritLe: demande.createdAt.toISOString().slice(0, 10),
       demandeId: demande._id,
     });
+    if (inscrire) {
+      const ligne = await transaction((client) =>
+        inscrireAuCalendrier(
+          { nom: demande.intitule, debut: demande.dateSouhaitee, fin: null, lieu: demande.lieu, organisateur: demande.structure },
+          client
+        )
+      );
+      const cle = cleDeLigne(ligne);
+      await executer('UPDATE projets SET evenement_id = $2, evenement_nom = $3, evenement_debut = $4, evenement_fin = $5 WHERE id = $1', [
+        projet._id,
+        cle.evenementId,
+        cle.evenementNom,
+        cle.evenementDebut,
+        cle.evenementFin,
+      ]);
+    }
     await executer("UPDATE projet_demandes SET statut = 'acceptee', reponse = $2, projet_id = $3 WHERE id = $1", [
       demande._id,
       reponse,
       projet._id,
     ]);
-    await consigner(identiteDeRequete(req), 'projets_acceptation_demande', demande.intitule);
+    await consigner(identiteDeRequete(req), 'projets_acceptation_demande', demande.intitule, { inscritAuCalendrier: inscrire });
     await notifierDemandeur(demande.demandeurId, `Demande acceptée — ${demande.intitule}`, `Votre demande « ${demande.intitule} » est acceptée.${reponse ? ` ${reponse}` : ''}`);
-    res.json({ ok: true, message: 'Projet créé avec son rétroplanning', projetId: projet._id });
+    res.json({
+      ok: true,
+      message: inscrire ? 'Projet créé et manifestation inscrite au calendrier (à valider)' : 'Projet créé avec son rétroplanning',
+      projetId: projet._id,
+    });
   })
 );
 

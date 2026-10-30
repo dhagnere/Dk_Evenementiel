@@ -4,6 +4,8 @@ import { executer, insererUn, requete, requeteUne, transaction } from '../db.js'
 import { peut, requireModule } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
 import { queryString } from '../lib/queryString.js';
+import { cleDeLigne, type CleSerie } from '../lib/liaisons.js';
+import type { Evenement } from '../modeles.js';
 import {
   ErreurMetier,
   STATUTS_EN_ATTENTE,
@@ -272,8 +274,9 @@ stockRouter.get(
       conditions.push(`d.statut = ANY($${params.length})`);
     }
     const demandes = await requete(
-      `SELECT d.*, a.reference, a.libelle, a.categorie FROM stock_demandes d
+      `SELECT d.*, a.reference, a.libelle, a.categorie, p.titre AS projet_titre FROM stock_demandes d
          JOIN stock_articles a ON a.id = d.article_id
+         LEFT JOIN projets p ON p.id = d.projet_id
         ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
         ORDER BY d.created_at DESC LIMIT 500`,
       params
@@ -302,6 +305,9 @@ stockRouter.post(
         beneficiaire: z.string().trim().max(300).default(''),
         occasion: z.string().trim().max(300).default(''),
         elu: z.string().trim().max(300).default(''),
+        // Rattachement facultatif à un projet ou à un événement du calendrier.
+        projetId: z.string().min(1).nullable().default(null),
+        evenementId: z.string().min(1).nullable().default(null),
       })
       .safeParse(req.body);
     if (!parsed.success) return invalide(res);
@@ -317,6 +323,18 @@ stockRouter.post(
     }
     const direction = await requeteUne<{ nom: string }>('SELECT nom FROM directions WHERE id = $1', [directionId]);
     if (!direction) return invalide(res, 'Direction inconnue');
+
+    // Lien vers le projet (et l'événement du calendrier auquel il est relié), ou directement vers un événement.
+    let lien: CleSerie = { evenementId: null, evenementNom: null, evenementDebut: null, evenementFin: null };
+    if (d.projetId) {
+      const projet = await requeteUne<CleSerie>('SELECT evenement_id, evenement_nom, evenement_debut, evenement_fin FROM projets WHERE id = $1', [d.projetId]);
+      if (!projet) return invalide(res, 'Projet inconnu');
+      lien = projet;
+    } else if (d.evenementId) {
+      const ligne = await requeteUne<Evenement>('SELECT * FROM evenements WHERE id = $1', [d.evenementId]);
+      if (!ligne) return invalide(res, 'Événement inconnu');
+      lien = cleDeLigne(ligne);
+    }
 
     const jours = joursAvant(d.dateBesoin);
     if (jours < 0) throw new ErreurMetier('La date de besoin est passée');
@@ -361,6 +379,8 @@ stockRouter.post(
           demandeurId: req.session!.userId,
           demandeurNom: req.session!.nom,
           historique,
+          projetId: d.projetId,
+          ...lien,
         },
         client
       );

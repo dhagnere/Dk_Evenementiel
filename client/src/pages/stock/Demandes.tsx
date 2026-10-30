@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
 import { Alert, Button, Card, DatePicker, Descriptions, Drawer, Grid, Input, InputNumber, Popconfirm, Select, Space, Table, Tag, Timeline, Typography, type TableColumnsType } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -8,6 +9,8 @@ import { useDirections } from '../../components/EditeurDroits';
 import { STATUTS_DEMANDE_EN_ATTENTE, type ArticleStock, type DemandeStock, type ParametresStock } from '../../types';
 import { couleurStatut, formatEuro, formatJour, joursAvant } from '../../lib/formatStock';
 import { lancer } from '../../lib/actionStock';
+import { SelecteurEvenement } from '../../components/SelecteurEvenement';
+import type { FicheEvenementUnique, IndicateursProjet } from '../../types';
 
 const { Text } = Typography;
 
@@ -21,6 +24,9 @@ interface Formulaire {
   beneficiaire: string;
   occasion: string;
   elu: string;
+  projetId: string | null;
+  evenementId: string | null;
+  evenementLibelle?: string;
 }
 
 const VIDE: Formulaire = {
@@ -33,6 +39,8 @@ const VIDE: Formulaire = {
   beneficiaire: '',
   occasion: '',
   elu: '',
+  projetId: null,
+  evenementId: null,
 };
 
 function Champ({ libelle, children }: { libelle: string; children: React.ReactNode }) {
@@ -96,6 +104,9 @@ export default function DemandesStock() {
   const [f, setF] = useState<Formulaire>(VIDE);
   const [memoire, setMemoire] = useState<{ dateRemise: string; beneficiaire: string; occasion: string; articleId: string; libelle: string }[]>([]);
   const [envoi, setEnvoi] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [projets, setProjets] = useState<IndicateursProjet[]>([]);
+  const voitProjets = peut('projets', 'lecture');
 
   const charger = () => api.get<{ demandes: DemandeStock[] }>('/stock/demandes').then((d) => setDemandes(d.demandes));
 
@@ -103,6 +114,30 @@ export default function DemandesStock() {
     charger();
     api.get<{ articles: ArticleStock[] }>('/stock/articles').then((d) => setArticles(d.articles.filter((a) => a.actif)));
     api.get<{ parametres: ParametresStock }>('/stock/parametres').then((d) => setParametres(d.parametres));
+  }, []);
+
+  useEffect(() => {
+    if (voitProjets) api.get<{ projets: IndicateursProjet[] }>('/projets?filtre=actifs').then((d) => setProjets(d.projets));
+  }, [voitProjets]);
+
+  // Ouverture depuis un projet ou une fiche événement : formulaire prérempli et rattaché.
+  useEffect(() => {
+    const projetId = params.get('projet');
+    const evenementId = params.get('evenement');
+    if (!projetId && !evenementId) return;
+    setParams({}, { replace: true });
+    if (projetId) {
+      api.get<{ projet: { titre: string } }>(`/projets/${projetId}`).then((d) => {
+        setF({ ...VIDE, projetId, evenement: d.projet.titre });
+        setFormulaireOuvert(true);
+      });
+    } else if (evenementId) {
+      api.get<FicheEvenementUnique>(`/liaisons/evenement/${evenementId}`).then((d) => {
+        setF({ ...VIDE, evenementId, evenement: d.evenement.nom, evenementLibelle: d.evenement.nom });
+        setFormulaireOuvert(true);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const article = articles.find((a) => a._id === f.articleId);
@@ -153,6 +188,8 @@ export default function DemandesStock() {
         beneficiaire: f.beneficiaire,
         occasion: f.occasion,
         elu: f.elu,
+        projetId: f.projetId,
+        evenementId: f.projetId ? null : f.evenementId,
       })
     );
     setEnvoi(false);
@@ -176,7 +213,20 @@ export default function DemandesStock() {
   const colonnes: TableColumnsType<DemandeStock> = [
     { title: 'N°', dataIndex: 'numero', width: 120, render: (v: string) => <Text strong>{v}</Text> },
     { title: 'Direction', dataIndex: 'directionNom', width: 180 },
-    { title: 'Événement', dataIndex: 'evenement' },
+    {
+      title: 'Événement',
+      key: 'evenement',
+      render: (_, d) => (
+        <span>
+          {d.evenement}
+          {d.projetTitre && (
+            <Tag color="blue" style={{ marginLeft: 6 }}>
+              Projet
+            </Tag>
+          )}
+        </span>
+      ),
+    },
     { title: 'Article', key: 'article', render: (_, d) => `${d.reference} · ${d.libelle}` },
     { title: 'Qté', dataIndex: 'quantite', width: 70, align: 'right' },
     { title: 'Besoin', key: 'besoin', width: 110, render: (_, d) => formatJour(d.dateBesoin) },
@@ -255,6 +305,32 @@ export default function DemandesStock() {
             </Champ>
           ) : (
             <Text type="secondary">Direction : {session?.direction ?? '—'}</Text>
+          )}
+          {voitProjets && (
+            <Champ libelle="Projet (facultatif)">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Rattacher à un projet en préparation"
+                value={f.projetId ?? undefined}
+                onChange={(projetId?: string) => {
+                  const p = projets.find((x) => x._id === projetId);
+                  setF({ ...f, projetId: projetId ?? null, evenementId: null, evenement: p ? p.titre : f.evenement });
+                }}
+                options={projets.map((p) => ({ value: p._id, label: `${p.titre} — ${formatJour(p.dateJour)}` }))}
+                style={{ width: '100%' }}
+              />
+            </Champ>
+          )}
+          {!f.projetId && (
+            <Champ libelle="Événement du calendrier (facultatif)">
+              <SelecteurEvenement
+                valeur={f.evenementId}
+                libelleInitial={f.evenementLibelle}
+                onChange={(evenementId, ev) => setF({ ...f, evenementId, evenementLibelle: ev?.nom, evenement: ev ? ev.nom : f.evenement })}
+              />
+            </Champ>
           )}
           <Champ libelle="Événement">
             <Input value={f.evenement} onChange={(e) => setF({ ...f, evenement: e.target.value })} placeholder="Nom de la manifestation" />

@@ -99,7 +99,25 @@ Repris de l'artefact « Balise événementielle » :
 - **Demandes d'événement** : dépôt par tout compte ayant accès au module, instruction, acceptation (crée le projet, la
   date de dépôt faisant foi pour l'échéance des 6 mois) ou refus motivé ; courriels aux valideurs et au demandeur.
 
-Pas encore fait : l'espace prestataire (accès externes), prévu plus tard.
+Pas encore fait : l'espace prestataire (accès externes), prévu plus tard. Le matériel logistique (prêté puis rendu) reste
+distinct du stock de goodies (consommé) : leurs règles de gestion diffèrent.
+
+## Liaisons entre modules
+
+- **Fiche événement unique** (`/evenement/:id`, bouton « Fiche complète » du calendrier) : la manifestation telle
+  qu'inscrite au calendrier, son projet de préparation et ses demandes de goodies, chacun selon les droits du compte.
+  Elle permet de créer le projet d'un événement (l'inscription au calendrier fait foi pour l'échéance des 6 mois).
+- **Projet ↔ calendrier** : un projet se rattache à un événement du calendrier (onglet Informations). Si la date change
+  au calendrier, la fiche projet le signale et propose d'aligner le jour J, ce qui décale tout le rétroplanning.
+  L'acceptation d'une demande d'événement peut inscrire la manifestation au calendrier, au statut « À valider ».
+- **Goodies ↔ projet ou événement** : une demande de goodies peut être rattachée à un projet ou à un événement du
+  calendrier ; la fiche projet a un onglet Goodies.
+- **Accueil** : ce qui demande une action dans chaque module, et les manifestations des 30 prochains jours avec leur
+  projet et leurs demandes de goodies.
+
+Un événement du calendrier est une série de lignes (une par jour) recréée à chaque report de date. Les liens retiennent
+donc la clé de la série (nom, date de début, date de fin) en plus de l'identifiant d'une ligne, et suivent les reports
+de date.
 
 ### Format CSV des comptes
 

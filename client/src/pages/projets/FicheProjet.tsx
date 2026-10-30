@@ -34,9 +34,10 @@ import {
   jalonDe,
   useReferentiels,
 } from '../../lib/projets';
-import { formatEuro } from '../../lib/formatStock';
 import { lancer } from '../../lib/actionStock';
 import { PlanImplantation } from './PlanImplantation';
+import { SelecteurEvenement } from '../../components/SelecteurEvenement';
+import { couleurStatut, formatEuro, formatJour } from '../../lib/formatStock';
 
 const { Text, Title } = Typography;
 
@@ -636,7 +637,7 @@ function BudgetBilan({ fiche, referentiels: ref, ligne, majProjet, peut }: Ops) 
 
 // --- Informations ---------------------------------------------------------------------------------
 
-function Informations({ fiche, referentiels: ref, majProjet, peut }: Ops) {
+function Informations({ fiche, referentiels: ref, majProjet, recharger, peut }: Ops) {
   const navigate = useNavigate();
   const { projet } = fiche;
   const modifiable = peut('administration');
@@ -687,6 +688,19 @@ function Informations({ fiche, referentiels: ref, majProjet, peut }: Ops) {
       <Text type="secondary" style={{ display: 'block', margin: '12px 0' }}>
         Changer le jour J recalcule toutes les échéances du rétroplanning. Projet inscrit le {formatLong(projet.inscritLe)}.
       </Text>
+      {modifiable && (
+        <div style={{ margin: '16px 0', maxWidth: 640 }}>
+          <div style={{ fontSize: 12, color: '#595959', marginBottom: 4 }}>Événement du calendrier</div>
+          <SelecteurEvenement
+            valeur={fiche.evenement && !fiche.evenement.supprime ? fiche.evenement._id : null}
+            libelleInitial={fiche.evenement?.nom ?? undefined}
+            onChange={async (evenementId) => {
+              await lancer(api.put(`/liaisons/projet/${projet._id}/evenement`, { evenementId }));
+              await recharger();
+            }}
+          />
+        </div>
+      )}
       {modifiable && (
         <Popconfirm
           title="Supprimer ce projet ?"
@@ -772,6 +786,46 @@ export default function FicheProjet() {
     { key: 'budget', label: 'Budget et bilan', children: <BudgetBilan {...ops} /> },
     { key: 'infos', label: 'Informations', children: <Informations {...ops} /> },
   ];
+  if (fiche.demandesStock !== null) {
+    onglets.splice(6, 0, {
+      key: 'goodies',
+      label: `Goodies (${fiche.demandesStock.length})`,
+      children: (
+        <Card
+          title="Demandes de goodies et cadeaux"
+          extra={<Button onClick={() => navigate(`/stock/demandes?projet=${projet._id}`)}>Demander des goodies pour ce projet</Button>}
+        >
+          {fiche.demandesStock.length === 0 ? (
+            <Empty description="Aucune demande rattachée au projet ou à son événement" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          ) : (
+            <Table
+              rowKey="_id"
+              size="small"
+              pagination={false}
+              dataSource={fiche.demandesStock}
+              columns={[
+                { title: 'N°', dataIndex: 'numero' },
+                { title: 'Direction', dataIndex: 'directionNom' },
+                { title: 'Article', key: 'a', render: (_, d) => `${d.reference} · ${d.libelle}` },
+                { title: 'Qté', dataIndex: 'quantite', align: 'right' },
+                { title: 'Valeur', key: 'v', align: 'right', render: (_, d) => formatEuro(d.valeur) },
+                { title: 'Besoin', key: 'b', render: (_, d) => formatJour(d.dateBesoin) },
+                { title: 'Statut', key: 's', render: (_, d) => <Tag color={couleurStatut(d.statut)}>{d.statut}</Tag> },
+              ]}
+            />
+          )}
+        </Card>
+      ),
+    });
+  }
+
+  // Écart entre le jour J du projet et la date inscrite au calendrier (report de date au calendrier, par exemple).
+  const evenement = fiche.evenement;
+  const jourLocal = (iso: string | null) => (iso ? dayjs(iso).format('YYYY-MM-DD') : null);
+  const ecartCalendrier =
+    evenement && !evenement.supprime && evenement.dateDeDebut && jourLocal(evenement.dateDeDebut) !== projet.dateJour
+      ? { debut: jourLocal(evenement.dateDeDebut)!, fin: jourLocal(evenement.dateDeFin) }
+      : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -797,6 +851,40 @@ export default function FicheProjet() {
           </Text>
         </Space>
       </div>
+      {evenement && !evenement.supprime && (
+        <Space wrap>
+          <Text type="secondary">
+            Au calendrier : {evenement.nom} · {formatLong(evenement.dateDeDebut)}
+            {evenement.dateDeFin ? ` → ${formatLong(evenement.dateDeFin)}` : ''}
+          </Text>
+          <Button size="small" onClick={() => navigate(`/evenement/${evenement._id}`)}>
+            Fiche événement
+          </Button>
+        </Space>
+      )}
+      {evenement?.supprime && (
+        <Alert type="warning" showIcon message={`L'événement « ${evenement.nom ?? ''} » n'existe plus dans le calendrier. Rattachez le projet à un autre événement dans l'onglet Informations.`} />
+      )}
+      {ecartCalendrier && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`Le calendrier indique le ${formatLong(ecartCalendrier.debut)}, le projet le ${formatLong(projet.dateJour)}.`}
+          description="La date a pu être reportée au calendrier. Aligner le projet décale tout son rétroplanning."
+          action={
+            peut('projets', 'administration') && (
+              <Button
+                size="small"
+                onClick={() =>
+                  majProjet({ dateJour: ecartCalendrier.debut, dateFin: ecartCalendrier.fin && ecartCalendrier.fin !== ecartCalendrier.debut ? ecartCalendrier.fin : null })
+                }
+              >
+                Aligner sur le calendrier
+              </Button>
+            )
+          }
+        />
+      )}
       {actif && inscription < ref.delaiInscriptionJours && (
         <Alert
           type="error"

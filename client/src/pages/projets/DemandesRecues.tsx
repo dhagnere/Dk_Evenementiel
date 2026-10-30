@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Descriptions, Empty, Input, Segmented, Space, Tag, Typography } from 'antd';
+import { Button, Card, Checkbox, Descriptions, Empty, Input, Segmented, Space, Tag, Typography } from 'antd';
 import { api } from '../../api';
 import type { DemandeEvenement } from '../../types';
 import { STATUTS_DEMANDE, ecart, formatLong, useReferentiels } from '../../lib/projets';
@@ -15,6 +15,8 @@ export default function DemandesRecues() {
   const [demandes, setDemandes] = useState<DemandeEvenement[]>([]);
   const [filtre, setFiltre] = useState<'a-instruire' | 'toutes'>('a-instruire');
   const [reponses, setReponses] = useState<Record<string, string>>({});
+  // Inscription au calendrier à l'acceptation : cochée par défaut.
+  const [auCalendrier, setAuCalendrier] = useState<Record<string, boolean>>({});
 
   const charger = () => api.get<{ demandes: DemandeEvenement[] }>('/projets/demandes/toutes').then((d) => setDemandes(d.demandes));
   useEffect(() => {
@@ -24,7 +26,10 @@ export default function DemandesRecues() {
   const affichees = filtre === 'toutes' ? demandes : demandes.filter((d) => d.statut === 'nouvelle' || d.statut === 'instruction');
 
   const accepter = async (d: DemandeEvenement) => {
-    const res = await api.post<{ ok: boolean; message: string; projetId?: string }>(`/projets/demandes/${d._id}/accepter`, { reponse: reponses[d._id] ?? '' });
+    const res = await api.post<{ ok: boolean; message: string; projetId?: string }>(`/projets/demandes/${d._id}/accepter`, {
+      reponse: reponses[d._id] ?? '',
+      inscrireCalendrier: auCalendrier[d._id] ?? true,
+    });
     if ((await lancer(Promise.resolve(res))) && res.projetId) navigate(`/projets/${res.projetId}`);
   };
 
@@ -83,6 +88,9 @@ export default function DemandesRecues() {
                     <Button type="primary" onClick={() => accepter(d)}>
                       Créer le projet
                     </Button>
+                    <Checkbox checked={auCalendrier[d._id] ?? true} onChange={(e) => setAuCalendrier({ ...auCalendrier, [d._id]: e.target.checked })}>
+                      Inscrire au calendrier (à valider)
+                    </Checkbox>
                     {d.statut === 'nouvelle' && (
                       <Button onClick={async () => (await lancer(api.post(`/projets/demandes/${d._id}/instruction`))) && charger()}>Passer en instruction</Button>
                     )}
