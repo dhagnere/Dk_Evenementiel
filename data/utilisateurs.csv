@@ -1,0 +1,3 @@
+nom,email,role,statut,motDePasseInitial,derniereConnexion
+Admin Exemple,admin@dunkerque.example,Administrateur,Actif,ChangezMoi123!,
+Consultant Exemple,consultant@dunkerque.example,Consultant,Actif,ChangezMoi123!,
