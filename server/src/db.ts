@@ -11,6 +11,12 @@ const DOSSIER_MIGRATIONS = path.join(__dirname, '..', 'migrations');
 // COUNT(*) et autres bigint arrivent en texte par défaut (pour ne pas perdre de précision au-delà de
 // 2^53) : aucun compteur de l'appli n'approche cette limite, on les convertit en nombre.
 pg.types.setTypeParser(pg.types.builtins.INT8, (valeur) => parseInt(valeur, 10));
+// Idem pour numeric (montants et prix du module Stock) : deux décimales suffisent largement à
+// la précision d'un nombre JavaScript.
+pg.types.setTypeParser(pg.types.builtins.NUMERIC, (valeur) => parseFloat(valeur));
+// Une colonne date (jour civil, sans heure) reste une chaîne AAAA-MM-JJ : la convertir en Date
+// la décalerait selon le fuseau du serveur.
+pg.types.setTypeParser(pg.types.builtins.DATE, (valeur) => valeur);
 
 export const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -102,6 +108,43 @@ const TABLES = {
   parametres: {
     colonnes: ['cle', 'valeur', 'createdAt', 'updatedAt'],
     json: ['valeur'],
+  },
+  stock_articles: {
+    colonnes: [
+      '_id', 'reference', 'libelle', 'famille', 'categorie', 'emplacement', 'fournisseur', 'delaiJours',
+      'stockPhysique', 'stockReserve', 'seuil', 'pmp', 'aValoriser', 'actif', 'createdAt', 'updatedAt',
+    ],
+    json: [],
+  },
+  stock_depots: {
+    colonnes: ['_id', 'directionId', 'referentId', 'derniereDeclaration', 'derniereRelance', 'actif', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  stock_demandes: {
+    colonnes: [
+      '_id', 'numero', 'directionId', 'directionNom', 'evenement', 'evenementId', 'articleId', 'quantite', 'dateBesoin',
+      'motifTardif', 'beneficiaire', 'occasion', 'elu', 'valeur', 'circuit', 'statut', 'motifRefus', 'demandeurId',
+      'demandeurNom', 'historique', 'createdAt', 'updatedAt',
+    ],
+    json: ['historique'],
+  },
+  stock_receptions: {
+    colonnes: ['_id', 'origine', 'fournisseur', 'reference', 'date', 'lignes', 'auteurId', 'auteurNom', 'createdAt', 'updatedAt'],
+    json: ['lignes'],
+  },
+  stock_mouvements: {
+    colonnes: [
+      '_id', 'numero', 'type', 'articleId', 'quantite', 'valeur', 'detail', 'motif', 'statut', 'demandeId', 'receptionId',
+      'depotId', 'auteurId', 'auteurNom', 'decideurNom', 'decideLe', 'createdAt', 'updatedAt',
+    ],
+    json: [],
+  },
+  stock_registre: {
+    colonnes: [
+      '_id', 'dateRemise', 'beneficiaire', 'organisme', 'occasion', 'elu', 'articleId', 'quantite', 'valeur', 'demandeId',
+      'anonymise', 'createdAt', 'updatedAt',
+    ],
+    json: [],
   },
   fichiers: {
     colonnes: [

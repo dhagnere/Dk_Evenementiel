@@ -11,6 +11,7 @@ export const schemaConservation = z.object({
   demandesAccesTraiteesJours: z.number().int().min(0).max(3650),
   comptesInactifsSuspensionJours: z.number().int().min(0).max(3650),
   comptesSuspendusSuppressionJours: z.number().int().min(0).max(3650),
+  registreProtocolaireJours: z.number().int().min(0).max(36500),
 });
 export type Conservation = z.infer<typeof schemaConservation>;
 
@@ -19,6 +20,7 @@ const CONSERVATION_PAR_DEFAUT: Conservation = {
   demandesAccesTraiteesJours: 90,
   comptesInactifsSuspensionJours: 365,
   comptesSuspendusSuppressionJours: 730,
+  registreProtocolaireJours: 3650,
 };
 
 export async function lireConservation(): Promise<Conservation> {
@@ -40,6 +42,7 @@ export interface BilanPurge {
   demandesAcces: number;
   comptesSuspendus: number;
   comptesSupprimes: number;
+  registreAnonymise: number;
 }
 
 /**
@@ -48,7 +51,7 @@ export interface BilanPurge {
  */
 export async function purger(identite: IdentiteJournal): Promise<BilanPurge> {
   const c = await lireConservation();
-  const bilan: BilanPurge = { journal: 0, demandesAcces: 0, comptesSuspendus: 0, comptesSupprimes: 0 };
+  const bilan: BilanPurge = { journal: 0, demandesAcces: 0, comptesSuspendus: 0, comptesSupprimes: 0, registreAnonymise: 0 };
   const avant = (jours: number) => `now() - make_interval(days => ${Number(jours)})`;
 
   await transaction(async (client) => {
@@ -76,6 +79,14 @@ export async function purger(identite: IdentiteJournal): Promise<BilanPurge> {
         `DELETE FROM utilisateurs
           WHERE NOT super_admin AND statut = 'Suspendu'
             AND COALESCE(derniere_connexion, created_at) < ${avant(c.comptesSuspendusSuppressionJours)}`,
+        [],
+        client
+      );
+    }
+    if (c.registreProtocolaireJours > 0) {
+      bilan.registreAnonymise = await executer(
+        `UPDATE stock_registre SET beneficiaire = 'Bénéficiaire anonymisé', anonymise = true
+          WHERE NOT anonymise AND date_remise < (now() - make_interval(days => ${Number(c.registreProtocolaireJours)}))::date`,
         [],
         client
       );
@@ -155,6 +166,23 @@ export async function exporterPersonne(email: string) {
           [noms.map((n) => n.trim().toLowerCase())]
         )
       : [];
+  const nomsMinuscules = noms.map((n) => n.trim().toLowerCase());
+  const [demandesStock, registreProtocolaire] =
+    noms.length > 0 || compte
+      ? await Promise.all([
+          requete(
+            `SELECT numero, direction_nom, evenement, quantite, date_besoin, statut, beneficiaire, created_at
+               FROM stock_demandes WHERE demandeur_id = $1 OR lower(btrim(beneficiaire)) = ANY($2) ORDER BY created_at`,
+            [compte?._id ?? null, nomsMinuscules]
+          ),
+          requete(
+            `SELECT r.date_remise, r.beneficiaire, r.organisme, r.occasion, r.elu, a.libelle, r.quantite
+               FROM stock_registre r JOIN stock_articles a ON a.id = r.article_id
+              WHERE NOT r.anonymise AND lower(btrim(r.beneficiaire)) = ANY($1) ORDER BY r.date_remise`,
+            [nomsMinuscules]
+          ),
+        ])
+      : [[], []];
   return {
     personne: adresse,
     exporteLe: new Date().toISOString(),
@@ -163,6 +191,8 @@ export async function exporterPersonne(email: string) {
     demandesAcces,
     journal,
     evenementsPilotes,
+    demandesStock,
+    registreProtocolaire,
   };
 }
 
@@ -172,17 +202,19 @@ export interface BilanEffacement {
   journalAnonymise: number;
   sauvegardesNettoyees: number;
   evenementsPilotes: number;
+  registreProtocolaire: number;
 }
 
 /**
  * Efface les données d'une personne (droit à l'effacement, article 17) : compte et droits supprimés,
  * demandes d'accès supprimées, journal anonymisé, compte retiré des sauvegardes. Les événements
  * dont elle est pilote ne sont pas modifiés (donnée de service) : ils sont comptés pour que le
- * super-administrateur puisse les revoir.
+ * super-administrateur puisse les revoir. Même chose pour le registre protocolaire, dont l'effacement
+ * relève d'une décision au cas par cas (mission d'intérêt public, obligation de traçabilité).
  */
 export async function effacerPersonne(email: string, identite: IdentiteJournal): Promise<BilanEffacement> {
   const adresse = email.trim().toLowerCase();
-  const { evenementsPilotes } = await exporterPersonne(adresse);
+  const { evenementsPilotes, registreProtocolaire } = await exporterPersonne(adresse);
   const bilan = await transaction(async (client) => {
     const compte = await executer('DELETE FROM utilisateurs WHERE email = $1', [adresse], client);
     const demandesAcces = await executer('DELETE FROM demandes_acces WHERE email = $1', [adresse], client);
@@ -213,6 +245,7 @@ export async function effacerPersonne(email: string, identite: IdentiteJournal):
       journalAnonymise: parAuteur + parCible,
       sauvegardesNettoyees,
       evenementsPilotes: evenementsPilotes.length,
+      registreProtocolaire: registreProtocolaire.length,
     };
   });
   // L'adresse effacée n'est pas reprise dans le journal : seule la trace de l'opération est gardée.

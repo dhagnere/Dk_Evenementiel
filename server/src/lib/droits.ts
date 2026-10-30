@@ -33,13 +33,14 @@ export const MODULES = [
   {
     code: 'stock',
     libelle: 'Stock & Protocole',
-    description: 'Goodies, cadeaux protocolaires, matériel logistique et stocks déportés.',
-    disponible: false,
+    description: 'Goodies, cadeaux protocolaires, demandes des directions, registre protocolaire et stocks déportés.',
+    disponible: true,
     niveaux: {
-      lecture: 'Consulter le catalogue et les stocks.',
-      contribution: 'Déposer des demandes et déclarer les sorties ou retours.',
-      validation: 'Valider les demandes selon les circuits.',
-      administration: 'Gérer le catalogue, les entrées, les ajustements et le registre protocolaire.',
+      lecture: 'Consulter le catalogue des goodies et le tableau de bord.',
+      contribution: 'Demander des goodies pour sa direction ; déclarer les sorties et retours de son stock déporté.',
+      validation:
+        'Voir les cadeaux protocolaires et le registre ; valider les demandes, ajustements et anomalies ; remettre les demandes.',
+      administration: 'Gérer le catalogue, les réceptions, les ajustements, les stocks déportés et les paramètres.',
     },
   },
   {

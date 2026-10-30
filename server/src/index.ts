@@ -18,6 +18,7 @@ import { journalRouter } from './routes/journal.routes.js';
 import { directionsRouter } from './routes/directions.routes.js';
 import { rgpdRouter } from './routes/rgpd.routes.js';
 import { systemeRouter } from './routes/systeme.routes.js';
+import { stockRouter } from './routes/stock.routes.js';
 import { demarrerSauvegardeQuotidienne } from './lib/backup.js';
 import { demarrerPurgeQuotidienne } from './lib/rgpd.js';
 
@@ -49,6 +50,7 @@ async function main() {
   app.use('/api/directions', directionsRouter);
   app.use('/api/rgpd', rgpdRouter);
   app.use('/api/systeme', systemeRouter);
+  app.use('/api/stock', stockRouter);
 
   demarrerSauvegardeQuotidienne();
   demarrerPurgeQuotidienne();
