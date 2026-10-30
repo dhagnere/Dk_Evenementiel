@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react';
 import {
   AppstoreOutlined,
+  BookOutlined,
+  CheckCircleOutlined,
+  InboxOutlined,
+  MobileOutlined,
+  ShopOutlined,
+  ShoppingCartOutlined,
   ApartmentOutlined,
   CalendarOutlined,
   CloudUploadOutlined,
@@ -56,6 +62,23 @@ export const SECTIONS: SectionNavigation[] = [
         niveau: 'contribution',
       },
       { chemin: '/calendrier/doublons', libelle: 'Doublons', icone: <CopyOutlined />, niveau: 'administration' },
+    ],
+  },
+  {
+    code: 'stock',
+    libelle: 'Stock & Protocole',
+    icone: <GiftOutlined />,
+    racine: '/stock',
+    pages: [
+      { chemin: '/stock', libelle: 'Tableau de bord', icone: <DashboardOutlined /> },
+      { chemin: '/stock/catalogue', libelle: 'Catalogue', icone: <AppstoreOutlined /> },
+      { chemin: '/stock/demandes', libelle: 'Demandes', icone: <ShoppingCartOutlined />, niveau: 'contribution' },
+      { chemin: '/stock/mon-depot', libelle: 'Mon stock déporté', icone: <MobileOutlined />, niveau: 'contribution' },
+      { chemin: '/stock/validations', libelle: 'Validations', icone: <CheckCircleOutlined />, niveau: 'validation' },
+      { chemin: '/stock/registre', libelle: 'Registre protocolaire', icone: <BookOutlined />, niveau: 'validation' },
+      { chemin: '/stock/entrees', libelle: 'Entrées & ajustements', icone: <InboxOutlined />, niveau: 'administration' },
+      { chemin: '/stock/deportes', libelle: 'Stocks déportés', icone: <ShopOutlined />, niveau: 'administration' },
+      { chemin: '/stock/parametres', libelle: 'Paramètres', icone: <SettingOutlined />, niveau: 'administration' },
     ],
   },
   {

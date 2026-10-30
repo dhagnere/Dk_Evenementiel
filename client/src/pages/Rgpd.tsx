@@ -10,6 +10,7 @@ interface Conservation {
   demandesAccesTraiteesJours: number;
   comptesInactifsSuspensionJours: number;
   comptesSuspendusSuppressionJours: number;
+  registreProtocolaireJours: number;
 }
 
 interface BilanPurge {
@@ -17,6 +18,7 @@ interface BilanPurge {
   demandesAcces: number;
   comptesSuspendus: number;
   comptesSupprimes: number;
+  registreAnonymise: number;
 }
 
 const REGLES: { cle: keyof Conservation; libelle: string; aide: string }[] = [
@@ -35,6 +37,11 @@ const REGLES: { cle: keyof Conservation; libelle: string; aide: string }[] = [
     cle: 'comptesSuspendusSuppressionJours',
     libelle: 'Suppression des comptes suspendus',
     aide: 'Délai depuis la dernière connexion, pour un compte déjà suspendu.',
+  },
+  {
+    cle: 'registreProtocolaireJours',
+    libelle: 'Registre protocolaire',
+    aide: 'Délai après la remise du cadeau, au-delà duquel le nom du bénéficiaire est anonymisé.',
   },
 ];
 
@@ -83,7 +90,7 @@ export default function Rgpd() {
     const b = res.bilan;
     setMessageConservation({
       type: 'success',
-      texte: `Purge effectuée : ${b.journal} entrée(s) de journal, ${b.demandesAcces} demande(s) d’accès, ${b.comptesSuspendus} compte(s) suspendu(s), ${b.comptesSupprimes} compte(s) supprimé(s).`,
+      texte: `Purge effectuée : ${b.journal} entrée(s) de journal, ${b.demandesAcces} demande(s) d’accès, ${b.comptesSuspendus} compte(s) suspendu(s), ${b.comptesSupprimes} compte(s) supprimé(s), ${b.registreAnonymise} ligne(s) du registre anonymisée(s).`,
     });
     charger();
   };
@@ -109,7 +116,7 @@ export default function Rgpd() {
       const res = await api.post<{
         ok: boolean;
         message?: string;
-        bilan?: { compte: number; demandesAcces: number; journalAnonymise: number; sauvegardesNettoyees: number; evenementsPilotes: number };
+        bilan?: { compte: number; demandesAcces: number; journalAnonymise: number; sauvegardesNettoyees: number; evenementsPilotes: number; registreProtocolaire: number };
       }>('/rgpd/personne/effacer', { email: email.trim(), confirmation: true });
       if (!res.ok || !res.bilan) {
         setMessagePersonne({ type: 'error', texte: res.message ?? 'Effacement impossible' });
@@ -122,6 +129,9 @@ export default function Rgpd() {
           `Effacement effectué : ${b.compte} compte, ${b.demandesAcces} demande(s) d’accès, ${b.journalAnonymise} entrée(s) de journal anonymisée(s), ${b.sauvegardesNettoyees} sauvegarde(s) nettoyée(s).` +
           (b.evenementsPilotes > 0
             ? ` ${b.evenementsPilotes} événement(s) du calendrier la citent comme pilote : à revoir manuellement.`
+            : '') +
+          (b.registreProtocolaire > 0
+            ? ` ${b.registreProtocolaire} ligne(s) du registre protocolaire la citent : effacement à décider au cas par cas.`
             : ''),
       });
       setEmail('');
@@ -151,7 +161,7 @@ export default function Rgpd() {
                 </span>
                 <InputNumber
                   min={0}
-                  max={3650}
+                  max={36500}
                   value={conservation[r.cle]}
                   onChange={(v) => setConservation({ ...conservation, [r.cle]: Number(v ?? 0) })}
                   addonAfter="jours"
@@ -189,8 +199,8 @@ export default function Rgpd() {
       <Card title="Droits des personnes">
         <Paragraph type="secondary">
           Pour répondre à une demande d’accès (article 15) ou d’effacement (article 17), indiquez l’adresse électronique de la
-          personne. L’export rassemble son compte, ses droits, ses demandes d’accès, ses traces au journal et les événements
-          dont elle est pilote.
+          personne. L’export rassemble son compte, ses droits, ses demandes d’accès, ses traces au journal, les événements
+          dont elle est pilote, ses demandes de stock et les cadeaux protocolaires reçus.
         </Paragraph>
         <Message message={messagePersonne} />
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

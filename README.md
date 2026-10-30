@@ -5,7 +5,7 @@ Application unique du service Événementiel, organisée en modules derrière un
 | Module | Contenu | État |
 |---|---|---|
 | **Calendrier** | Calendrier des événements du territoire : liste, carte, conflits, doublons, fiches de renseignement, import/export CSV | Disponible (repris de Dk_Calendar) |
-| **Stock & Protocole** | Goodies, cadeaux protocolaires, matériel logistique, stocks déportés | Phase 2 — maquette dans `maquettes/stock-goodies/` |
+| **Stock & Protocole** | Goodies, cadeaux protocolaires, demandes des directions, registre protocolaire, stocks déportés | Disponible (phase 2) |
 | **Projets événementiels** | Rétroplanning, tâches, prestataires, plan d'implantation, sécurité, budget | Phase 3 |
 
 Le socle commun (comptes, droits, directions, journal, sauvegardes, RGPD, stockage des fichiers) sert tous les modules.
@@ -26,6 +26,13 @@ Chaque compte a, **pour chaque module**, un niveau d'accès. Chaque niveau inclu
 | Validation | Valider les événements, changer leur statut et leurs dates |
 | Administration | Supprimer des événements, importer un CSV, fusionner les doublons, géocoder |
 
+| Niveau | Stock & Protocole |
+|---|---|
+| Lecture | Consulter le catalogue des goodies et le tableau de bord |
+| Contribution | Demander des goodies pour sa direction ; déclarer sorties et retours de son stock déporté (référent) |
+| Validation | Voir les cadeaux protocolaires et le registre ; valider demandes, ajustements et anomalies ; remettre les demandes |
+| Administration | Gérer le catalogue, les réceptions, les ajustements, les stocks déportés et les paramètres |
+
 Un **super-administrateur** a tous les droits sur tous les modules, ainsi que l'administration générale : comptes et
 droits, demandes d'accès, directions, sauvegardes, journal, RGPD, état du système. L'application refuse de retirer,
 suspendre ou supprimer le dernier super-administrateur actif.
@@ -39,6 +46,32 @@ sans attendre l'expiration de la session.
 super-administrateur, Consultant reçoit le niveau Contribution sur le Calendrier, c'est-à-dire exactement ce qu'il
 pouvait faire auparavant. Les anciens fichiers CSV de comptes (colonne `role`) et les anciennes sauvegardes restent
 acceptés et sont convertis de la même façon.
+
+## Module Stock & Protocole
+
+Règles de gestion, reprises de la maquette (`maquettes/stock-goodies/`) :
+
+- **Disponible** = stock physique − stock réservé. Une demande réserve sa quantité dès son dépôt ; un refus ou une
+  annulation libère la réservation.
+- **Circuits** : goodies validés automatiquement jusqu'à 150 € (paramétrable), par un valideur au-delà ; cadeau
+  protocolaire : avis du Protocole puis validation du Cabinet, qui inscrit la remise au **registre protocolaire**.
+  Seul le service (niveau Validation) demande des cadeaux protocolaires.
+- **Demande tardive** (moins de 10 jours avant le besoin) : motif obligatoire.
+- **Remise** : sortie du stock central. Des goodies remis à une direction dotée d'un **stock déporté** y sont versés ; le
+  référent déclare ensuite, depuis son téléphone, les sorties (distribués) et les retours (non distribués).
+- **Réception** : met à jour le stock et le prix moyen pondéré ; tout écart crée une anomalie à traiter.
+- **Ajustement** : immédiat jusqu'à 50 €, soumis à validation au-delà ou pour un cadeau protocolaire ; le stock réservé
+  ne peut jamais être entamé.
+- **Contrôle à quatre yeux** : personne ne décide de sa propre demande ni de son propre ajustement, sauf un
+  super-administrateur.
+- Courriels aux valideurs (demande à valider), aux demandeurs (décision) et aux référents (relance).
+
+Pour une recette, un jeu de démonstration (catalogue, directions, stocks déportés de la maquette) se charge sur une base
+dont le catalogue est vide :
+
+```bash
+npm run seed:stock-demo -w server
+```
 
 ### Format CSV des comptes
 

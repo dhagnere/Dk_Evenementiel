@@ -17,6 +17,15 @@ import Doublons from './pages/Doublons';
 import Journal from './pages/Journal';
 import Rgpd from './pages/Rgpd';
 import Systeme from './pages/Systeme';
+import TableauDeBordStock from './pages/stock/TableauDeBordStock';
+import Catalogue from './pages/stock/Catalogue';
+import DemandesStock from './pages/stock/Demandes';
+import MonDepot from './pages/stock/MonDepot';
+import Validations from './pages/stock/Validations';
+import Registre from './pages/stock/Registre';
+import Entrees from './pages/stock/Entrees';
+import Deportes from './pages/stock/Deportes';
+import ParametresStock from './pages/stock/ParametresStock';
 
 export default function App() {
   return (
@@ -36,6 +45,24 @@ export default function App() {
         </Route>
         <Route element={<RequireModule module="calendrier" niveau="administration" />}>
           <Route path="/calendrier/doublons" element={<Doublons />} />
+        </Route>
+
+        <Route element={<RequireModule module="stock" niveau="lecture" />}>
+          <Route path="/stock" element={<TableauDeBordStock />} />
+          <Route path="/stock/catalogue" element={<Catalogue />} />
+        </Route>
+        <Route element={<RequireModule module="stock" niveau="contribution" />}>
+          <Route path="/stock/demandes" element={<DemandesStock />} />
+          <Route path="/stock/mon-depot" element={<MonDepot />} />
+        </Route>
+        <Route element={<RequireModule module="stock" niveau="validation" />}>
+          <Route path="/stock/validations" element={<Validations />} />
+          <Route path="/stock/registre" element={<Registre />} />
+        </Route>
+        <Route element={<RequireModule module="stock" niveau="administration" />}>
+          <Route path="/stock/entrees" element={<Entrees />} />
+          <Route path="/stock/deportes" element={<Deportes />} />
+          <Route path="/stock/parametres" element={<ParametresStock />} />
         </Route>
 
         <Route element={<RequireSuperAdmin />}>

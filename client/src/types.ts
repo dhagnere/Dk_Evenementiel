@@ -95,3 +95,108 @@ export interface DemandeAcces {
   statut: 'En attente' | 'Approuvée' | 'Rejetée';
   createdAt: string;
 }
+
+// --- Module Stock & Protocole ---
+
+export type CategorieArticle = 'Goodies' | 'Protocole';
+
+export interface ArticleStock {
+  _id: string;
+  reference: string;
+  libelle: string;
+  famille: string;
+  categorie: CategorieArticle;
+  emplacement: string;
+  fournisseur: string;
+  delaiJours: number;
+  stockPhysique: number;
+  stockReserve: number;
+  seuil: number;
+  pmp: number;
+  aValoriser: boolean;
+  actif: boolean;
+}
+
+export interface EtapeDemande {
+  date: string;
+  action: string;
+  par: string;
+  motif?: string;
+}
+
+export interface DemandeStock {
+  _id: string;
+  numero: string;
+  directionId: string | null;
+  directionNom: string;
+  evenement: string;
+  articleId: string;
+  reference: string;
+  libelle: string;
+  categorie: CategorieArticle;
+  quantite: number;
+  dateBesoin: string;
+  motifTardif: string;
+  beneficiaire: string;
+  occasion: string;
+  elu: string;
+  valeur: number;
+  circuit: string;
+  statut: string;
+  motifRefus: string;
+  demandeurId: string | null;
+  demandeurNom: string;
+  historique: EtapeDemande[];
+  createdAt: string;
+}
+
+export interface MouvementStock {
+  _id: string;
+  numero: string;
+  type: string;
+  articleId: string;
+  reference: string;
+  libelle: string;
+  quantite: number;
+  valeur: number;
+  detail: string;
+  statut: string;
+  auteurId: string | null;
+  auteurNom: string;
+  decideurNom: string;
+  createdAt: string;
+}
+
+export interface ParametresStock {
+  seuilValidationAutomatique: number;
+  seuilValidationAjustement: number;
+  delaiDemandeTardiveJours: number;
+  relanceDeportJours: number;
+  emplacements: string[];
+  emplacementProtocole: string;
+}
+
+export interface DepotStock {
+  _id: string;
+  directionId: string;
+  direction: string;
+  referentId: string | null;
+  referent: string | null;
+  referentEmail: string | null;
+  derniereDeclaration: string | null;
+  derniereRelance: string | null;
+  actif: boolean;
+  nombreArticles: number;
+  valeur: number;
+  createdAt: string;
+}
+
+export interface LigneDepot {
+  articleId: string;
+  reference: string;
+  libelle: string;
+  quantite: number;
+  pmp: number;
+}
+
+export const STATUTS_DEMANDE_EN_ATTENTE = ['En attente chef de service', 'En attente Protocole', 'En attente Cabinet'];
