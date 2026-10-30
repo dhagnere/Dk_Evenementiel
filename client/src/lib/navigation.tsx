@@ -1,6 +1,10 @@
 import type { ReactNode } from 'react';
 import {
   AppstoreOutlined,
+  BuildOutlined,
+  FormOutlined,
+  ProfileOutlined,
+  ScheduleOutlined,
   BookOutlined,
   CheckCircleOutlined,
   InboxOutlined,
@@ -79,6 +83,20 @@ export const SECTIONS: SectionNavigation[] = [
       { chemin: '/stock/entrees', libelle: 'Entrées & ajustements', icone: <InboxOutlined />, niveau: 'administration' },
       { chemin: '/stock/deportes', libelle: 'Stocks déportés', icone: <ShopOutlined />, niveau: 'administration' },
       { chemin: '/stock/parametres', libelle: 'Paramètres', icone: <SettingOutlined />, niveau: 'administration' },
+    ],
+  },
+  {
+    code: 'projets',
+    libelle: 'Projets',
+    icone: <ProjectOutlined />,
+    racine: '/projets',
+    pages: [
+      { chemin: '/projets', libelle: 'Tableau de bord', icone: <DashboardOutlined /> },
+      { chemin: '/projets/liste', libelle: 'Projets', icone: <ScheduleOutlined /> },
+      { chemin: '/projets/deposer', libelle: 'Demander un événement', icone: <FormOutlined /> },
+      { chemin: '/projets/demandes', libelle: 'Demandes reçues', icone: <InboxOutlined />, niveau: 'validation' },
+      { chemin: '/projets/materiel', libelle: 'Matériel', icone: <BuildOutlined /> },
+      { chemin: '/projets/modeles', libelle: 'Modèles', icone: <ProfileOutlined />, niveau: 'administration' },
     ],
   },
   {

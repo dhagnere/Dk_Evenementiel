@@ -6,7 +6,7 @@ Application unique du service Événementiel, organisée en modules derrière un
 |---|---|---|
 | **Calendrier** | Calendrier des événements du territoire : liste, carte, conflits, doublons, fiches de renseignement, import/export CSV | Disponible (repris de Dk_Calendar) |
 | **Stock & Protocole** | Goodies, cadeaux protocolaires, demandes des directions, registre protocolaire, stocks déportés | Disponible (phase 2) |
-| **Projets événementiels** | Rétroplanning, tâches, prestataires, plan d'implantation, sécurité, budget | Phase 3 |
+| **Projets événementiels** | Demandes d'événement, rétroplanning T-180 → J+7, logistique et matériel, sécurité et réglementaire, prestataires, plan d'implantation 2D/3D, budget et bilan | Disponible (phase 3) |
 
 Le socle commun (comptes, droits, directions, journal, sauvegardes, RGPD, stockage des fichiers) sert tous les modules.
 
@@ -32,6 +32,13 @@ Chaque compte a, **pour chaque module**, un niveau d'accès. Chaque niveau inclu
 | Contribution | Demander des goodies pour sa direction ; déclarer sorties et retours de son stock déporté (référent) |
 | Validation | Voir les cadeaux protocolaires et le registre ; valider demandes, ajustements et anomalies ; remettre les demandes |
 | Administration | Gérer le catalogue, les réceptions, les ajustements, les stocks déportés et les paramètres |
+
+| Niveau | Projets événementiels |
+|---|---|
+| Lecture | Consulter les projets et leur plan ; déposer une demande d'événement et la suivre |
+| Contribution | Mettre à jour tâches, logistique, matériel, démarches, prestataires et plan |
+| Validation | Instruire les demandes d'événement ; tenir le budget et le bilan ; changer le statut |
+| Administration | Créer, modifier et supprimer les projets ; modèles de rétroplanning ; matériel |
 
 Un **super-administrateur** a tous les droits sur tous les modules, ainsi que l'administration générale : comptes et
 droits, demandes d'accès, directions, sauvegardes, journal, RGPD, état du système. L'application refuse de retirer,
@@ -72,6 +79,27 @@ dont le catalogue est vide :
 ```bash
 npm run seed:stock-demo -w server
 ```
+
+## Module Projets événementiels
+
+Repris de l'artefact « Balise événementielle » :
+
+- **Rétroplanning** en jours par rapport au jour J, de T-180 (échéance des 6 mois) à J+7 (bilan), découpé en jalons
+  dont cinq réunions. À la création, tâches et démarches sont tirées des **modèles** selon le type d'événement (festif,
+  protocolaire, quartier). Changer la date décale toutes les échéances.
+- **Alertes** : tâches et démarches en retard, projet inscrit moins de 6 mois avant sa date, jauge de 1 500 personnes et
+  plus.
+- **Matériel logistique** (barrières, tentes, podium…) : une réservation bloque le matériel du jour J − 1 au lendemain de
+  la fin ; un dépassement du stock sur des périodes qui se chevauchent est signalé comme conflit.
+- **Plan d'implantation** 2D et maquette 3D (éditeur repris tel quel de l'artefact, `client/src/projets/balisePlan.js`) :
+  matériel, zones, sécurité, capacité théorique, versions figées à chaque réunion jalon, export PNG, report des quantités
+  dans la réservation. L'import d'un fond de plan (PDF, photo aérienne) demande le stockage S3. three.js et pdf.js sont
+  intégrés à l'application, sans appel à un CDN.
+- **Prestataires** avec pièces administratives, **budget** prévisionnel et réalisé, **bilan** J+7.
+- **Demandes d'événement** : dépôt par tout compte ayant accès au module, instruction, acceptation (crée le projet, la
+  date de dépôt faisant foi pour l'échéance des 6 mois) ou refus motivé ; courriels aux valideurs et au demandeur.
+
+Pas encore fait : l'espace prestataire (accès externes), prévu plus tard.
 
 ### Format CSV des comptes
 

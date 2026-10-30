@@ -26,6 +26,13 @@ import Registre from './pages/stock/Registre';
 import Entrees from './pages/stock/Entrees';
 import Deportes from './pages/stock/Deportes';
 import ParametresStock from './pages/stock/ParametresStock';
+import TableauDeBordProjets from './pages/projets/TableauDeBordProjets';
+import ListeProjets from './pages/projets/ListeProjets';
+import FicheProjet from './pages/projets/FicheProjet';
+import DeposerDemande from './pages/projets/DeposerDemande';
+import DemandesRecues from './pages/projets/DemandesRecues';
+import Materiel from './pages/projets/Materiel';
+import Modeles from './pages/projets/Modeles';
 
 export default function App() {
   return (
@@ -63,6 +70,22 @@ export default function App() {
           <Route path="/stock/entrees" element={<Entrees />} />
           <Route path="/stock/deportes" element={<Deportes />} />
           <Route path="/stock/parametres" element={<ParametresStock />} />
+        </Route>
+
+        <Route element={<RequireModule module="projets" niveau="lecture" />}>
+          <Route path="/projets" element={<TableauDeBordProjets />} />
+          <Route path="/projets/liste" element={<ListeProjets />} />
+          <Route path="/projets/deposer" element={<DeposerDemande />} />
+          <Route path="/projets/materiel" element={<Materiel />} />
+        </Route>
+        <Route element={<RequireModule module="projets" niveau="validation" />}>
+          <Route path="/projets/demandes" element={<DemandesRecues />} />
+        </Route>
+        <Route element={<RequireModule module="projets" niveau="administration" />}>
+          <Route path="/projets/modeles" element={<Modeles />} />
+        </Route>
+        <Route element={<RequireModule module="projets" niveau="lecture" />}>
+          <Route path="/projets/:id" element={<FicheProjet />} />
         </Route>
 
         <Route element={<RequireSuperAdmin />}>

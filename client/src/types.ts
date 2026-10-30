@@ -200,3 +200,160 @@ export interface LigneDepot {
 }
 
 export const STATUTS_DEMANDE_EN_ATTENTE = ['En attente chef de service', 'En attente Protocole', 'En attente Cabinet'];
+
+// --- Module Projets événementiels ---
+
+export type TypeProjet = 'festif' | 'protocolaire' | 'quartier';
+export type StatutProjet = 'preparation' | 'realise' | 'cloture' | 'annule';
+
+export interface Jalon {
+  c: string;
+  o: number;
+  l: string;
+  s: string;
+  reunion?: boolean;
+}
+
+export interface ReferentielsProjets {
+  jalons: Jalon[];
+  types: Record<TypeProjet, string>;
+  branches: string[];
+  budgetPostes: string[];
+  pieces: { code: string; libelle: string }[];
+  delaiInscriptionJours: number;
+  stockageActif: boolean;
+}
+
+export interface IndicateursProjet {
+  _id: string;
+  titre: string;
+  type: TypeProjet;
+  dateJour: string;
+  dateFin: string | null;
+  lieu: string;
+  jauge: number | null;
+  statut: StatutProjet;
+  inscritLe: string;
+  totalTaches: number;
+  tachesFaites: number;
+  tachesEnRetard: number;
+  demarchesEnRetard: number;
+}
+
+export interface Projet {
+  _id: string;
+  titre: string;
+  type: TypeProjet;
+  dateJour: string;
+  dateFin: string | null;
+  lieu: string;
+  jauge: number | null;
+  demandeur: string;
+  referent: string;
+  description: string;
+  statut: StatutProjet;
+  inscritLe: string;
+  montage: string;
+  ouverture: string;
+  fermeture: string;
+  demontage: string;
+  implantation: string;
+  bilan: { frequentation?: number | null; forts?: string; ameliorer?: string; incidents?: string };
+}
+
+export interface TacheProjet {
+  _id: string;
+  decalage: number;
+  branche: string;
+  libelle: string;
+  fait: boolean;
+  faitPar: string;
+}
+
+export interface DemarcheProjet {
+  _id: string;
+  decalage: number;
+  libelle: string;
+  statut: 'a_faire' | 'depose' | 'obtenu' | 'na';
+  note: string;
+}
+
+export interface PrestataireProjet {
+  _id: string;
+  nom: string;
+  prestation: string;
+  contact: string;
+  arrivee: string;
+  depart: string;
+  montant: number | null;
+  lien: string;
+  pieces: Record<string, boolean | undefined>;
+}
+
+export interface LigneBudget {
+  _id: string;
+  poste: string;
+  prevu: number;
+  realise: number;
+}
+
+export interface MaterielReserve {
+  articleId: string;
+  quantite: number;
+  code: string | null;
+  nom: string;
+  unite: string;
+  total: number;
+}
+
+export interface ConflitMateriel {
+  projetId: string;
+  titre: string;
+  dateJour: string;
+  articleId: string;
+  nom: string;
+  unite: string;
+  total: number;
+  demande: number;
+  concurrents: string[];
+}
+
+export interface FicheProjetComplete {
+  projet: Projet;
+  taches: TacheProjet[];
+  demarches: DemarcheProjet[];
+  prestataires: PrestataireProjet[];
+  budget: LigneBudget[];
+  materiel: MaterielReserve[];
+  conflits: ConflitMateriel[];
+}
+
+export interface ArticleMateriel {
+  _id: string;
+  code: string | null;
+  nom: string;
+  unite: string;
+  total: number;
+  actif: boolean;
+  pic: number;
+}
+
+export interface DemandeEvenement {
+  _id: string;
+  intitule: string;
+  demandeurNom: string;
+  structure: string;
+  contact: string;
+  dateSouhaitee: string;
+  lieu: string;
+  type: TypeProjet;
+  jauge: number | null;
+  besoins: string[];
+  description: string;
+  statut: 'nouvelle' | 'instruction' | 'acceptee' | 'refusee';
+  reponse: string;
+  projetId: string | null;
+  projetTitre?: string | null;
+  avancement?: number | null;
+  createdAt: string;
+}

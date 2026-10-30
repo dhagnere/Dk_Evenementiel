@@ -1,0 +1,70 @@
+/* Styles de l'éditeur de plan, repris de l'artefact Balise et limités à son conteneur. */
+.balise-plan {
+  --surface: #ffffff; --surface-2: #e4e9ee; --ink: #13202f; --ink-2: #4b5a6b; --ink-3: #7a8898; --line: #d2d9e1;
+  --accent: #1c5da8; --accent-soft: #dce8f6; --accent-ink: #ffffff; --signal: #e3a914; --signal-soft: #fbf0cf;
+  --ok: #2c7a4b; --warn: #a86a12; --crit: #be3327; --crit-soft: #f8deda;
+  --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  color: var(--ink);
+  font-size: 14px;
+}
+.balise-plan * { box-sizing: border-box; }
+.balise-plan h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
+.balise-plan .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.balise-plan .pad { padding: 14px; }
+.balise-plan .stack { display: flex; flex-direction: column; gap: 14px; }
+.balise-plan .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.balise-plan .row.sb { justify-content: space-between; }
+.balise-plan .small { font-size: 13px; }
+.balise-plan .muted { color: var(--ink-2); }
+.balise-plan .mono { font-family: var(--fm); font-variant-numeric: tabular-nums; }
+.balise-plan .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); font-weight: 600; }
+.balise-plan button, .balise-plan .btn {
+  font: inherit; font-weight: 600; cursor: pointer; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); padding: 6px 12px;
+}
+.balise-plan button:hover { border-color: var(--ink-3); }
+.balise-plan button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.balise-plan button.danger { color: var(--crit); }
+.balise-plan button.ghost { border-color: transparent; background: transparent; color: var(--ink-2); padding: 4px 8px; }
+.balise-plan input, .balise-plan select {
+  font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+}
+.balise-plan label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.balise-plan .w-num { width: 90px; text-align: right; }
+.balise-plan .alert { display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+.balise-plan .alert.crit { background: var(--crit-soft); color: var(--crit); }
+.balise-plan .alert.info { background: var(--accent-soft); color: var(--accent); }
+.balise-plan .tbl-wrap { overflow-x: auto; }
+.balise-plan table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.balise-plan th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+.balise-plan td { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+.balise-plan td.num, .balise-plan th.num { text-align: right; }
+.balise-plan .plan { display: flex; flex-direction: column; gap: 12px; }
+.balise-plan .plan-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; }
+.balise-plan .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.balise-plan .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); }
+.balise-plan .seg button:last-child { border-right: 0; }
+.balise-plan .seg button[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+.balise-plan .file-btn { display: inline-flex; align-items: center; }
+.balise-plan .grow { flex: 1; }
+.balise-plan .plan-panel { padding: 10px 14px; background: var(--signal-soft); border-radius: 8px; }
+.balise-plan .plan-body { display: grid; grid-template-columns: 170px minmax(0, 1fr) 290px; gap: 12px; align-items: start; }
+.balise-plan .plan-pal { padding: 10px; display: flex; flex-direction: column; gap: 12px; max-height: 72vh; overflow: auto; }
+.balise-plan .pal-g { display: flex; flex-direction: column; gap: 2px; }
+.balise-plan .pal-i { all: unset; cursor: pointer; display: flex; gap: 8px; align-items: center; font-size: 13px; padding: 5px 6px; border-radius: 6px; }
+.balise-plan .pal-i:hover { background: var(--surface-2); }
+.balise-plan .pal-i:focus-visible, .balise-plan .plan-stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.balise-plan .pal-i i { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+.balise-plan .plan-stage { position: relative; height: clamp(380px, 70vh, 760px); overflow: hidden; background: var(--surface-2); }
+.balise-plan .plan-stage svg { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
+.balise-plan #pl-3d { position: absolute; inset: 0; }
+.balise-plan #pl-3d canvas { display: block; }
+.balise-plan .plan-hint { position: absolute; left: 10px; top: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; color: var(--ink-2); max-width: calc(100% - 20px); pointer-events: none; }
+.balise-plan .plan-scale { position: absolute; right: 12px; bottom: 10px; background: var(--surface); padding: 4px 8px; border-radius: 6px; pointer-events: none; }
+.balise-plan .ver { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
+.balise-plan [hidden] { display: none !important; }
+@media (max-width: 1180px) {
+  .balise-plan .plan-body { grid-template-columns: 1fr; }
+  .balise-plan .plan-pal { flex-direction: row; max-height: none; overflow-x: auto; }
+  .balise-plan .pal-g { min-width: 170px; }
+}

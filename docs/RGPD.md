@@ -20,7 +20,8 @@ entre crochets sont à compléter avec le délégué à la protection des donné
 2. Gérer le stock de goodies et de cadeaux protocolaires, ainsi que les demandes des directions et les stocks confiés
    aux directions (module Stock & Protocole).
 3. Tenir le registre des cadeaux protocolaires remis (module Stock & Protocole).
-4. Piloter la préparation des événements : rétroplanning, prestataires, sécurité, budget (module Projets, phase 3).
+4. Piloter la préparation des événements : demandes d'événement, rétroplanning, prestataires, sécurité, budget (module
+   Projets événementiels).
 5. Gérer les comptes d'accès à l'application et tracer les actions (sécurité).
 
 **Base légale** : exécution d'une mission d'intérêt public (article 6.1.e du RGPD), pour l'ensemble des finalités.
@@ -34,7 +35,8 @@ entre crochets sont à compléter avec le délégué à la protection des donné
 | Pilotes d'événements | Nom (champ « pilote »), direction | Fiches de renseignement, imports CSV |
 | Demandeurs de goodies | Nom, direction, demandes déposées et leur historique | Demandes saisies dans l'application |
 | Bénéficiaires de cadeaux protocolaires | Nom, organisme, occasion, élu remettant, objet remis | Saisie par le service lors de la demande |
-| Contacts des prestataires (phase 3) | Raison sociale, nom et coordonnées professionnelles du contact | Saisie par le service Événementiel |
+| Demandeurs d'événement | Nom, structure, téléphone ou courriel, demandes déposées | Formulaire de demande d'événement |
+| Contacts des prestataires | Raison sociale, nom et coordonnées professionnelles du contact | Saisie par le service Événementiel |
 
 Aucune donnée sensible au sens de l'article 9 du RGPD. Aucun mot de passe n'est conservé en clair (PBKDF2-SHA256
 avec sel).
@@ -60,6 +62,7 @@ avec le DPO :
 | Événements du calendrier | Durée d'utilité administrative | [À fixer avec les Archives] |
 | Registre protocolaire | 3 650 jours (10 ans) après la remise | Anonymisation du nom du bénéficiaire |
 | Demandes de stock | Durée d'utilité administrative | [À fixer avec les Archives] |
+| Projets événementiels (dont contacts des prestataires) et demandes d'événement | Durée d'utilité administrative | [À fixer avec les Archives] |
 
 ## 6. Droits des personnes
 
@@ -67,12 +70,13 @@ Un super-administrateur traite les demandes depuis **Administration → RGPD →
 l'adresse électronique de la personne :
 
 - **Accès (article 15)** : export JSON de toutes les données la concernant (compte, droits, demandes d'accès,
-  traces au journal, événements dont elle est pilote, demandes de stock, cadeaux protocolaires reçus). L'export est
-  inscrit au journal.
+  traces au journal, événements dont elle est pilote, demandes de stock, cadeaux protocolaires reçus, demandes
+  d'événement). L'export est inscrit au journal.
 - **Effacement (article 17)** : suppression du compte, des droits et des demandes d'accès ; anonymisation de ses traces
   au journal ; retrait de son compte des instantanés de l'application. Les événements dont elle est pilote ne sont pas
   modifiés automatiquement (donnée de service) : leur nombre est indiqué pour une revue manuelle. Même chose pour les
-  lignes du registre protocolaire, dont l'effacement relève d'une décision au cas par cas.
+  lignes du registre protocolaire, dont l'effacement relève d'une décision au cas par cas. Ses demandes d'événement sont
+  conservées sans son nom ni son contact.
 - **Rectification (article 16)** : modification du compte par un super-administrateur.
 
 Les sauvegardes de la base faites par l'hébergeur suivent leur propre rotation : une donnée effacée en disparaît à
