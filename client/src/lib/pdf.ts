@@ -108,7 +108,7 @@ export async function exporterFicheJourPdf(jour: Date, evenements: Evenement[]):
         ['Organisateur', e.organisateur || '—'],
         ['Type', e.type || '—'],
         ['Période', formatDuree(e) ?? formatDate(e.dateDeDebut)],
-        ['Validation', estValide(e) ? 'Validée' : 'Non validée'],
+        ['Validation', estValide(e) ? 'Validé' : 'À valider'],
       ],
     });
     y = finalYDe(doc) + 16;
@@ -146,7 +146,7 @@ export async function exporterListePdf(lignes: LigneExportPdf[]): Promise<void> 
       formatTitreEvenement(e.nom),
       e.quartier || '—',
       e.nature || '—',
-      estValide(e) ? 'Validée' : 'Non validée',
+      estValide(e) ? 'Validé' : 'À valider',
       formatDuree(e) ?? formatDate(e.dateDeDebut),
     ];
   });

@@ -325,11 +325,11 @@ export default function Calendrier() {
         </Text>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Pastille couleur={COULEUR_VALIDE} />
-          Validée
+          Validé
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Pastille couleur={COULEUR_NON_VALIDE} />
-          Non validée
+          À valider
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Pastille couleur={COULEUR_DATE_CLEF} />

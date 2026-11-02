@@ -13,7 +13,7 @@ export function ValidationBadge({ evenement }: { evenement: Evenement }) {
       {evenement.validParDateClef ? (
         <Tag color="blue">Date Clef</Tag>
       ) : (
-        <Tag color={estValide(evenement) ? 'green' : 'red'}>{estValide(evenement) ? 'Validée' : 'Non validée'}</Tag>
+        <Tag color={estValide(evenement) ? 'green' : 'orange'}>{estValide(evenement) ? 'Validé' : 'À valider'}</Tag>
       )}
     </>
   );
