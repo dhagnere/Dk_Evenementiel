@@ -32,7 +32,7 @@ import FicheProjet from './pages/projets/FicheProjet';
 import DeposerDemande from './pages/projets/DeposerDemande';
 import DemandesRecues from './pages/projets/DemandesRecues';
 import Materiel from './pages/projets/Materiel';
-import Modeles from './pages/projets/Modeles';
+import Referentiel from './pages/projets/Referentiel';
 import FicheEvenementUnique from './pages/FicheEvenementUnique';
 
 export default function App() {
@@ -84,7 +84,8 @@ export default function App() {
           <Route path="/projets/demandes" element={<DemandesRecues />} />
         </Route>
         <Route element={<RequireModule module="projets" niveau="administration" />}>
-          <Route path="/projets/modeles" element={<Modeles />} />
+          <Route path="/projets/referentiel" element={<Referentiel />} />
+          <Route path="/projets/modeles" element={<Navigate to="/projets/referentiel" replace />} />
         </Route>
         <Route element={<RequireModule module="projets" niveau="lecture" />}>
           <Route path="/projets/:id" element={<FicheProjet />} />

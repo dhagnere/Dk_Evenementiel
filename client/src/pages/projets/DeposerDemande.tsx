@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import dayjs, { type Dayjs } from 'dayjs';
-import { Alert, Button, Card, Checkbox, DatePicker, Input, InputNumber, Progress, Select, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Checkbox, DatePicker, Input, InputNumber, Progress, Table, Tag, Typography } from 'antd';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
-import type { DemandeEvenement, TypeProjet } from '../../types';
-import { BESOINS, STATUTS_DEMANDE, formatLong, useReferentiels } from '../../lib/projets';
+import type { DemandeEvenement } from '../../types';
+import { BESOINS, STATUTS_DEMANDE, formatLong, useReferentiels, useSimulation } from '../../lib/projets';
+import { ApercuSimulation, CaracteristiquesEvenement } from './Caracteristiques';
 import { lancer } from '../../lib/actionStock';
 
 const { Text } = Typography;
@@ -24,7 +25,7 @@ const VIDE = {
   contact: '',
   date: null as Dayjs | null,
   lieu: '',
-  type: 'quartier' as TypeProjet,
+  criteres: [] as string[],
   jauge: null as number | null,
   besoins: [] as string[],
   description: '',
@@ -44,6 +45,7 @@ export default function DeposerDemande() {
   }, []);
 
   const delai = f.date ? f.date.diff(dayjs().startOf('day'), 'day') : null;
+  const simulation = useSimulation(f.date ? f.date.format('YYYY-MM-DD') : null, f.jauge, f.criteres);
   const valide = f.intitule.trim() && f.structure.trim() && f.contact.trim() && f.date;
 
   const envoyer = async () => {
@@ -55,7 +57,7 @@ export default function DeposerDemande() {
         contact: f.contact,
         dateSouhaitee: f.date?.format('YYYY-MM-DD'),
         lieu: f.lieu,
-        type: f.type,
+        criteres: f.criteres,
         jauge: f.jauge,
         besoins: f.besoins,
         description: f.description,
@@ -93,14 +95,17 @@ export default function DeposerDemande() {
           <Champ libelle="Lieu envisagé">
             <Input value={f.lieu} onChange={(e) => setF({ ...f, lieu: e.target.value })} />
           </Champ>
-          <Champ libelle="Nature">
-            <Select value={f.type} onChange={(type) => setF({ ...f, type })} options={Object.entries(ref?.types ?? {}).map(([value, label]) => ({ value, label }))} style={{ width: '100%' }} />
-          </Champ>
           <Champ libelle="Public attendu (nombre)">
             <InputNumber min={0} value={f.jauge} onChange={(v) => setF({ ...f, jauge: v === null ? null : Number(v) })} style={{ width: '100%' }} />
           </Champ>
+          {ref && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ fontSize: 12, color: '#595959', marginBottom: 4 }}>L'événement comprend…</div>
+              <CaracteristiquesEvenement referentiel={ref.referentiel} criteres={f.criteres} onChange={(criteres) => setF({ ...f, criteres })} />
+            </div>
+          )}
           <div style={{ gridColumn: '1 / -1' }}>
-            <div style={{ fontSize: 12, color: '#595959', marginBottom: 4 }}>Besoins identifiés</div>
+            <div style={{ fontSize: 12, color: '#595959', marginBottom: 4 }}>Autres besoins identifiés</div>
             <Checkbox.Group value={f.besoins} onChange={(besoins) => setF({ ...f, besoins: besoins as string[] })} options={BESOINS} />
           </div>
           <Champ libelle="Description, objectifs, contraintes connues" large>
@@ -114,6 +119,11 @@ export default function DeposerDemande() {
             style={{ marginTop: 12 }}
             message={`Date à ${delai} jours : elle se situe dans la fenêtre des 6 mois. La demande sera examinée, mais sa faisabilité n'est pas garantie.`}
           />
+        )}
+        {simulation && ref && (
+          <Card size="small" title="Ce que représente votre événement" style={{ marginTop: 12, background: '#fafafa' }}>
+            <ApercuSimulation simulation={simulation} referentiel={ref.referentiel} />
+          </Card>
         )}
         <Button type="primary" style={{ marginTop: 16 }} disabled={!valide} loading={envoi} onClick={envoyer}>
           Envoyer la demande

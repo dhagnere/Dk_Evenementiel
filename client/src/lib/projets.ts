@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { Jalon, ReferentielsProjets, StatutProjet } from '../types';
+import type { Meteo, ReferentielRetroplanning, ReferentielsProjets, SimulationProjet, StatutProjet } from '../types';
 
 /** Jour J + décalage (en jours), au format AAAA-MM-JJ. */
 export function decaler(jour: string, jours: number): string {
@@ -22,11 +22,40 @@ export function ecart(a: string, b: string): number {
 /** Code d'échéance : T-30, J, J+7. */
 export const codeEcheance = (o: number) => (o === 0 ? 'J' : o < 0 ? `T${o}` : `J+${o}`);
 
-/** Jalon auquel se rattache un décalage : le dernier jalon dont le décalage est atteint. */
-export function jalonDe(jalons: Jalon[], o: number): Jalon {
-  let resultat = jalons[0];
-  for (const j of jalons) if (j.o <= o) resultat = j;
-  return resultat;
+export const METEO: Record<Meteo, { libelle: string; couleur: string; tag: string }> = {
+  vert: { libelle: 'Dans les temps', couleur: '#2c7a4b', tag: 'green' },
+  orange: { libelle: 'À surveiller', couleur: '#d48806', tag: 'orange' },
+  rouge: { libelle: 'En difficulté', couleur: '#be3327', tag: 'red' },
+};
+
+export const COULEURS_NIVEAU: Record<number, string> = { 1: 'cyan', 2: 'blue', 3: 'purple', 4: 'magenta' };
+
+export const libelleRole = (ref: ReferentielRetroplanning, code: string) => ref.roles.find((r) => r.code === code)?.libelle ?? code;
+export const libelleModule = (ref: ReferentielRetroplanning, code: string) => ref.modules.find((m) => m.code === code)?.libelle ?? code;
+
+/** Simulation (niveau, modules, non-retour, tâches infaisables) recalculée à chaque changement de saisie. */
+export function useSimulation(dateJour: string | null, jauge: number | null, criteres: string[]): SimulationProjet | null {
+  const [simulation, setSimulation] = useState<SimulationProjet | null>(null);
+  const cle = JSON.stringify([dateJour, jauge, criteres]);
+  useEffect(() => {
+    if (!dateJour) {
+      setSimulation(null);
+      return;
+    }
+    let annule = false;
+    const minuterie = setTimeout(() => {
+      api
+        .post<{ simulation: SimulationProjet }>('/projets/simulation', { dateJour, jauge, criteres })
+        .then((d) => !annule && setSimulation(d.simulation))
+        .catch(() => !annule && setSimulation(null));
+    }, 250);
+    return () => {
+      annule = true;
+      clearTimeout(minuterie);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle]);
+  return simulation;
 }
 
 export const formatCourt = (jour: string | null | undefined) =>
@@ -58,16 +87,13 @@ export const STATUTS_DEMANDE = {
 export const BESOINS = [
   'Matériel (tables, barrières…)',
   'Sonorisation',
-  'Accueil protocolaire',
   'Affichage',
   'Animation',
-  'Occupation de la voie publique',
-  'Buvette',
 ];
 
 let cache: Promise<ReferentielsProjets> | null = null;
 
-/** Référentiels du module (jalons, types, branches…), chargés une fois par session. */
+/** Référentiels du module (squelette, niveaux, modules, rôles…), chargés une fois par session. */
 export function useReferentiels(): ReferentielsProjets | null {
   const [ref, setRef] = useState<ReferentielsProjets | null>(null);
   useEffect(() => {
@@ -79,7 +105,7 @@ export function useReferentiels(): ReferentielsProjets | null {
   return ref;
 }
 
-/** À appeler après une modification des modèles (branches, postes budgétaires). */
+/** À appeler après une modification du référentiel. */
 export function oublierReferentiels() {
   cache = null;
 }

@@ -1,12 +1,14 @@
 import { ValidationSerieBadge } from '../components/ValidationBadge';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Alert, Button, Card, Descriptions, Empty, Progress, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Empty, InputNumber, Progress, Space, Table, Tag, Typography } from 'antd';
+import dayjs from 'dayjs';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
-import type { FicheEvenementUnique as Fiche, TypeProjet } from '../types';
-import { STATUTS_PROJET, formatLong, useReferentiels } from '../lib/projets';
+import type { FicheEvenementUnique as Fiche } from '../types';
+import { STATUTS_PROJET, formatLong, useReferentiels, useSimulation } from '../lib/projets';
+import { ApercuSimulation, CaracteristiquesEvenement } from './projets/Caracteristiques';
 import { couleurStatut, formatEuro, formatJour } from '../lib/formatStock';
 import { lancer } from '../lib/actionStock';
 
@@ -23,7 +25,10 @@ export default function FicheEvenementUnique() {
   const ref = useReferentiels();
   const [fiche, setFiche] = useState<Fiche | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [type, setType] = useState<TypeProjet>('festif');
+  const [jauge, setJauge] = useState<number | null>(null);
+  const [criteres, setCriteres] = useState<string[]>([]);
+  const dateJour = fiche?.evenement.dateDeDebut ? dayjs(fiche.evenement.dateDeDebut).format('YYYY-MM-DD') : null;
+  const simulation = useSimulation(fiche?.projets?.length === 0 ? dateJour : null, jauge, criteres);
 
   const charger = () =>
     api
@@ -41,7 +46,7 @@ export default function FicheEvenementUnique() {
   const e = fiche.evenement;
 
   const creerProjet = async () => {
-    const res = await api.post<{ ok: boolean; message: string; projetId?: string }>(`/liaisons/evenement/${e._id}/projet`, { type });
+    const res = await api.post<{ ok: boolean; message: string; projetId?: string }>(`/liaisons/evenement/${e._id}/projet`, { jauge, criteres });
     if ((await lancer(Promise.resolve(res))) && res.projetId) navigate(`/projets/${res.projetId}`);
   };
 
@@ -87,8 +92,13 @@ export default function FicheEvenementUnique() {
             <Space direction="vertical">
               <Text type="secondary">Aucun projet n'est rattaché à cet événement.</Text>
               {peut('projets', 'administration') && (
-                <Space wrap>
-                  <Select value={type} onChange={setType} options={Object.entries(ref?.types ?? {}).map(([value, label]) => ({ value, label }))} style={{ width: 300 }} />
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <Space wrap>
+                    <Text>Jauge prévisionnelle</Text>
+                    <InputNumber min={0} value={jauge} onChange={(v) => setJauge(v === null ? null : Number(v))} style={{ width: 140 }} />
+                  </Space>
+                  {ref && <CaracteristiquesEvenement referentiel={ref.referentiel} criteres={criteres} onChange={setCriteres} />}
+                  {simulation && ref && <ApercuSimulation simulation={simulation} referentiel={ref.referentiel} />}
                   <Button type="primary" onClick={creerProjet}>
                     Créer le projet et son rétroplanning
                   </Button>

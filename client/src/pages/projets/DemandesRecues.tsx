@@ -70,7 +70,9 @@ export default function DemandesRecues() {
               <Descriptions size="small" column={{ xs: 1, md: 2 }} style={{ marginTop: 8 }}>
                 <Descriptions.Item label="Date souhaitée">{formatLong(d.dateSouhaitee)}</Descriptions.Item>
                 <Descriptions.Item label="Lieu">{d.lieu || '—'}</Descriptions.Item>
-                <Descriptions.Item label="Nature">{ref?.types[d.type]}</Descriptions.Item>
+                <Descriptions.Item label="Caractéristiques">
+                  {d.criteres.length ? d.criteres.map((c) => ref?.referentiel.criteres.find((x) => x.code === c)?.libelle ?? c).join(', ') : d.type ? ref?.types[d.type] : '—'}
+                </Descriptions.Item>
                 <Descriptions.Item label="Public attendu">{d.jauge ?? '—'}</Descriptions.Item>
                 <Descriptions.Item label="Besoins">{d.besoins.join(', ') || '—'}</Descriptions.Item>
                 <Descriptions.Item label="Contact">{d.contact}</Descriptions.Item>

@@ -37,8 +37,8 @@ Chaque compte a, **pour chaque module**, un niveau d'accès. Chaque niveau inclu
 |---|---|
 | Lecture | Consulter les projets et leur plan ; déposer une demande d'événement et la suivre |
 | Contribution | Mettre à jour tâches, logistique, matériel, démarches, prestataires et plan |
-| Validation | Instruire les demandes d'événement ; tenir le budget et le bilan ; changer le statut |
-| Administration | Créer, modifier et supprimer les projets ; modèles de rétroplanning ; matériel |
+| Validation | Instruire les demandes d'événement ; désigner l'équipe ; franchir les jalons ; tenir le budget et le bilan |
+| Administration | Créer, modifier et supprimer les projets ; jauge et caractéristiques ; référentiel du rétroplanning ; matériel |
 
 Un **super-administrateur** a tous les droits sur tous les modules, ainsi que l'administration générale : comptes et
 droits, demandes d'accès, directions, sauvegardes, journal, RGPD, état du système. L'application refuse de retirer,
@@ -96,13 +96,30 @@ npm run seed:stock-demo -w server
 
 ## Module Projets événementiels
 
-Repris de l'artefact « Balise événementielle » :
+Un seul squelette de rétroplanning, réglé par trois curseurs, plutôt qu'un modèle par type d'événement :
 
-- **Rétroplanning** en jours par rapport au jour J, de T-180 (échéance des 6 mois) à J+7 (bilan), découpé en jalons
-  dont cinq réunions. À la création, tâches et démarches sont tirées des **modèles** selon le type d'événement (festif,
-  protocolaire, quartier). Changer la date décale toutes les échéances.
-- **Alertes** : tâches et démarches en retard, projet inscrit moins de 6 mois avant sa date, jauge de 1 500 personnes et
-  plus.
+- **Squelette** : 7 jalons de T-180 à J+7 (Cadrage, Conception, Engagement, Calage, Verrouillage, Briefing, Bilan). Chaque
+  jalon est un portillon : on ne le franchit que si sa question de passage reçoit un « oui », dans l'ordre, et quand ses
+  tâches bloquantes sont faites. Le valideur désigné (ou un compte de niveau Validation) le franchit.
+- **Niveau N1 à N4** : niveau de base tiré de la jauge (seuils 300, 1 500, 5 000 par défaut), relevé d'un cran par
+  majoration (fermeture de circulation, pyrotechnie, activité nautique, vente d'alcool, élu national ou préfet, montage
+  de plus d'une journée, marché public), plafonné à N4 ; multi-sites : N4. Le niveau décide des jalons actifs (3 en N1,
+  7 en N4) et de leur valideur. Les tâches d'un jalon inactif se rattachent au jalon actif suivant.
+- **Modules** : socle, protocole, voie publique, scène et son, pyrotechnie, nautique, restauration et buvette. Les
+  caractéristiques cochées activent les modules, qui ajoutent leurs tâches types (selon leur niveau minimal).
+- **Rôles P/F/V/I** sur chaque tâche : un seul « P » (porte le résultat, reçoit les relances), F (fait), V (valide),
+  I (informés). Les personnes sont désignées dans l'onglet Équipe ; en dessous du niveau où un rôle devient distinct
+  (référent sécurité dès N2, régisseur dès N3), le pilote le tient.
+- **Ce qui n'est plus faisable** : une tâche bloquante dont le délai incompressible dépasse le temps restant avant J est
+  signalée « infaisable » ; chaque module a une **date de non-retour**. La demande d'événement et la création d'un projet
+  l'affichent dès la saisie.
+- **Pilotage** (premier onglet du projet) : où en est-on (prochain jalon et sa météo vert, orange, rouge), qu'est-ce qui
+  bloque (tâches bloquantes en retard ou infaisables), qui doit agir (le « P », avec un bouton de relance par courriel).
+  **Fiche de passage** PDF d'une page par jalon : fait, reste, bloque, décision.
+- **Référentiel** (Projets → Référentiel, niveau Administration) : seuils, niveaux, jalons actifs et valideurs, critères,
+  modules, tâches types, rôles ; export et import JSON. Il s'applique aux nouveaux projets, et à un projet existant dès que
+  sa jauge ou ses caractéristiques changent (tâches faites et tâches ajoutées à la main jamais retirées).
+- Les projets créés avant les niveaux gardent leurs tâches, reclassées dans les jalons du squelette.
 - **Matériel logistique** (barrières, tentes, podium…) : une réservation bloque le matériel du jour J − 1 au lendemain de
   la fin ; un dépassement du stock sur des périodes qui se chevauchent est signalé comme conflit.
 - **Plan d'implantation** 2D et maquette 3D (éditeur repris tel quel de l'artefact, `client/src/projets/balisePlan.js`) :

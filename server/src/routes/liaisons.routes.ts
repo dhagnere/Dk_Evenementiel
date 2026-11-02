@@ -6,7 +6,7 @@ import { peut, requireAuth, requireModule } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
 import { queryString } from '../lib/queryString.js';
 import { motifRechercheInsensibleAccents } from '../lib/rechercheAccents.js';
-import { CODES_TYPES, genererDepuisModeles, indicateursProjets, conflitsMateriel } from '../lib/projets.js';
+import { genererProjet, indicateursProjets, conflitsMateriel } from '../lib/projets.js';
 import { STATUTS_EN_ATTENTE } from '../lib/stock.js';
 import { cleDeLigne, conditionLienSerie, jourCivil, lignesSerie, resoudre, resumeSerie, type ResumeEvenement } from '../lib/liaisons.js';
 
@@ -96,9 +96,12 @@ liaisonsRouter.get('/evenement/:id', async (req, res, next) => {
 /** Crée le projet d'un événement du calendrier ; l'inscription au calendrier fait foi pour l'échéance des 6 mois. */
 liaisonsRouter.post('/evenement/:id/projet', requireModule('projets', 'administration'), async (req, res, next) => {
   try {
-    const type = z.enum(CODES_TYPES).safeParse(req.body?.type);
-    if (!type.success) {
-      res.status(400).json({ ok: false, message: 'Type de projet invalide' });
+    // Jauge et caractéristiques facultatives : elles fixent le niveau et les modules, modifiables ensuite.
+    const options = z
+      .object({ jauge: z.number().int().min(0).max(10_000_000).nullable().default(null), criteres: z.array(z.string().max(40)).max(40).default([]) })
+      .safeParse(req.body ?? {});
+    if (!options.success) {
+      res.status(400).json({ ok: false, message: 'Données invalides' });
       return;
     }
     const lignes = await lignesSerie(req.params.id);
@@ -120,11 +123,11 @@ liaisonsRouter.post('/evenement/:id/projet', requireModule('projets', 'administr
     const fin = jourCivil(serie.dateDeFin);
     const projet = await transaction(async (client) => {
       const [cree] = await requete<{ _id: string; titre: string }>(
-        `INSERT INTO projets (titre, type, date_jour, date_fin, lieu, demandeur, inscrit_le, evenement_id, evenement_nom, evenement_debut, evenement_fin)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, titre`,
+        `INSERT INTO projets (titre, jauge, date_jour, date_fin, lieu, demandeur, inscrit_le, evenement_id, evenement_nom, evenement_debut, evenement_fin, criteres)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, titre`,
         [
           serie.nom,
-          type.data,
+          options.data.jauge,
           debut,
           fin && fin !== debut ? fin : null,
           serie.lieu,
@@ -134,10 +137,11 @@ liaisonsRouter.post('/evenement/:id/projet', requireModule('projets', 'administr
           serie.nom,
           serie.dateDeDebut,
           serie.dateDeFin,
+          JSON.stringify(options.data.criteres),
         ],
         client
       );
-      await genererDepuisModeles(cree._id, type.data, client);
+      await genererProjet(cree._id, client);
       return cree;
     });
     await consigner(identiteDeRequete(req), 'projets_creation_depuis_calendrier', projet.titre);

@@ -14,15 +14,25 @@ import { demandesStockDuProjet, evenementDuProjet } from './liaisons.routes.js';
 import {
   CODES_TYPES,
   DELAI_INSCRIPTION_JOURS,
-  JALONS,
   TYPES,
   conflitsMateriel,
-  ecrireModeles,
-  genererDepuisModeles,
+  controlerReferentiel,
+  ecrireReferentiel,
+  genererProjet,
   indicateursProjets,
-  lireModeles,
-  schemaModeles,
+  lireReferentiel,
+  pilotage,
+  roleTenu,
+  schemaReferentiel,
+  simuler,
+  synchroniserProjet,
+  calculerNiveau,
+  jalonsActifs,
+  jalonDeRattachement,
+  type Personne,
+  type TacheProjet,
 } from '../lib/projets.js';
+import { REFERENTIEL_DEFAUT } from '../lib/referentielProjets.js';
 
 export const projetsRouter = Router();
 
@@ -68,12 +78,11 @@ projetsRouter.get(
   '/referentiels',
   lecture,
   traiter(async (_req, res) => {
-    const modeles = await lireModeles();
+    const referentiel = await lireReferentiel();
     res.json({
-      jalons: JALONS,
+      referentiel,
       types: Object.fromEntries(Object.entries(TYPES).map(([k, v]) => [k, v.libelle])),
-      branches: modeles.branches,
-      budgetPostes: modeles.budgetPostes,
+      budgetPostes: referentiel.budgetPostes,
       pieces: PIECES.map(([code, libelle]) => ({ code, libelle })),
       delaiInscriptionJours: DELAI_INSCRIPTION_JOURS,
       stockageActif: stockageActif(),
@@ -81,26 +90,58 @@ projetsRouter.get(
   })
 );
 
+/** Référentiel du rétroplanning (jalons, niveaux, critères, modules, tâches types). */
 projetsRouter.get(
-  '/modeles',
+  '/referentiel',
   administration,
   traiter(async (_req, res) => {
-    res.json({ modeles: await lireModeles() });
+    res.json({ referentiel: await lireReferentiel(), defaut: REFERENTIEL_DEFAUT });
   })
 );
 
 projetsRouter.put(
-  '/modeles',
+  '/referentiel',
   administration,
   traiter(async (req, res) => {
-    const parsed = schemaModeles.safeParse(req.body);
-    if (!parsed.success) return invalide(res);
-    await ecrireModeles(parsed.data);
-    await consigner(identiteDeRequete(req), 'projets_modeles', '', {
-      taches: parsed.data.taches.length,
-      demarches: parsed.data.reglementaire.length,
+    const parsed = schemaReferentiel.safeParse(req.body);
+    if (!parsed.success) {
+      const premiers = parsed.error.issues.slice(0, 3).map((e) => `${e.path.join('.')} : ${e.message}`);
+      throw new ErreurMetier(`Référentiel invalide — ${premiers.join(' ; ')}`);
+    }
+    const erreurs = controlerReferentiel(parsed.data);
+    if (erreurs.length) throw new ErreurMetier(`Référentiel incohérent — ${erreurs.slice(0, 5).join(' ; ')}`);
+    await ecrireReferentiel(parsed.data);
+    await consigner(identiteDeRequete(req), 'projets_referentiel', '', { taches: parsed.data.taches.length, modules: parsed.data.modules.length });
+    res.json({
+      ok: true,
+      message: "Référentiel enregistré. Il s'applique aux nouveaux projets, et à un projet existant dès que sa jauge ou ses caractéristiques changent.",
     });
-    res.json({ ok: true, message: 'Modèles enregistrés. Ils s’appliquent aux nouveaux projets.' });
+  })
+);
+
+/** Ce que donnerait un projet (niveau, modules, dates de non-retour, tâches infaisables), sans rien enregistrer. */
+projetsRouter.post(
+  '/simulation',
+  lecture,
+  traiter(async (req, res) => {
+    const parsed = z
+      .object({ dateJour: jour, jauge: z.number().int().min(0).max(10_000_000).nullable().default(null), criteres: z.array(z.string().max(40)).max(40).default([]) })
+      .safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    res.json({ simulation: simuler(await lireReferentiel(), parsed.data.dateJour, parsed.data.jauge, parsed.data.criteres) });
+  })
+);
+
+/** Comptes pouvant tenir un rôle dans un projet (accès au module Projets). */
+projetsRouter.get(
+  '/intervenants',
+  lecture,
+  traiter(async (_req, res) => {
+    const intervenants = await requete(
+      `SELECT DISTINCT u.id, u.nom FROM utilisateurs u LEFT JOIN droits_modules d ON d.utilisateur_id = u.id AND d.module = 'projets'
+        WHERE u.statut = 'Actif' AND (u.super_admin OR d.utilisateur_id IS NOT NULL) ORDER BY u.nom`
+    );
+    res.json({ intervenants });
   })
 );
 
@@ -166,11 +207,11 @@ projetsRouter.get(
   '/tableau-de-bord',
   lecture,
   traiter(async (req, res) => {
-    const actifs = await indicateursProjets(
-      "p.statut IN ('preparation', 'realise') AND COALESCE(p.date_fin, p.date_jour) >= CURRENT_DATE - 7"
+    const actifs = await avecMeteo(
+      await indicateursProjets("p.statut IN ('preparation', 'realise') AND COALESCE(p.date_fin, p.date_jour) >= CURRENT_DATE - 7")
     );
     const echeances = await requete(
-      `SELECT t.id, t.libelle, t.branche, p.date_jour + t.decalage AS echeance, p.id AS projet_id, p.titre
+      `SELECT t.id, t.libelle, t.porte, t.bloquante, p.date_jour + t.decalage AS echeance, p.id AS projet_id, p.titre
          FROM projet_taches t JOIN projets p ON p.id = t.projet_id
         WHERE NOT t.fait AND p.statut IN ('preparation', 'realise')
           AND COALESCE(p.date_fin, p.date_jour) >= CURRENT_DATE - 7
@@ -178,7 +219,7 @@ projetsRouter.get(
         ORDER BY echeance, p.titre LIMIT 50`
     );
     const calendrier = await requete(
-      `SELECT id, titre, type, date_jour FROM projets
+      `SELECT id, titre, type, niveau, date_jour FROM projets
         WHERE statut <> 'annule' AND date_jour >= date_trunc('month', CURRENT_DATE)
           AND date_jour < date_trunc('month', CURRENT_DATE) + interval '12 months'
         ORDER BY date_jour`
@@ -205,13 +246,41 @@ projetsRouter.get(
     const filtre = queryString(req.query.filtre) ?? 'actifs';
     const condition =
       filtre === 'tous' ? 'TRUE' : filtre === 'archives' ? "p.statut IN ('cloture', 'annule')" : "p.statut IN ('preparation', 'realise')";
-    res.json({ projets: await indicateursProjets(condition) });
+    res.json({ projets: await avecMeteo(await indicateursProjets(condition)) });
   })
 );
 
+/** Ajoute à chaque projet son prochain jalon, sa météo et le nombre de tâches bloquantes en souffrance. */
+async function avecMeteo<T extends { _id: string; dateJour: string; jauge: number | null; criteres: string[] }>(projets: T[]) {
+  if (projets.length === 0) return [];
+  const ref = await lireReferentiel();
+  const ids = projets.map((p) => p._id);
+  const taches = await requete<TacheProjet & { projetId: string }>('SELECT * FROM projet_taches WHERE projet_id = ANY($1)', [ids]);
+  const franchis = await requete<{ projetId: string; code: string; decidePar: string; commentaire: string; createdAt: Date }>(
+    'SELECT * FROM projet_jalons WHERE projet_id = ANY($1)',
+    [ids]
+  );
+  return projets.map((p) => {
+    const v = pilotage(
+      ref,
+      { ...p, roles: {} },
+      taches.filter((t) => t.projetId === p._id),
+      franchis.filter((f) => f.projetId === p._id)
+    );
+    return {
+      ...p,
+      prochainJalon: v.prochain ? { code: v.prochain.code, libelle: v.prochain.libelle, date: v.prochain.date } : null,
+      meteo: v.meteo,
+      bloquants: v.bloquants.length,
+      infaisables: v.infaisables,
+    };
+  });
+}
+
 const schemaInfos = z.object({
   titre: texte(300).min(1),
-  type: z.enum(CODES_TYPES),
+  type: z.enum(CODES_TYPES).nullable().default(null),
+  criteres: z.array(z.string().max(40)).max(40).default([]),
   dateJour: jour,
   dateFin: jour.nullable().default(null),
   lieu: texte().default(''),
@@ -221,12 +290,12 @@ const schemaInfos = z.object({
   description: texte(5000).default(''),
 });
 
-/** Crée un projet et génère son rétroplanning depuis les modèles de son type. */
+/** Crée un projet et génère son rétroplanning d'après son niveau et ses modules. */
 async function creerProjet(donnees: z.infer<typeof schemaInfos> & { inscritLe?: string; demandeId?: string }) {
   if (donnees.dateFin && donnees.dateFin < donnees.dateJour) throw new ErreurMetier('La date de fin précède le jour J');
   return transaction(async (client) => {
     const projet = await insererUn<{ _id: string; titre: string }>('projets', donnees, client);
-    await genererDepuisModeles(projet._id, donnees.type, client);
+    await genererProjet(projet._id, client);
     return projet;
   });
 }
@@ -239,7 +308,8 @@ projetsRouter.post(
     if (!parsed.success) return invalide(res);
     const projet = await creerProjet(parsed.data);
     await consigner(identiteDeRequete(req), 'projets_creation', projet.titre);
-    res.json({ ok: true, message: 'Projet créé, rétroplanning généré', projet });
+    const niveau = (await requeteUne<{ niveau: number }>('SELECT niveau FROM projets WHERE id = $1', [projet._id]))!.niveau;
+    res.json({ ok: true, message: `Projet créé au niveau N${niveau}, rétroplanning généré`, projet });
   })
 );
 
@@ -248,13 +318,23 @@ projetsRouter.get(
   '/:id',
   lecture,
   traiter(async (req, res) => {
-    const projet = await requeteUne<{ _id: string; evenementId: string | null; evenementNom: string | null; evenementDebut: Date | null; evenementFin: Date | null }>(
+    const projet = await requeteUne<{
+      _id: string;
+      dateJour: string;
+      jauge: number | null;
+      criteres: string[];
+      roles: Record<string, Personne>;
+      evenementId: string | null;
+      evenementNom: string | null;
+      evenementDebut: Date | null;
+      evenementFin: Date | null;
+    }>(
       'SELECT * FROM projets WHERE id = $1',
       [req.params.id]
     );
     if (!projet) return void res.status(404).json({ ok: false, message: 'Projet introuvable' });
-    const [taches, demarches, prestataires, budget, materiel, conflits] = await Promise.all([
-      requete('SELECT * FROM projet_taches WHERE projet_id = $1 ORDER BY decalage, created_at', [req.params.id]),
+    const [taches, demarches, prestataires, budget, materiel, conflits, franchis, ref] = await Promise.all([
+      requete<TacheProjet>('SELECT * FROM projet_taches WHERE projet_id = $1 ORDER BY decalage, created_at', [req.params.id]),
       requete('SELECT * FROM projet_demarches WHERE projet_id = $1 ORDER BY decalage, created_at', [req.params.id]),
       requete('SELECT * FROM projet_prestataires WHERE projet_id = $1 ORDER BY created_at', [req.params.id]),
       requete('SELECT * FROM projet_budget WHERE projet_id = $1 ORDER BY created_at', [req.params.id]),
@@ -264,10 +344,14 @@ projetsRouter.get(
         [req.params.id]
       ),
       conflitsMateriel(req.params.id),
+      requete<{ code: string; decidePar: string; commentaire: string; createdAt: Date }>('SELECT * FROM projet_jalons WHERE projet_id = $1', [req.params.id]),
+      lireReferentiel(),
     ]);
+    const vue = pilotage(ref, projet, taches, franchis);
     res.json({
       projet,
-      taches,
+      pilotage: vue,
+      taches: vue.taches,
       demarches,
       prestataires,
       budget,
@@ -282,7 +366,15 @@ projetsRouter.get(
 // Champs modifiables d'un projet et niveau requis pour chacun.
 const CHAMPS_PROJET: Record<string, { niveau: Niveau; schema: z.ZodTypeAny }> = {
   titre: { niveau: 'administration', schema: texte(300).min(1) },
-  type: { niveau: 'administration', schema: z.enum(CODES_TYPES) },
+  type: { niveau: 'administration', schema: z.enum(CODES_TYPES).nullable() },
+  criteres: { niveau: 'administration', schema: z.array(z.string().max(40)).max(40) },
+  roles: {
+    niveau: 'validation',
+    schema: z.record(
+      z.string().max(40),
+      z.object({ utilisateurId: z.string().max(60).nullable().optional(), nom: texte(200) })
+    ),
+  },
   dateJour: { niveau: 'administration', schema: jour },
   dateFin: { niveau: 'administration', schema: jour.nullable() },
   lieu: { niveau: 'administration', schema: texte() },
@@ -339,13 +431,23 @@ projetsRouter.put(
     }
     const { texte: set, params } = clauseSet('projets', champs, 2);
     await executer(`UPDATE projets SET ${set} WHERE id = $1`, [req.params.id, ...params]);
+    // Jauge ou caractéristiques modifiées : niveau recalculé, rétroplanning réaligné.
+    let synchro: { niveau: number; ajoutees: number; retirees: number } | null = null;
+    if ('jauge' in champs || 'criteres' in champs) synchro = await transaction((client) => synchroniserProjet(req.params.id, client));
     if (champs.dateJour || champs.statut) {
       await consigner(identiteDeRequete(req), 'projets_modification', avant.titre, {
         avant: { dateJour: avant.dateJour, statut: avant.statut },
         apres: { dateJour: champs.dateJour, statut: champs.statut },
       });
     }
-    res.json({ ok: true, message: champs.dateJour ? 'Date modifiée : toutes les échéances sont recalculées.' : 'Enregistré' });
+    res.json({
+      ok: true,
+      message: synchro
+        ? `Niveau N${synchro.niveau} : ${synchro.ajoutees} tâche(s) ajoutée(s), ${synchro.retirees} retirée(s).`
+        : champs.dateJour
+          ? 'Date modifiée : toutes les échéances sont recalculées.'
+          : 'Enregistré',
+    });
   })
 );
 
@@ -372,7 +474,7 @@ function lignesDeProjet(
   niveau: Niveau,
   creation: z.ZodObject<z.ZodRawShape>,
   modification: z.ZodObject<z.ZodRawShape>,
-  avantEcriture?: (req: Request, champs: Record<string, unknown>) => void
+  avantEcriture?: (req: Request, champs: Record<string, unknown>, creation: boolean) => void | Promise<void>
 ) {
   const garde = requireModule('projets', niveau);
   projetsRouter.post(
@@ -382,7 +484,9 @@ function lignesDeProjet(
       const parsed = creation.safeParse(req.body);
       if (!parsed.success) return invalide(res);
       if (!(await projetExiste(req.params.id, res))) return;
-      const ligne = await insererUn(table, { ...parsed.data, projetId: req.params.id });
+      const champs: Record<string, unknown> = { ...parsed.data };
+      await avantEcriture?.(req, champs, true);
+      const ligne = await insererUn(table, { ...champs, projetId: req.params.id });
       res.json({ ok: true, message: 'Ajouté', ligne });
     })
   );
@@ -393,7 +497,7 @@ function lignesDeProjet(
       const parsed = modification.partial().safeParse(req.body);
       if (!parsed.success || Object.keys(parsed.data).length === 0) return invalide(res);
       const champs: Record<string, unknown> = { ...parsed.data };
-      avantEcriture?.(req, champs);
+      await avantEcriture?.(req, champs, false);
       const { texte: set, params } = clauseSet(table, champs, 3);
       const n = await executer(`UPDATE ${table} SET ${set} WHERE id = $1 AND projet_id = $2`, [req.params.ligne, req.params.id, ...params]);
       if (n === 0) return void res.status(404).json({ ok: false, message: 'Ligne introuvable' });
@@ -411,17 +515,143 @@ function lignesDeProjet(
   );
 }
 
+const role = z.string().trim().max(40);
 const schemaTache = z.object({
   decalage: z.number().int().min(-730).max(365),
-  branche: texte(150),
   libelle: texte(300).min(1),
+  porte: role.min(1),
+  faitRole: role,
+  valideRole: role,
+  informe: z.array(role).max(20),
+  livrable: texte(300),
+  bloquante: z.boolean(),
+  incompressibleJours: z.number().int().min(0).max(730).nullable(),
   fait: z.boolean(),
 });
-lignesDeProjet('taches', 'projet_taches', 'contribution', schemaTache.omit({ fait: true }), schemaTache, (req, champs) => {
-  // Trace de qui a soldé la tâche et quand.
-  if (champs.fait === true) Object.assign(champs, { faitPar: req.session!.nom, faitLe: new Date() });
-  if (champs.fait === false) Object.assign(champs, { faitPar: '', faitLe: null });
-});
+lignesDeProjet(
+  'taches',
+  'projet_taches',
+  'contribution',
+  schemaTache.pick({ decalage: true, libelle: true, porte: true, bloquante: true, livrable: true }).partial({ bloquante: true, livrable: true }),
+  schemaTache,
+  async (req, champs) => {
+    // Trace de qui a soldé la tâche et quand.
+    if (champs.fait === true) Object.assign(champs, { faitPar: req.session!.nom, faitLe: new Date() });
+    if (champs.fait === false) Object.assign(champs, { faitPar: '', faitLe: null });
+    // Jalon d'origine d'une échéance : premier jalon du squelette qui la suit.
+    if (typeof champs.decalage === 'number') {
+      const ref = await lireReferentiel();
+      const suivant = [...ref.jalons].sort((a, b) => a.offset - b.offset).find((j) => j.offset >= (champs.decalage as number));
+      champs.jalon = (suivant ?? ref.jalons[ref.jalons.length - 1]).code;
+    }
+  }
+);
+
+/** Relance du « P » d'une tâche par courriel. */
+projetsRouter.post(
+  '/:id/taches/:ligne/relance',
+  contribution,
+  traiter(async (req, res) => {
+    const projet = await requeteUne<{ titre: string; jauge: number | null; criteres: string[]; roles: Record<string, Personne>; dateJour: string }>(
+      'SELECT titre, jauge, criteres, roles, date_jour FROM projets WHERE id = $1',
+      [req.params.id]
+    );
+    const tache = await requeteUne<{ libelle: string; porte: string; decalage: number }>('SELECT libelle, porte, decalage FROM projet_taches WHERE id = $1 AND projet_id = $2', [
+      req.params.ligne,
+      req.params.id,
+    ]);
+    if (!projet || !tache) return void res.status(404).json({ ok: false, message: 'Tâche introuvable' });
+    const ref = await lireReferentiel();
+    const { niveau } = calculerNiveau(ref, projet.jauge, projet.criteres);
+    const tenu = roleTenu(ref, niveau, tache.porte);
+    const personne = projet.roles[tenu];
+    const libelleRole = ref.roles.find((r) => r.code === tenu)?.libelle ?? tenu;
+    if (!personne?.utilisateurId) {
+      throw new ErreurMetier(`Aucun compte n'est désigné pour le rôle « ${libelleRole} » : désignez la personne dans l'onglet Équipe`);
+    }
+    const compte = await requeteUne<{ email: string; nom: string }>("SELECT email, nom FROM utilisateurs WHERE id = $1 AND statut = 'Actif'", [personne.utilisateurId]);
+    if (!compte) throw new ErreurMetier(`Le compte de ${personne.nom} n'est pas actif`);
+    const echeance = decalerJour(projet.dateJour, tache.decalage);
+    void notifier(
+      [compte.email],
+      `Relance — ${projet.titre} : ${tache.libelle}`,
+      [
+        `Bonjour ${compte.nom},`,
+        `${req.session!.nom} vous relance sur la tâche « ${tache.libelle} » du projet « ${projet.titre} », dont vous êtes responsable (${libelleRole}).`,
+        `Échéance : ${echeance.split('-').reverse().join('/')}.`,
+      ],
+      `/projets/${req.params.id}?onglet=pilotage`
+    );
+    await executer('UPDATE projet_taches SET relance_le = now() WHERE id = $1', [req.params.ligne]);
+    await consigner(identiteDeRequete(req), 'projets_relance', `${projet.titre} · ${tache.libelle}`, { destinataire: compte.nom });
+    res.json({ ok: true, message: `Relance envoyée à ${compte.nom}` });
+  })
+);
+
+function decalerJour(jourJ: string, jours: number): string {
+  const [a, m, j] = jourJ.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, j + jours)).toISOString().slice(0, 10);
+}
+
+// --- Jalons : portillons ----------------------------------------------------------------------------
+
+/**
+ * Franchit un jalon : la question de passage a reçu un « oui ». Réservé au valideur désigné pour ce
+ * jalon (ou à un compte de niveau Validation). Refusé tant qu'une tâche bloquante du jalon n'est pas faite.
+ */
+projetsRouter.post(
+  '/:id/jalons/:code/franchir',
+  contribution,
+  traiter(async (req, res) => {
+    const commentaire = z.string().trim().max(2000).default('').parse(req.body?.commentaire ?? '');
+    const projet = await requeteUne<{ titre: string; jauge: number | null; criteres: string[]; roles: Record<string, Personne> }>(
+      'SELECT titre, jauge, criteres, roles FROM projets WHERE id = $1',
+      [req.params.id]
+    );
+    if (!projet) return void res.status(404).json({ ok: false, message: 'Projet introuvable' });
+    const ref = await lireReferentiel();
+    const { niveau } = calculerNiveau(ref, projet.jauge, projet.criteres);
+    const jalon = jalonsActifs(ref, niveau).find((j) => j.code === req.params.code);
+    if (!jalon) throw new ErreurMetier(`Le jalon ${req.params.code} n'est pas actif au niveau N${niveau}`);
+    const valideur = roleTenu(ref, niveau, jalon.valideur);
+    const designe = projet.roles[valideur]?.utilisateurId === req.session!.userId;
+    if (!designe && !peut(req.session, 'projets', 'validation')) {
+      const libelle = ref.roles.find((r) => r.code === valideur)?.libelle ?? valideur;
+      throw new ErreurMetier(`Ce jalon est validé par le rôle « ${libelle} »`);
+    }
+    // Portillons dans l'ordre : le jalon actif précédent doit être franchi.
+    const actifs = jalonsActifs(ref, niveau);
+    const precedent = actifs[actifs.findIndex((j) => j.code === jalon.code) - 1];
+    if (precedent && !(await requeteUne('SELECT 1 FROM projet_jalons WHERE projet_id = $1 AND code = $2', [req.params.id, precedent.code]))) {
+      throw new ErreurMetier(`Franchissez d'abord le jalon ${precedent.code} « ${precedent.libelle} »`);
+    }
+    const taches = await requete<{ libelle: string; jalon: string }>('SELECT libelle, jalon FROM projet_taches WHERE projet_id = $1 AND bloquante AND NOT fait', [
+      req.params.id,
+    ]);
+    const ouvertes = taches.filter((t) => jalonDeRattachement(ref, niveau, t.jalon) === jalon.code);
+    if (ouvertes.length) {
+      throw new ErreurMetier(`Jalon non franchissable : ${ouvertes.length} tâche(s) bloquante(s) non faite(s) (${ouvertes.map((t) => t.libelle).slice(0, 3).join(' ; ')})`);
+    }
+    await executer(
+      `INSERT INTO projet_jalons (projet_id, code, decide_par, commentaire) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (projet_id, code) DO UPDATE SET decide_par = EXCLUDED.decide_par, commentaire = EXCLUDED.commentaire`,
+      [req.params.id, jalon.code, req.session!.nom, commentaire]
+    );
+    await consigner(identiteDeRequete(req), 'projets_jalon', `${projet.titre} · ${jalon.code}`, { commentaire });
+    res.json({ ok: true, message: `Jalon ${jalon.code} « ${jalon.libelle} » franchi` });
+  })
+);
+
+projetsRouter.delete(
+  '/:id/jalons/:code',
+  validation,
+  traiter(async (req, res) => {
+    const n = await executer('DELETE FROM projet_jalons WHERE projet_id = $1 AND code = $2', [req.params.id, req.params.code]);
+    if (n === 0) return void res.status(404).json({ ok: false, message: 'Jalon non franchi' });
+    await consigner(identiteDeRequete(req), 'projets_jalon_rouvert', `${req.params.id} · ${req.params.code}`);
+    res.json({ ok: true, message: 'Jalon rouvert' });
+  })
+);
 
 const schemaDemarche = z.object({
   decalage: z.number().int().min(-730).max(365),
@@ -593,7 +823,8 @@ const schemaDemande = z.object({
   contact: texte(300).min(1),
   dateSouhaitee: jour,
   lieu: texte().default(''),
-  type: z.enum(CODES_TYPES),
+  type: z.enum(CODES_TYPES).nullable().default(null),
+  criteres: z.array(z.string().max(40)).max(40).default([]),
   jauge: z.number().int().min(0).max(10_000_000).nullable().default(null),
   besoins: z.array(texte(100)).max(20).default([]),
   description: texte(5000).default(''),
@@ -677,7 +908,8 @@ async function demandeEnCours(id: string) {
     structure: string;
     dateSouhaitee: string;
     lieu: string;
-    type: (typeof CODES_TYPES)[number];
+    type: (typeof CODES_TYPES)[number] | null;
+    criteres: string[];
     jauge: number | null;
     description: string;
     besoins: string[];
@@ -720,6 +952,7 @@ projetsRouter.post(
     const projet = await creerProjet({
       titre: demande.intitule,
       type: demande.type,
+      criteres: demande.criteres,
       dateJour: demande.dateSouhaitee,
       dateFin: null,
       lieu: demande.lieu,

@@ -1,31 +1,31 @@
-import { z } from 'zod';
 import { executer, inserer, pool, requete, requeteUne, type Executant } from '../db.js';
 
+import {
+  REFERENTIEL_DEFAUT,
+  controlerReferentiel,
+  schemaReferentiel,
+  type Referentiel,
+  type TacheType,
+} from './referentielProjets.js';
+
 /**
- * Règles du module Projets événementiels (reprises de l'artefact « Balise événementielle ») :
+ * Règles du module Projets événementiels.
  *
- * - le rétroplanning se compte en jours par rapport au jour J, de T-180 (six mois avant, échéance
- *   réglementaire) à J+7 (bilan) ; changer la date d'un projet décale toutes ses échéances ;
- * - à la création, les tâches et démarches sont tirées des modèles selon le type d'événement ;
- * - une tâche non faite dont l'échéance est passée est « en retard » ; une démarche ni obtenue ni
- *   sans objet, aussi ;
- * - un projet inscrit moins de 180 jours avant sa date ne tient pas l'échéance des 6 mois ;
- * - le matériel réservé est bloqué du jour J − 1 au jour de fin + 1 (montage, démontage) : au-delà
+ * - Un squelette unique de jalons (T-180 → J+7), réglé par trois curseurs : le niveau (N1 à N4, tiré
+ *   de la jauge et relevé par les critères de risque), les jalons actifs à ce niveau et leur valideur,
+ *   les modules activés par les caractéristiques de l'événement (voir referentielProjets.ts).
+ * - Chaque tâche se date à J + décalage ; changer la date d'un projet décale toutes ses échéances.
+ *   Les tâches d'un jalon inactif se rattachent au jalon actif suivant.
+ * - Une tâche bloquante est « infaisable » quand le temps restant avant J est inférieur à son délai
+ *   incompressible : l'outil dit, dès la saisie, ce qui n'est plus faisable.
+ * - Date de non-retour d'un module : J moins son délai de non-retour (imposé, ou plus long délai
+ *   incompressible de ses tâches bloquantes).
+ * - Un projet inscrit moins de 180 jours avant sa date ne tient pas l'échéance des 6 mois.
+ * - Le matériel réservé est bloqué du jour J − 1 au jour de fin + 1 (montage, démontage) : au-delà
  *   du stock total sur une période qui se chevauche, il y a conflit.
  */
 
-export const JALONS = [
-  { c: 'T-180', o: -180, l: 'Lancement et cadrage', s: 'Échéance réglementaire des 6 mois' },
-  { c: 'T-120', o: -120, l: 'Programme et budget', s: 'Arbitrages et consultations' },
-  { c: 'T-90', o: -90, l: 'Dossiers réglementaires', s: 'Dépôts et implantation' },
-  { c: 'T-60', o: -60, l: 'Réunion jalon 1', s: 'Coordination inter-branches', reunion: true },
-  { c: 'T-30', o: -30, l: 'Réunion jalon 2', s: 'Sécurité et logistique', reunion: true },
-  { c: 'T-15', o: -15, l: 'Réunion jalon 3', s: 'Calage final', reunion: true },
-  { c: 'T-7', o: -7, l: 'Réunion jalon 4', s: 'Brief des équipes', reunion: true },
-  { c: 'J', o: 0, l: 'Jour J', s: 'Montage, exploitation, démontage' },
-  { c: 'J+7', o: 7, l: 'Réunion jalon 5', s: 'Bilan', reunion: true },
-];
-
+/** Anciens types d'événement : conservés pour l'affichage des projets créés avant les niveaux. */
 export const TYPES = {
   festif: { libelle: 'Grand événement festif ou culturel', lettre: 'f' },
   protocolaire: { libelle: 'Événement protocolaire', lettre: 'p' },
@@ -37,47 +37,308 @@ export const CODES_TYPES = Object.keys(TYPES) as [TypeProjet, ...TypeProjet[]];
 /** Délai minimal entre l'inscription d'un projet et son jour J. */
 export const DELAI_INSCRIPTION_JOURS = 180;
 
-const ligneModele = z.object({
-  o: z.number().int().min(-730).max(365),
-  l: z.string().trim().min(1).max(300),
-  t: z.string().regex(/^[fpq]{0,3}$/),
-});
+export { schemaReferentiel, controlerReferentiel, type Referentiel };
 
-export const schemaModeles = z.object({
-  branches: z.array(z.string().trim().min(1).max(100)).min(1).max(50),
-  taches: z.array(ligneModele.extend({ b: z.string().trim().min(1).max(100) })).max(300),
-  reglementaire: z.array(ligneModele).max(100),
-  budgetPostes: z.array(z.string().trim().min(1).max(100)).max(50),
-});
-export type Modeles = z.infer<typeof schemaModeles>;
+// --- Référentiel -----------------------------------------------------------------------------------
 
-export async function lireModeles(executant: Executant = pool): Promise<Modeles> {
-  const ligne = await requeteUne<{ valeur: unknown }>("SELECT valeur FROM parametres WHERE cle = 'projets_modeles'", [], executant);
-  return schemaModeles.parse(ligne?.valeur);
+/** Référentiel en vigueur ; créé avec les valeurs par défaut au premier usage. */
+export async function lireReferentiel(executant: Executant = pool): Promise<Referentiel> {
+  const ligne = await requeteUne<{ valeur: unknown }>("SELECT valeur FROM parametres WHERE cle = 'projets_referentiel'", [], executant);
+  if (ligne) return schemaReferentiel.parse(ligne.valeur);
+  // Reprise des postes budgétaires des anciens modèles s'ils existent.
+  const anciens = await requeteUne<{ valeur: { budgetPostes?: string[] } }>("SELECT valeur FROM parametres WHERE cle = 'projets_modeles'", [], executant);
+  const referentiel = { ...REFERENTIEL_DEFAUT, budgetPostes: anciens?.valeur.budgetPostes ?? REFERENTIEL_DEFAUT.budgetPostes };
+  await ecrireReferentiel(referentiel, executant);
+  return referentiel;
 }
 
-export async function ecrireModeles(modeles: Modeles): Promise<void> {
+export async function ecrireReferentiel(referentiel: Referentiel, executant: Executant = pool): Promise<void> {
   await executer(
-    `INSERT INTO parametres (cle, valeur) VALUES ('projets_modeles', $1)
+    `INSERT INTO parametres (cle, valeur) VALUES ('projets_referentiel', $1)
      ON CONFLICT (cle) DO UPDATE SET valeur = EXCLUDED.valeur`,
-    [JSON.stringify(modeles)]
+    [JSON.stringify(referentiel)],
+    executant
   );
 }
 
-/** Génère le rétroplanning, les démarches et les premières lignes de budget d'un projet neuf. */
-export async function genererDepuisModeles(projetId: string, type: TypeProjet, executant: Executant): Promise<void> {
-  const modeles = await lireModeles(executant);
-  const lettre = TYPES[type].lettre;
-  const taches = modeles.taches
-    .filter((t) => t.t.includes(lettre))
-    .map((t) => ({ projetId, decalage: t.o, branche: t.b, libelle: t.l }));
-  const demarches = modeles.reglementaire
-    .filter((r) => r.t.includes(lettre))
-    .map((r) => ({ projetId, decalage: r.o, libelle: r.l }));
-  const budget = modeles.budgetPostes.slice(0, 3).map((poste) => ({ projetId, poste }));
-  if (taches.length) await inserer('projet_taches', taches, executant);
-  if (demarches.length) await inserer('projet_demarches', demarches, executant);
+// --- Les trois curseurs ----------------------------------------------------------------------------
+
+export interface CalculNiveau {
+  niveau: number;
+  base: number;
+  majorations: string[];
+  multiSites: boolean;
+}
+
+/** Niveau = min(4, niveau de jauge + nombre de majorations) ; multi-sites : N4. */
+export function calculerNiveau(ref: Referentiel, jauge: number | null, criteres: string[]): CalculNiveau {
+  const [n2, n3, n4] = ref.seuilsJauge;
+  const j = jauge ?? 0;
+  const base = j >= n4 ? 4 : j >= n3 ? 3 : j >= n2 ? 2 : 1;
+  const coches = ref.criteres.filter((c) => criteres.includes(c.code));
+  const majorations = coches.filter((c) => c.majoration).map((c) => c.libelle);
+  const multiSites = coches.some((c) => c.niveauMax);
+  return { niveau: multiSites ? 4 : Math.min(4, base + majorations.length), base, majorations, multiSites };
+}
+
+/** Modules actifs : le socle, puis ceux qu'activent les critères cochés. */
+export function modulesActifs(ref: Referentiel, criteres: string[]): string[] {
+  const actifs = new Set(['socle']);
+  for (const c of ref.criteres) if (criteres.includes(c.code)) c.modules.forEach((m) => actifs.add(m));
+  return ref.modules.map((m) => m.code).filter((m) => actifs.has(m));
+}
+
+export function tachesApplicables(ref: Referentiel, niveau: number, modules: string[]): TacheType[] {
+  return ref.taches.filter((t) => modules.includes(t.module) && t.niveauMin <= niveau);
+}
+
+export function jalonsActifs(ref: Referentiel, niveau: number) {
+  const regle = ref.niveaux.find((n) => n.niveau === niveau)!;
+  return ref.jalons
+    .filter((j) => regle.jalons.some((a) => a.code === j.code))
+    .map((j) => ({ ...j, valideur: regle.jalons.find((a) => a.code === j.code)!.valideur }))
+    .sort((a, b) => a.offset - b.offset);
+}
+
+/** Jalon actif de rattachement : le jalon d'origine s'il est actif, sinon le jalon actif suivant. */
+export function jalonDeRattachement(ref: Referentiel, niveau: number, jalon: string): string {
+  const actifs = jalonsActifs(ref, niveau);
+  const origine = ref.jalons.find((j) => j.code === jalon)?.offset ?? Infinity;
+  return (actifs.find((a) => a.offset >= origine) ?? actifs[actifs.length - 1]).code;
+}
+
+/** Qui tient un rôle à ce niveau : en dessous du niveau où il devient distinct, le pilote. */
+export function roleTenu(ref: Referentiel, niveau: number, role: string): string {
+  const r = ref.roles.find((x) => x.code === role);
+  return r && r.niveauMin > niveau ? 'pilote' : role;
+}
+
+/** Délai de non-retour d'un module (jours avant J), ou null s'il n'en a pas. */
+export function delaiNonRetour(ref: Referentiel, module: string, niveau: number): number | null {
+  const m = ref.modules.find((x) => x.code === module);
+  if (m?.nonRetourJours != null) return m.nonRetourJours;
+  const delais = tachesApplicables(ref, niveau, [module])
+    .filter((t) => t.bloquante && t.incompressibleJours != null)
+    .map((t) => t.incompressibleJours!);
+  return delais.length ? Math.max(...delais) : null;
+}
+
+// --- Dates -----------------------------------------------------------------------------------------
+
+export function decaler(jour: string, jours: number): string {
+  const [a, m, j] = jour.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, j + jours)).toISOString().slice(0, 10);
+}
+
+export function aujourdhui(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export const ecartJours = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000);
+
+// --- Génération et synchronisation ------------------------------------------------------------------
+
+/**
+ * Aligne le rétroplanning d'un projet sur son niveau et ses modules : enregistre le niveau, ajoute les
+ * tâches types devenues applicables, retire celles qui ne le sont plus si elles ne sont pas faites.
+ * Les tâches ajoutées à la main et les tâches faites ne sont jamais retirées.
+ */
+export async function synchroniserProjet(projetId: string, executant: Executant) {
+  const ref = await lireReferentiel(executant);
+  const projet = await requeteUne<{ jauge: number | null; criteres: string[] }>('SELECT jauge, criteres FROM projets WHERE id = $1', [projetId], executant);
+  if (!projet) throw new Error('Projet introuvable');
+  const { niveau } = calculerNiveau(ref, projet.jauge, projet.criteres);
+  const applicables = tachesApplicables(ref, niveau, modulesActifs(ref, projet.criteres));
+  const codes = new Set(applicables.map((t) => t.code));
+  const existantes = await requete<{ _id: string; code: string | null; fait: boolean }>(
+    'SELECT id, code, fait FROM projet_taches WHERE projet_id = $1',
+    [projetId],
+    executant
+  );
+  const presents = new Set(existantes.map((t) => t.code).filter(Boolean));
+  const aAjouter = applicables.filter((t) => !presents.has(t.code));
+  const aRetirer = existantes.filter((t) => t.code && !t.fait && !codes.has(t.code)).map((t) => t._id);
+  await executer('UPDATE projets SET niveau = $2 WHERE id = $1', [projetId, niveau], executant);
+  if (aAjouter.length) {
+    await inserer(
+      'projet_taches',
+      aAjouter.map((t) => ({
+        projetId,
+        code: t.code,
+        libelle: t.libelle,
+        module: t.module,
+        jalon: t.jalon,
+        decalage: t.offset,
+        porte: t.porte,
+        faitRole: t.fait,
+        valideRole: t.valide,
+        informe: t.informe,
+        livrable: t.livrable,
+        bloquante: t.bloquante,
+        incompressibleJours: t.incompressibleJours,
+      })),
+      executant
+    );
+  }
+  if (aRetirer.length) await executer('DELETE FROM projet_taches WHERE id = ANY($1)', [aRetirer], executant);
+  return { niveau, ajoutees: aAjouter.length, retirees: aRetirer.length };
+}
+
+/** Rétroplanning et premières lignes de budget d'un projet neuf. */
+export async function genererProjet(projetId: string, executant: Executant): Promise<void> {
+  await synchroniserProjet(projetId, executant);
+  const ref = await lireReferentiel(executant);
+  const budget = ref.budgetPostes.slice(0, 3).map((poste) => ({ projetId, poste }));
   if (budget.length) await inserer('projet_budget', budget, executant);
+}
+
+// --- Pilotage ----------------------------------------------------------------------------------------
+
+export interface TacheProjet {
+  _id: string;
+  code: string | null;
+  libelle: string;
+  module: string;
+  jalon: string;
+  decalage: number;
+  porte: string;
+  faitRole: string;
+  valideRole: string;
+  informe: string[];
+  livrable: string;
+  bloquante: boolean;
+  incompressibleJours: number | null;
+  fait: boolean;
+  faitPar: string;
+  relanceLe: Date | null;
+}
+
+export interface Personne {
+  utilisateurId?: string | null;
+  nom: string;
+}
+
+export type Meteo = 'vert' | 'orange' | 'rouge';
+
+/**
+ * Vue de pilotage d'un projet : où en est-on (prochain jalon et sa météo), qu'est-ce qui bloque
+ * (tâches bloquantes en retard ou infaisables, triées par urgence), qui doit agir (le « P »).
+ */
+export function pilotage(
+  ref: Referentiel,
+  projet: { dateJour: string; jauge: number | null; criteres: string[]; roles: Record<string, Personne> },
+  taches: TacheProjet[],
+  franchis: { code: string; decidePar: string; commentaire: string; createdAt: Date }[],
+  jour = aujourdhui()
+) {
+  const calcul = calculerNiveau(ref, projet.jauge, projet.criteres);
+  const { niveau } = calcul;
+  const modules = modulesActifs(ref, projet.criteres);
+  const restant = ecartJours(projet.dateJour, jour);
+  const libelleRole = (code: string) => ref.roles.find((r) => r.code === code)?.libelle ?? code;
+  const personne = (code: string) => {
+    const tenu = roleTenu(ref, niveau, code);
+    return projet.roles[tenu]?.nom || null;
+  };
+
+  const enrichies = taches.map((t) => {
+    const echeance = decaler(projet.dateJour, t.decalage);
+    const enRetard = !t.fait && echeance < jour;
+    const infaisable = t.bloquante && !t.fait && t.incompressibleJours != null && restant < t.incompressibleJours;
+    return {
+      ...t,
+      jalonActif: jalonDeRattachement(ref, niveau, t.jalon),
+      echeance,
+      enRetard,
+      infaisable,
+      porteTenu: roleTenu(ref, niveau, t.porte),
+      portePar: personne(t.porte),
+    };
+  });
+
+  const actifs = jalonsActifs(ref, niveau);
+  const jalons = actifs.map((j) => {
+    const lot = enrichies.filter((t) => t.jalonActif === j.code);
+    const franchi = franchis.find((f) => f.code === j.code) ?? null;
+    const date = decaler(projet.dateJour, j.offset);
+    const bloquantsOuverts = lot.filter((t) => t.bloquante && !t.fait);
+    const rouge = !franchi && (date < jour || lot.some((t) => t.bloquante && !t.fait && (t.enRetard || t.infaisable)));
+    const orange = !franchi && (lot.some((t) => t.enRetard) || (ecartJours(date, jour) <= 14 && lot.some((t) => !t.fait)));
+    return {
+      ...j,
+      date,
+      valideurTenu: roleTenu(ref, niveau, j.valideur),
+      valideurNom: personne(j.valideur),
+      franchi,
+      total: lot.length,
+      faites: lot.filter((t) => t.fait).length,
+      bloquantsOuverts: bloquantsOuverts.length,
+      meteo: (franchi ? 'vert' : rouge ? 'rouge' : orange ? 'orange' : 'vert') as Meteo,
+    };
+  });
+  const prochain = jalons.find((j) => !j.franchi) ?? null;
+
+  const bloquants = enrichies
+    .filter((t) => t.bloquante && !t.fait && (t.enRetard || t.infaisable))
+    .sort((a, b) => a.echeance.localeCompare(b.echeance));
+
+  const nonRetour = modules
+    .map((m) => {
+      const delai = delaiNonRetour(ref, m, niveau);
+      if (delai == null) return null;
+      const date = decaler(projet.dateJour, -delai);
+      const ouvertes = enrichies.filter((t) => t.module === m && t.bloquante && !t.fait).length;
+      return { module: m, libelle: ref.modules.find((x) => x.code === m)?.libelle ?? m, delai, date, depassee: date < jour && ouvertes > 0, ouvertes };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    ...calcul,
+    niveauLibelle: ref.niveaux.find((n) => n.niveau === niveau)?.libelle ?? '',
+    modules: modules.map((m) => ({ code: m, libelle: ref.modules.find((x) => x.code === m)?.libelle ?? m })),
+    jalons,
+    prochain,
+    meteo: prochain?.meteo ?? ('vert' as Meteo),
+    bloquants,
+    infaisables: enrichies.filter((t) => t.infaisable).length,
+    nonRetour,
+    taches: enrichies,
+    roles: ref.roles.map((r) => ({
+      ...r,
+      tenuPar: roleTenu(ref, niveau, r.code),
+      utile: r.code === 'pilote' || enrichies.some((t) => [t.porte, t.faitRole, t.valideRole].includes(r.code)) || actifs.some((j) => j.valideur === r.code),
+      libelleRole: libelleRole(r.code),
+    })),
+  };
+}
+
+/** Ce que donnerait un projet : pour le dépôt d'une demande ou la création, avant tout enregistrement. */
+export function simuler(ref: Referentiel, dateJour: string, jauge: number | null, criteres: string[], jour = aujourdhui()) {
+  const calcul = calculerNiveau(ref, jauge, criteres);
+  const modules = modulesActifs(ref, criteres);
+  const restant = ecartJours(dateJour, jour);
+  const applicables = tachesApplicables(ref, calcul.niveau, modules);
+  return {
+    ...calcul,
+    niveauLibelle: ref.niveaux.find((n) => n.niveau === calcul.niveau)?.libelle ?? '',
+    restant,
+    modules: modules.map((m) => ({ code: m, libelle: ref.modules.find((x) => x.code === m)?.libelle ?? m })),
+    jalons: jalonsActifs(ref, calcul.niveau).map((j) => ({ code: j.code, libelle: j.libelle, date: decaler(dateJour, j.offset), passe: decaler(dateJour, j.offset) < jour })),
+    nonRetour: modules
+      .map((m) => {
+        const delai = delaiNonRetour(ref, m, calcul.niveau);
+        if (delai == null) return null;
+        const date = decaler(dateJour, -delai);
+        return { module: m, libelle: ref.modules.find((x) => x.code === m)?.libelle ?? m, delai, date, depassee: date < jour };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null),
+    infaisables: applicables
+      .filter((t) => t.bloquante && t.incompressibleJours != null && restant < t.incompressibleJours)
+      .map((t) => ({ code: t.code, libelle: t.libelle, module: t.module, incompressibleJours: t.incompressibleJours! })),
+    nombreTaches: applicables.length,
+  };
 }
 
 /** Indicateurs de tous les projets (avancement, retards, prochaine échéance), calculés en SQL. */
@@ -85,7 +346,9 @@ export async function indicateursProjets(filtre = 'TRUE', params: unknown[] = []
   return requete<{
     _id: string;
     titre: string;
-    type: TypeProjet;
+    type: TypeProjet | null;
+    niveau: number;
+    criteres: string[];
     dateJour: string;
     dateFin: string | null;
     lieu: string;
@@ -97,7 +360,7 @@ export async function indicateursProjets(filtre = 'TRUE', params: unknown[] = []
     tachesEnRetard: number;
     demarchesEnRetard: number;
   }>(
-    `SELECT p.id, p.titre, p.type, p.date_jour, p.date_fin, p.lieu, p.jauge, p.statut, p.inscrit_le,
+    `SELECT p.id, p.titre, p.type, p.niveau, p.criteres, p.date_jour, p.date_fin, p.lieu, p.jauge, p.statut, p.inscrit_le,
             (SELECT count(*) FROM projet_taches t WHERE t.projet_id = p.id) AS total_taches,
             (SELECT count(*) FROM projet_taches t WHERE t.projet_id = p.id AND t.fait) AS taches_faites,
             (SELECT count(*) FROM projet_taches t WHERE t.projet_id = p.id AND NOT t.fait

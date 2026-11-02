@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, Empty, message } from 'antd';
 import { api } from '../../api';
 import type { ArticleMateriel, FicheProjetComplete, ReferentielsProjets } from '../../types';
-import { aujourdhui, ecart, formatLong, jalonDe } from '../../lib/projets';
+import { aujourdhui, ecart, formatLong } from '../../lib/projets';
 import { BalisePlan } from '../../projets/balisePlan';
 import '../../projets/balisePlan.css';
 
@@ -135,10 +135,8 @@ export function PlanImplantation({
         };
       },
       articles: () => catalogue.current.filter((a) => a.code).map((a) => ({ id: a.code, nom: a.nom, total: a.total })),
-      currentJalon: () => {
-        const o = Math.max(-180, Math.min(7, ecart(aujourdhui(), ficheCourante.current.projet.dateJour)));
-        return jalonDe(referentiels.jalons, o).c;
-      },
+      // Version figée au nom du prochain jalon à franchir.
+      currentJalon: () => ficheCourante.current.pilotage.prochain?.code ?? 'J+7',
       applyQuantities: async (quantites: Record<string, number>) => {
         const res = await api.post<{ ok: boolean; message?: string }>(`/projets/${id}/materiel/depuis-plan`, { quantites });
         if (res.ok) onMaterielModifie();

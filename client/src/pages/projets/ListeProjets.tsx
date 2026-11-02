@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
-import { Button, Card, DatePicker, Drawer, Grid, Input, InputNumber, Progress, Segmented, Select, Space, Table, Tag, Typography, type TableColumnsType } from 'antd';
+import { Button, Card, DatePicker, Drawer, Grid, Input, InputNumber, Progress, Segmented, Space, Table, Tag, Typography, type TableColumnsType } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
-import type { IndicateursProjet, TypeProjet } from '../../types';
-import { STATUTS_PROJET, ecart, formatLong, useReferentiels } from '../../lib/projets';
+import type { IndicateursProjet } from '../../types';
+import { COULEURS_NIVEAU, METEO, STATUTS_PROJET, ecart, formatLong, useReferentiels, useSimulation } from '../../lib/projets';
+import { ApercuSimulation, CaracteristiquesEvenement } from './Caracteristiques';
 import { lancer } from '../../lib/actionStock';
 
 const { Text } = Typography;
@@ -20,13 +21,13 @@ function Champ({ libelle, children }: { libelle: string; children: React.ReactNo
   );
 }
 
-/** Création d'un projet : le rétroplanning est généré à partir des modèles du type choisi. */
+/** Création d'un projet : le rétroplanning est généré d'après son niveau et ses modules. */
 export function NouveauProjet({ ouvert, onFerme }: { ouvert: boolean; onFerme: () => void }) {
   const navigate = useNavigate();
   const ref = useReferentiels();
   const mobile = !Grid.useBreakpoint().md;
   const [titre, setTitre] = useState('');
-  const [type, setType] = useState<TypeProjet>('festif');
+  const [criteres, setCriteres] = useState<string[]>([]);
   const [dates, setDates] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
   const [lieu, setLieu] = useState('');
   const [jauge, setJauge] = useState<number | null>(null);
@@ -38,7 +39,7 @@ export function NouveauProjet({ ouvert, onFerme }: { ouvert: boolean; onFerme: (
     try {
       const res = await api.post<{ ok: boolean; message: string; projet?: { _id: string } }>('/projets', {
         titre,
-        type,
+        criteres,
         dateJour: dates[0]?.format('YYYY-MM-DD'),
         dateFin: dates[1] && !dates[1].isSame(dates[0], 'day') ? dates[1].format('YYYY-MM-DD') : null,
         lieu,
@@ -55,13 +56,14 @@ export function NouveauProjet({ ouvert, onFerme }: { ouvert: boolean; onFerme: (
   };
 
   const delai = dates[0] ? dates[0].diff(dayjs().startOf('day'), 'day') : null;
+  const simulation = useSimulation(dates[0] ? dates[0].format('YYYY-MM-DD') : null, jauge, criteres);
 
   return (
     <Drawer
       title="Nouveau projet"
       open={ouvert}
       onClose={onFerme}
-      width={mobile ? '100%' : 480}
+      width={mobile ? '100%' : 640}
       extra={
         <Space>
           <Button onClick={onFerme}>Annuler</Button>
@@ -74,9 +76,6 @@ export function NouveauProjet({ ouvert, onFerme }: { ouvert: boolean; onFerme: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Champ libelle="Intitulé">
           <Input value={titre} onChange={(e) => setTitre(e.target.value)} placeholder="Ex. Fête de la musique, quartier de Malo" />
-        </Champ>
-        <Champ libelle="Type">
-          <Select value={type} onChange={setType} options={Object.entries(ref?.types ?? {}).map(([value, label]) => ({ value, label }))} style={{ width: '100%' }} />
         </Champ>
         <Champ libelle="Jour J (et fin si plusieurs jours)">
           <DatePicker.RangePicker
@@ -98,6 +97,16 @@ export function NouveauProjet({ ouvert, onFerme }: { ouvert: boolean; onFerme: (
         <Champ libelle="Jauge prévisionnelle">
           <InputNumber min={0} value={jauge} onChange={(v) => setJauge(v === null ? null : Number(v))} style={{ width: '100%' }} />
         </Champ>
+        {ref && (
+          <Champ libelle="L'événement comprend…">
+            <CaracteristiquesEvenement referentiel={ref.referentiel} criteres={criteres} onChange={setCriteres} />
+          </Champ>
+        )}
+        {simulation && ref && (
+          <Card size="small" style={{ background: '#fafafa' }}>
+            <ApercuSimulation simulation={simulation} referentiel={ref.referentiel} />
+          </Card>
+        )}
         <Champ libelle="Référent du service">
           <Input value={referent} onChange={(e) => setReferent(e.target.value)} />
         </Champ>
@@ -126,12 +135,27 @@ export default function ListeProjets() {
       render: (_, p) => (
         <div>
           <Text strong>{p.titre}</Text>
-          <div style={{ fontSize: 12, color: '#8c8c8c' }}>{ref?.types[p.type]}</div>
+          <Space size={4} style={{ marginTop: 2 }}>
+            <Tag color={COULEURS_NIVEAU[p.niveau]} style={{ fontSize: 11 }}>
+              N{p.niveau}
+            </Tag>
+            {p.prochainJalon && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                prochain jalon {p.prochainJalon.code} {p.prochainJalon.libelle} · {formatLong(p.prochainJalon.date)}
+              </Text>
+            )}
+          </Space>
         </div>
       ),
     },
     { title: 'Lieu', dataIndex: 'lieu', render: (v: string) => v || '—' },
     { title: 'Jauge', key: 'jauge', width: 90, align: 'right', render: (_, p) => (p.jauge ? p.jauge.toLocaleString('fr-FR') : '—') },
+    {
+      title: 'Météo',
+      key: 'meteo',
+      width: 130,
+      render: (_, p) => (p.meteo && (p.statut === 'preparation' || p.statut === 'realise') ? <Tag color={METEO[p.meteo].tag}>{METEO[p.meteo].libelle}</Tag> : '—'),
+    },
     { title: 'Statut', key: 'statut', width: 130, render: (_, p) => <Tag color={STATUTS_PROJET[p.statut].couleur}>{STATUTS_PROJET[p.statut].libelle}</Tag> },
     {
       title: 'Avancement',
@@ -144,7 +168,9 @@ export default function ListeProjets() {
       key: 'alertes',
       render: (_, p) => (
         <Space size={4} wrap>
-          {p.tachesEnRetard > 0 && <Tag color="red">{p.tachesEnRetard} tâche(s)</Tag>}
+          {(p.infaisables ?? 0) > 0 && <Tag color="red">{p.infaisables} infaisable(s)</Tag>}
+          {(p.bloquants ?? 0) > 0 && <Tag color="volcano">{p.bloquants} bloquante(s)</Tag>}
+          {p.tachesEnRetard > 0 && <Tag color="orange">{p.tachesEnRetard} en retard</Tag>}
           {p.demarchesEnRetard > 0 && <Tag color="orange">{p.demarchesEnRetard} réglementaire</Tag>}
           {ref && ecart(p.dateJour, p.inscritLe) < ref.delaiInscriptionJours && <Tag color="red">Hors délai</Tag>}
         </Space>

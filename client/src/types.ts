@@ -217,34 +217,134 @@ export const STATUTS_DEMANDE_EN_ATTENTE = ['En attente chef de service', 'En att
 export type TypeProjet = 'festif' | 'protocolaire' | 'quartier';
 export type StatutProjet = 'preparation' | 'realise' | 'cloture' | 'annule';
 
+/** Jalon du squelette de rétroplanning (portillon). */
 export interface Jalon {
-  c: string;
-  o: number;
-  l: string;
-  s: string;
-  reunion?: boolean;
+  code: string;
+  libelle: string;
+  offset: number;
+  question: string;
+  livrable: string;
+}
+
+export interface RoleProjet {
+  code: string;
+  libelle: string;
+  mission: string;
+  niveauMin: number;
+}
+
+export interface TacheType {
+  code: string;
+  libelle: string;
+  module: string;
+  jalon: string;
+  offset: number;
+  niveauMin: number;
+  porte: string;
+  fait: string;
+  valide: string;
+  informe: string[];
+  livrable: string;
+  bloquante: boolean;
+  incompressibleJours: number | null;
+}
+
+/** Référentiel du rétroplanning : squelette, niveaux, critères, modules, tâches types. */
+export interface ReferentielRetroplanning {
+  jalons: Jalon[];
+  roles: RoleProjet[];
+  seuilsJauge: [number, number, number];
+  niveaux: { niveau: number; libelle: string; exemples: string; jalons: { code: string; valideur: string }[] }[];
+  criteres: { code: string; libelle: string; modules: string[]; majoration: boolean; niveauMax: boolean }[];
+  modules: { code: string; libelle: string; activation: string; nonRetourJours: number | null }[];
+  taches: TacheType[];
+  budgetPostes: string[];
 }
 
 export interface ReferentielsProjets {
-  jalons: Jalon[];
+  referentiel: ReferentielRetroplanning;
   types: Record<TypeProjet, string>;
-  branches: string[];
   budgetPostes: string[];
   pieces: { code: string; libelle: string }[];
   delaiInscriptionJours: number;
   stockageActif: boolean;
 }
 
+export type Meteo = 'vert' | 'orange' | 'rouge';
+
+export interface NonRetourModule {
+  module: string;
+  libelle: string;
+  delai: number;
+  date: string;
+  depassee: boolean;
+  ouvertes?: number;
+}
+
+/** Ce que donnerait un projet, avant enregistrement. */
+export interface SimulationProjet {
+  niveau: number;
+  base: number;
+  majorations: string[];
+  multiSites: boolean;
+  niveauLibelle: string;
+  restant: number;
+  modules: { code: string; libelle: string }[];
+  jalons: { code: string; libelle: string; date: string; passe: boolean }[];
+  nonRetour: NonRetourModule[];
+  infaisables: { code: string; libelle: string; module: string; incompressibleJours: number }[];
+  nombreTaches: number;
+}
+
+export interface Personne {
+  utilisateurId?: string | null;
+  nom: string;
+}
+
+export interface JalonPilotage extends Jalon {
+  valideur: string;
+  date: string;
+  valideurTenu: string;
+  valideurNom: string | null;
+  franchi: { code: string; decidePar: string; commentaire: string; createdAt: string } | null;
+  total: number;
+  faites: number;
+  bloquantsOuverts: number;
+  meteo: Meteo;
+}
+
+export interface PilotageProjet {
+  niveau: number;
+  base: number;
+  majorations: string[];
+  multiSites: boolean;
+  niveauLibelle: string;
+  modules: { code: string; libelle: string }[];
+  jalons: JalonPilotage[];
+  prochain: JalonPilotage | null;
+  meteo: Meteo;
+  bloquants: TacheProjet[];
+  infaisables: number;
+  nonRetour: NonRetourModule[];
+  roles: (RoleProjet & { tenuPar: string; utile: boolean })[];
+}
+
 export interface IndicateursProjet {
   _id: string;
   titre: string;
-  type: TypeProjet;
+  type: TypeProjet | null;
+  niveau: number;
+  criteres: string[];
   dateJour: string;
   dateFin: string | null;
   lieu: string;
   jauge: number | null;
   statut: StatutProjet;
   inscritLe: string;
+  prochainJalon?: { code: string; libelle: string; date: string } | null;
+  meteo?: Meteo;
+  bloquants?: number;
+  infaisables?: number;
   totalTaches: number;
   tachesFaites: number;
   tachesEnRetard: number;
@@ -254,7 +354,10 @@ export interface IndicateursProjet {
 export interface Projet {
   _id: string;
   titre: string;
-  type: TypeProjet;
+  type: TypeProjet | null;
+  niveau: number;
+  criteres: string[];
+  roles: Record<string, Personne>;
   dateJour: string;
   dateFin: string | null;
   lieu: string;
@@ -274,11 +377,28 @@ export interface Projet {
 
 export interface TacheProjet {
   _id: string;
+  code: string | null;
   decalage: number;
-  branche: string;
   libelle: string;
+  module: string;
+  jalon: string;
+  porte: string;
+  faitRole: string;
+  valideRole: string;
+  informe: string[];
+  livrable: string;
+  bloquante: boolean;
+  incompressibleJours: number | null;
   fait: boolean;
   faitPar: string;
+  relanceLe: string | null;
+  // Calculés par le serveur.
+  jalonActif: string;
+  echeance: string;
+  enRetard: boolean;
+  infaisable: boolean;
+  porteTenu: string;
+  portePar: string | null;
 }
 
 export interface DemarcheProjet {
@@ -333,6 +453,7 @@ export interface FicheProjetComplete {
   evenement: EvenementLie | null;
   demandesStock: DemandeStockLiee[] | null;
   projet: Projet;
+  pilotage: PilotageProjet;
   taches: TacheProjet[];
   demarches: DemarcheProjet[];
   prestataires: PrestataireProjet[];
@@ -359,7 +480,8 @@ export interface DemandeEvenement {
   contact: string;
   dateSouhaitee: string;
   lieu: string;
-  type: TypeProjet;
+  type: TypeProjet | null;
+  criteres: string[];
   jauge: number | null;
   besoins: string[];
   description: string;

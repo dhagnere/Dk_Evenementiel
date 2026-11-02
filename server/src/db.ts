@@ -174,20 +174,27 @@ const TABLES = {
   projet_demandes: {
     colonnes: [
       '_id', 'intitule', 'demandeurId', 'demandeurNom', 'structure', 'contact', 'dateSouhaitee', 'lieu', 'type', 'jauge',
-      'besoins', 'description', 'statut', 'reponse', 'projetId', 'createdAt', 'updatedAt',
+      'besoins', 'description', 'statut', 'reponse', 'projetId', 'criteres', 'createdAt', 'updatedAt',
     ],
-    json: ['besoins'],
+    json: ['besoins', 'criteres'],
   },
   projets: {
     colonnes: [
       '_id', 'titre', 'type', 'dateJour', 'dateFin', 'lieu', 'jauge', 'demandeur', 'referent', 'description', 'statut',
       'inscritLe', 'demandeId', 'evenementId', 'evenementNom', 'evenementDebut', 'evenementFin', 'montage', 'ouverture', 'fermeture', 'demontage', 'implantation', 'bilan',
-      'createdAt', 'updatedAt',
+      'criteres', 'niveau', 'roles', 'createdAt', 'updatedAt',
     ],
-    json: ['bilan'],
+    json: ['bilan', 'criteres', 'roles'],
   },
   projet_taches: {
-    colonnes: ['_id', 'projetId', 'decalage', 'branche', 'libelle', 'fait', 'faitPar', 'faitLe', 'createdAt', 'updatedAt'],
+    colonnes: [
+      '_id', 'projetId', 'decalage', 'branche', 'libelle', 'fait', 'faitPar', 'faitLe', 'code', 'module', 'jalon', 'porte',
+      'faitRole', 'valideRole', 'informe', 'livrable', 'bloquante', 'incompressibleJours', 'relanceLe', 'createdAt', 'updatedAt',
+    ],
+    json: ['informe'],
+  },
+  projet_jalons: {
+    colonnes: ['projetId', 'code', 'decidePar', 'commentaire', 'createdAt', 'updatedAt'],
     json: [],
   },
   projet_demarches: {

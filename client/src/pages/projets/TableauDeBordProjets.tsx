@@ -1,23 +1,23 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Empty, Progress, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Empty, Progress, Space, Table, Tag, Typography } from 'antd';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
-import type { ConflitMateriel, IndicateursProjet, TypeProjet } from '../../types';
-import { aujourdhui, decaler, formatCourt, formatLong, useReferentiels } from '../../lib/projets';
+import type { ConflitMateriel, IndicateursProjet } from '../../types';
+import { COULEURS_NIVEAU, METEO, aujourdhui, formatCourt, formatLong, libelleRole, useReferentiels } from '../../lib/projets';
 import { NouveauProjet } from './ListeProjets';
 
 const { Text, Title } = Typography;
 
 interface Donnees {
   actifs: IndicateursProjet[];
-  echeances: { _id: string; libelle: string; branche: string; echeance: string; projetId: string; titre: string }[];
-  calendrier: { _id: string; titre: string; type: TypeProjet; dateJour: string }[];
+  echeances: { _id: string; libelle: string; porte: string; bloquante: boolean; echeance: string; projetId: string; titre: string }[];
+  calendrier: { _id: string; titre: string; niveau: number; dateJour: string }[];
   conflits: ConflitMateriel[];
   demandesAInstruire: number | null;
 }
 
-const COULEURS_TYPE: Record<TypeProjet, string> = { festif: '#e3a914', protocolaire: '#4b5a6b', quartier: '#1c5da8' };
+const COULEURS_NIVEAU_HEX: Record<number, string> = { 1: '#13a8a8', 2: '#1c5da8', 3: '#722ed1', 4: '#c41d7f' };
 
 function Indicateur({ valeur, libelle, alerte }: { valeur: number; libelle: string; alerte?: boolean }) {
   return (
@@ -105,7 +105,7 @@ export default function TableauDeBordProjets() {
                 { title: 'Échéance', key: 'e', width: 90, render: (_, e) => (e.echeance < jour ? <Tag color="red">{formatCourt(e.echeance)}</Tag> : formatCourt(e.echeance)) },
                 { title: 'Tâche', dataIndex: 'libelle' },
                 { title: 'Projet', dataIndex: 'titre' },
-                { title: 'Branche', dataIndex: 'branche' },
+                { title: 'Porte (P)', key: 'p', render: (_, e) => libelleRole(ref.referentiel, e.porte) },
               ]}
             />
           )}
@@ -122,7 +122,18 @@ export default function TableauDeBordProjets() {
               onRow={(p) => ({ onClick: () => navigate(`/projets/${p._id}`), style: { cursor: 'pointer' } })}
               columns={[
                 { title: 'Date', key: 'd', width: 80, render: (_, p) => formatCourt(p.dateJour) },
-                { title: 'Projet', key: 't', render: (_, p) => <Text strong>{p.titre}</Text> },
+                {
+                  title: 'Projet',
+                  key: 't',
+                  render: (_, p) => (
+                    <Space size={4}>
+                      <Tag color={COULEURS_NIVEAU[p.niveau]} style={{ fontSize: 11 }}>
+                        N{p.niveau}
+                      </Tag>
+                      <Text strong>{p.titre}</Text>
+                    </Space>
+                  ),
+                },
                 {
                   title: 'Avancement',
                   key: 'a',
@@ -140,11 +151,20 @@ export default function TableauDeBordProjets() {
                 {
                   title: 'Prochain jalon',
                   key: 'j',
-                  width: 120,
-                  render: (_, p) => {
-                    const j = ref.jalons.find((x) => decaler(p.dateJour, x.o) >= jour);
-                    return j ? `${j.c} · ${formatCourt(decaler(p.dateJour, j.o))}` : '—';
-                  },
+                  width: 190,
+                  render: (_, p) => (
+                    <div>
+                      {p.prochainJalon ? `${p.prochainJalon.code} ${p.prochainJalon.libelle} · ${formatCourt(p.prochainJalon.date)}` : '—'}
+                      {p.meteo && (
+                        <div>
+                          <Tag color={METEO[p.meteo].tag} style={{ fontSize: 11 }}>
+                            {METEO[p.meteo].libelle}
+                          </Tag>
+                          {(p.bloquants ?? 0) > 0 && <Text type="danger" style={{ fontSize: 12 }}>{p.bloquants} bloquante(s)</Text>}
+                        </div>
+                      )}
+                    </div>
+                  ),
                 },
               ]}
             />
@@ -172,7 +192,7 @@ export default function TableauDeBordProjets() {
                     marginTop: 4,
                     padding: '3px 6px',
                     border: 'none',
-                    borderLeft: `3px solid ${COULEURS_TYPE[p.type]}`,
+                    borderLeft: `3px solid ${COULEURS_NIVEAU_HEX[p.niveau]}`,
                     background: '#f5f5f5',
                     borderRadius: 4,
                     cursor: 'pointer',
@@ -189,8 +209,7 @@ export default function TableauDeBordProjets() {
           ))}
         </div>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          Repères de couleur : jaune, grand événement festif ou culturel ; gris, événement protocolaire ; bleu, petit événement en
-          mairie de quartier.
+          Repères de couleur par niveau : turquoise N1 proximité · bleu N2 ville · violet N3 grand public · magenta N4 majeur.
         </Text>
       </Card>
 
