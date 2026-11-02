@@ -125,7 +125,11 @@ Un seul squelette de rétroplanning, réglé par trois curseurs, plutôt qu'un m
   Équipe du projet ; une étape est acquise quand le projet a franchi son bilan. L'onglet Équipe avertit quand un pilote
   en formation prend un projet au-delà de son étape. Un agent expérimenté peut être déclaré autonome directement ; notes
   de suivi par pilote.
-- **Matériel logistique** (barrières, tentes, podium…) : une réservation bloque le matériel du jour J − 1 au lendemain de
+- **Matériel logistique** classé en 21 thèmes (barriérage, sécurité, structures, scène, son, éclairage, énergie, mobilier,
+  protocole, accueil, exposition, buvette, hygiène, voirie, sols, climat, animation, nautique, accessibilité, manutention,
+  poste de commandement), chacun marqué intérieur, extérieur ou les deux. Les 179 articles proposés arrivent inactifs :
+  saisir le stock du parc les rend réservables. La réservation se fait par listes déroulantes thème puis article.
+  Une réservation une réservation bloque le matériel du jour J − 1 au lendemain de
   la fin ; un dépassement du stock sur des périodes qui se chevauchent est signalé comme conflit.
 - **Plan d'implantation** 2D et maquette 3D (éditeur repris tel quel de l'artefact, `client/src/projets/balisePlan.js`) :
   matériel, zones, sécurité, capacité théorique, versions figées à chaque réunion jalon, export PNG, report des quantités

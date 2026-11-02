@@ -168,7 +168,7 @@ const TABLES = {
     json: [],
   },
   materiel_articles: {
-    colonnes: ['_id', 'code', 'nom', 'unite', 'total', 'actif', 'createdAt', 'updatedAt'],
+    colonnes: ['_id', 'code', 'nom', 'unite', 'total', 'actif', 'theme', 'usage', 'createdAt', 'updatedAt'],
     json: [],
   },
   projet_demandes: {

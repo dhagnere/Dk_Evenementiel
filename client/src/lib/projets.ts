@@ -28,6 +28,12 @@ export const METEO: Record<Meteo, { libelle: string; couleur: string; tag: strin
   rouge: { libelle: 'En difficulté', couleur: '#be3327', tag: 'red' },
 };
 
+export const USAGES_MATERIEL = {
+  interieur: { libelle: 'Intérieur', court: 'Int.' },
+  exterieur: { libelle: 'Extérieur', court: 'Ext.' },
+  mixte: { libelle: 'Intérieur et extérieur', court: 'Int./ext.' },
+} as const;
+
 export const COULEURS_NIVEAU: Record<number, string> = { 1: 'cyan', 2: 'blue', 3: 'purple', 4: 'magenta' };
 
 export const libelleRole = (ref: ReferentielRetroplanning, code: string) => ref.roles.find((r) => r.code === code)?.libelle ?? code;

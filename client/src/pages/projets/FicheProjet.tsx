@@ -576,15 +576,19 @@ function Equipe({ fiche, referentiels: ref, majProjet, peut }: Ops) {
 
 // --- Logistique -----------------------------------------------------------------------------------
 
-function Logistique({ fiche, majProjet, recharger, peut }: Ops) {
+function Logistique({ fiche, referentiels: ref, majProjet, recharger, peut }: Ops) {
   const { projet, materiel, conflits } = fiche;
   const modifiable = peut('contribution');
   const [catalogue, setCatalogue] = useState<ArticleMateriel[]>([]);
-  const [ajout, setAjout] = useState<{ articleId: string | null; quantite: number }>({ articleId: null, quantite: 10 });
+  const [ajout, setAjout] = useState<{ theme: string | null; articleId: string | null; quantite: number }>({ theme: null, articleId: null, quantite: 10 });
+  const [usage, setUsage] = useState<'tous' | 'interieur' | 'exterieur'>('tous');
 
   useEffect(() => {
     api.get<{ articles: ArticleMateriel[] }>('/projets/materiel').then((d) => setCatalogue(d.articles.filter((a) => a.actif)));
   }, []);
+
+  // Articles réservables et pas encore réservés, filtrés par usage (un article mixte convient partout).
+  const disponibles = catalogue.filter((a) => !materiel.some((m) => m.articleId === a._id) && (usage === 'tous' || a.usage === usage || a.usage === 'mixte'));
 
   const reserver = async (articleId: string, quantite: number) => {
     if (await lancer(api.put(`/projets/${projet._id}/materiel`, { articleId, quantite }))) await recharger();
@@ -623,6 +627,7 @@ function Logistique({ fiche, majProjet, recharger, peut }: Ops) {
           locale={{ emptyText: 'Aucun matériel réservé' }}
           columns={[
             { title: 'Article', dataIndex: 'nom' },
+            { title: 'Thème', dataIndex: 'theme', render: (v: string) => <Text type="secondary">{v}</Text> },
             {
               title: 'Quantité',
               key: 'q',
@@ -655,19 +660,45 @@ function Logistique({ fiche, majProjet, recharger, peut }: Ops) {
         />
         {modifiable && (
           <Space style={{ marginTop: 12 }} wrap>
+            <Segmented
+              value={usage}
+              onChange={(v) => setUsage(v as typeof usage)}
+              options={[
+                { value: 'tous', label: 'Tout usage' },
+                { value: 'interieur', label: 'Intérieur' },
+                { value: 'exterieur', label: 'Extérieur' },
+              ]}
+            />
             <Select
+              allowClear
+              placeholder="Thème"
+              value={ajout.theme ?? undefined}
+              onChange={(theme) => setAjout({ ...ajout, theme: theme ?? null, articleId: null })}
+              options={ref.themesMateriel.filter((t) => disponibles.some((a) => a.theme === t)).map((t) => ({ value: t, label: t }))}
+              style={{ width: 250 }}
+            />
+            <Select
+              showSearch
+              optionFilterProp="label"
               placeholder="Article"
               value={ajout.articleId ?? undefined}
               onChange={(articleId) => setAjout({ ...ajout, articleId })}
-              options={catalogue.filter((a) => !materiel.some((m) => m.articleId === a._id)).map((a) => ({ value: a._id, label: `${a.nom} (${a.total} ${a.unite})` }))}
-              style={{ width: 260 }}
+              options={ref.themesMateriel
+                .filter((t) => !ajout.theme || t === ajout.theme)
+                .map((t) => ({
+                  label: t,
+                  title: t,
+                  options: disponibles.filter((a) => a.theme === t).map((a) => ({ value: a._id, label: `${a.nom} (${a.total} ${a.unite})` })),
+                }))
+                .filter((g) => g.options.length)}
+              style={{ width: 340 }}
             />
             <InputNumber min={1} value={ajout.quantite} onChange={(v) => setAjout({ ...ajout, quantite: Number(v ?? 1) })} aria-label="Quantité" />
             <Button
               disabled={!ajout.articleId}
               onClick={async () => {
                 await reserver(ajout.articleId!, ajout.quantite);
-                setAjout({ articleId: null, quantite: 10 });
+                setAjout({ ...ajout, articleId: null, quantite: 10 });
               }}
             >
               Réserver

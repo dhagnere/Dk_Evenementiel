@@ -15,6 +15,7 @@ import {
   CODES_TYPES,
   DELAI_INSCRIPTION_JOURS,
   TYPES,
+  THEMES_MATERIEL,
   conflitsMateriel,
   controlerReferentiel,
   ecrireReferentiel,
@@ -87,6 +88,7 @@ projetsRouter.get(
       pieces: PIECES.map(([code, libelle]) => ({ code, libelle })),
       delaiInscriptionJours: DELAI_INSCRIPTION_JOURS,
       stockageActif: stockageActif(),
+      themesMateriel: THEMES_MATERIEL,
     });
   })
 );
@@ -204,7 +206,7 @@ projetsRouter.get(
            FROM res a GROUP BY a.article_id
        )
        SELECT art.*, COALESCE(pics.pic, 0) AS pic FROM materiel_articles art LEFT JOIN pics ON pics.article_id = art.id
-        ORDER BY art.actif DESC, art.code NULLS LAST, art.nom`
+        ORDER BY art.theme, art.nom`
     );
     res.json({ articles });
   })
@@ -215,6 +217,8 @@ const schemaArticle = z.object({
   unite: texte(20).min(1),
   total: z.number().int().min(0).max(1_000_000),
   actif: z.boolean().default(true),
+  theme: texte(100).min(1).default('Divers'),
+  usage: z.enum(['interieur', 'exterieur', 'mixte']).default('mixte'),
 });
 
 projetsRouter.post(
@@ -381,7 +385,7 @@ projetsRouter.get(
       requete('SELECT * FROM projet_prestataires WHERE projet_id = $1 ORDER BY created_at', [req.params.id]),
       requete('SELECT * FROM projet_budget WHERE projet_id = $1 ORDER BY created_at', [req.params.id]),
       requete(
-        `SELECT m.article_id, m.quantite, a.code, a.nom, a.unite, a.total FROM projet_materiel m
+        `SELECT m.article_id, m.quantite, a.code, a.nom, a.unite, a.total, a.theme FROM projet_materiel m
            JOIN materiel_articles a ON a.id = m.article_id WHERE m.projet_id = $1 ORDER BY a.code NULLS LAST, a.nom`,
         [req.params.id]
       ),

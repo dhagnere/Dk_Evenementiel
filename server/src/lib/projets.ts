@@ -34,6 +34,32 @@ export const TYPES = {
 export type TypeProjet = keyof typeof TYPES;
 export const CODES_TYPES = Object.keys(TYPES) as [TypeProjet, ...TypeProjet[]];
 
+/** Thèmes du matériel logistique, dans l'ordre d'affichage des listes. */
+export const THEMES_MATERIEL = [
+  'Barriérage et délimitation',
+  'Sécurité et secours',
+  'Structures et abris',
+  'Scène, podium et tribunes',
+  'Sonorisation et vidéo',
+  'Éclairage',
+  'Énergie et électricité',
+  'Mobilier',
+  'Protocole et cérémonie',
+  'Accueil, signalétique et billetterie',
+  'Exposition et stands',
+  'Restauration et buvette',
+  'Hygiène, propreté et environnement',
+  'Voirie, circulation et stationnement',
+  'Sols et protection',
+  'Climat et confort',
+  'Animation, sport et jeux',
+  'Nautique et plage',
+  'Accessibilité',
+  'Transport et manutention',
+  'Communication et poste de commandement',
+  'Divers',
+];
+
 /** Délai minimal entre l'inscription d'un projet et son jour J. */
 export const DELAI_INSCRIPTION_JOURS = 180;
 

@@ -268,6 +268,7 @@ export interface ReferentielsProjets {
   pieces: { code: string; libelle: string }[];
   delaiInscriptionJours: number;
   stockageActif: boolean;
+  themesMateriel: string[];
 }
 
 export type Meteo = 'vert' | 'orange' | 'rouge';
@@ -458,6 +459,7 @@ export interface MaterielReserve {
   nom: string;
   unite: string;
   total: number;
+  theme: string;
 }
 
 export interface ConflitMateriel {
@@ -493,8 +495,12 @@ export interface ArticleMateriel {
   unite: string;
   total: number;
   actif: boolean;
+  theme: string;
+  usage: UsageMateriel;
   pic: number;
 }
+
+export type UsageMateriel = 'interieur' | 'exterieur' | 'mixte';
 
 export interface DemandeEvenement {
   _id: string;
