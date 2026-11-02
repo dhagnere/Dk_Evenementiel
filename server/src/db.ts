@@ -132,7 +132,7 @@ const TABLES = {
   stock_articles: {
     colonnes: [
       '_id', 'reference', 'libelle', 'famille', 'categorie', 'emplacement', 'fournisseur', 'delaiJours',
-      'stockPhysique', 'stockReserve', 'seuil', 'pmp', 'aValoriser', 'actif', 'createdAt', 'updatedAt',
+      'stockPhysique', 'stockReserve', 'seuil', 'pmp', 'prixAchat', 'aValoriser', 'actif', 'createdAt', 'updatedAt',
     ],
     json: [],
   },
@@ -144,7 +144,8 @@ const TABLES = {
     colonnes: [
       '_id', 'numero', 'directionId', 'directionNom', 'evenement', 'evenementId', 'articleId', 'quantite', 'dateBesoin',
       'motifTardif', 'beneficiaire', 'occasion', 'elu', 'valeur', 'circuit', 'statut', 'motifRefus', 'demandeurId',
-      'demandeurNom', 'historique', 'projetId', 'evenementNom', 'evenementDebut', 'evenementFin', 'createdAt', 'updatedAt',
+      'demandeurNom', 'historique', 'projetId', 'evenementNom', 'evenementDebut', 'evenementFin', 'prixUnitaireLivre',
+      'valeurLivree', 'remiseLe', 'createdAt', 'updatedAt',
     ],
     json: ['historique'],
   },

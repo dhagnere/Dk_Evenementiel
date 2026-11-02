@@ -6,7 +6,7 @@ import { ImportCatalogue } from './ImportCatalogue';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import type { ArticleStock, CategorieArticle, ParametresStock } from '../../types';
-import { formatEuro } from '../../lib/formatStock';
+import { formatEuro, formatPrixUnitaire } from '../../lib/formatStock';
 import { lancer } from '../../lib/actionStock';
 
 const { Text } = Typography;
@@ -19,10 +19,11 @@ interface Fiche {
   delaiJours: number;
   seuil: number;
   actif: boolean;
+  /** Prix d'achat unitaire TTC : fixe le PMP à la création, et pour un article « à valoriser ». */
+  prix: number | null;
   // Création uniquement.
   categorie: CategorieArticle;
   stockInitial: number;
-  prix: number | null;
 }
 
 const FICHE_VIDE: Fiche = {
@@ -72,7 +73,7 @@ export default function Catalogue() {
   const ouvrir = (article: ArticleStock | null) => {
     setFiche(
       article
-        ? { ...FICHE_VIDE, ...article, prix: article.pmp }
+        ? { ...FICHE_VIDE, ...article, prix: article.prixAchat }
         : { ...FICHE_VIDE, emplacement: parametres?.emplacements[0] ?? '' }
     );
     setEdition({ article });
@@ -97,7 +98,7 @@ export default function Catalogue() {
     const { libelle, famille, emplacement, fournisseur, delaiJours, seuil, actif, categorie, stockInitial, prix } = fiche;
     const ok = await lancer(
       edition.article
-        ? api.put(`/stock/articles/${edition.article._id}`, { libelle, famille, emplacement, fournisseur, delaiJours, seuil, actif })
+        ? api.put(`/stock/articles/${edition.article._id}`, { libelle, famille, emplacement, fournisseur, delaiJours, seuil, actif, prixAchat: prix })
         : api.post('/stock/articles', { libelle, famille, emplacement, fournisseur, delaiJours, seuil, categorie, stockInitial, prix })
     );
     setEnvoi(false);
@@ -138,7 +139,21 @@ export default function Catalogue() {
       render: (_, a) => <Text strong>{a.stockPhysique - a.stockReserve}</Text>,
     },
     { title: 'Seuil', dataIndex: 'seuil', width: 70, align: 'right' },
+    {
+      title: "Prix d'achat",
+      key: 'prixAchat',
+      width: 100,
+      align: 'right',
+      render: (_, a) => (a.prixAchat === null ? <Text type="secondary">—</Text> : formatEuro(a.prixAchat)),
+    },
     { title: 'PMP', key: 'pmp', width: 90, align: 'right', render: (_, a) => (a.aValoriser ? '—' : formatEuro(a.pmp)) },
+    {
+      title: 'Valeur stock',
+      key: 'valeur',
+      width: 110,
+      align: 'right',
+      render: (_, a) => (a.aValoriser ? '—' : formatEuro(a.stockPhysique * a.pmp)),
+    },
     { title: 'Emplacement', dataIndex: 'emplacement', width: 140 },
     {
       title: 'État',
@@ -284,17 +299,41 @@ export default function Catalogue() {
             </Champ>
           </div>
           {edition?.article ? (
-            <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <Switch checked={fiche.actif} onChange={(actif) => setFiche({ ...fiche, actif })} />
-              <span>Article actif (un article retiré n'est plus demandable)</span>
-            </label>
+            <>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Champ libelle="Prix d'achat unitaire TTC (€)">
+                  <InputNumber
+                    min={0}
+                    step={0.01}
+                    value={fiche.prix}
+                    onChange={(v) => setFiche({ ...fiche, prix: v === null ? null : Number(v) })}
+                    placeholder="Non renseigné"
+                  />
+                </Champ>
+                <Champ libelle="PMP TTC (valorisation)">
+                  <Text strong>{edition.article.aValoriser ? 'à valoriser' : formatPrixUnitaire(edition.article.pmp)}</Text>
+                </Champ>
+                <Champ libelle="Valeur du stock">
+                  <Text>{edition.article.aValoriser ? '—' : formatEuro(edition.article.stockPhysique * edition.article.pmp)}</Text>
+                </Champ>
+              </div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {edition.article.aValoriser
+                  ? "Article à valoriser : le prix d'achat saisi fixera son PMP, repris sur les livraisons."
+                  : "Le prix d'achat est le dernier prix payé, mis à jour à chaque réception. Le PMP, recalculé à chaque réception, valorise le stock et les livraisons."}
+              </Text>
+              <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <Switch checked={fiche.actif} onChange={(actif) => setFiche({ ...fiche, actif })} />
+                <span>Article actif (un article retiré n'est plus demandable)</span>
+              </label>
+            </>
           ) : (
             <>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <Champ libelle="Stock initial">
                   <InputNumber min={0} value={fiche.stockInitial} onChange={(v) => setFiche({ ...fiche, stockInitial: Number(v ?? 0) })} />
                 </Champ>
-                <Champ libelle="Prix unitaire (€)">
+                <Champ libelle="Prix d'achat unitaire TTC (€)">
                   <InputNumber
                     min={0}
                     step={0.01}
@@ -305,7 +344,8 @@ export default function Catalogue() {
                 </Champ>
               </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Sans prix, l'article est « à valoriser » : son prix moyen sera fixé à la première réception.
+                Le prix d'achat fixe le PMP de départ. Sans prix, l'article est « à valoriser » et ne peut pas être remis tant que
+                son prix n'est pas renseigné.
                 {fiche.prix !== null && ` Valeur initiale : ${formatEuro(fiche.stockInitial * fiche.prix)}.`}
               </Text>
             </>

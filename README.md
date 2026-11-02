@@ -64,9 +64,14 @@ Règles de gestion, reprises de la maquette (`maquettes/stock-goodies/`) :
   protocolaire : avis du Protocole puis validation du Cabinet, qui inscrit la remise au **registre protocolaire**.
   Seul le service (niveau Validation) demande des cadeaux protocolaires.
 - **Demande tardive** (moins de 10 jours avant le besoin) : motif obligatoire.
-- **Remise** : sortie du stock central. Des goodies remis à une direction dotée d'un **stock déporté** y sont versés ; le
+- **Remise** : sortie du stock central, valorisée au PMP TTC du jour, figé sur la demande avec le total livré ; un bon de
+  livraison PDF est disponible depuis la demande. Des goodies remis à une direction dotée d'un **stock déporté** y sont versés ; le
   référent déclare ensuite, depuis son téléphone, les sorties (distribués) et les retours (non distribués).
-- **Réception** : met à jour le stock et le prix moyen pondéré ; tout écart crée une anomalie à traiter.
+- **Prix d'achat et PMP** (TTC) : la fiche article affiche le dernier prix d'achat unitaire, saisi à la création, mis à
+  jour à chaque réception et modifiable. Le **prix moyen pondéré (PMP)**, recalculé à chaque réception, est seul à
+  valoriser le stock. Un article sans prix est « à valoriser » : le prix d'achat saisi dans sa fiche fixe son PMP, et il
+  ne peut pas être remis tant qu'il n'est pas valorisé.
+- **Réception** : met à jour le stock, le prix d'achat et le PMP ; tout écart crée une anomalie à traiter.
 - **Ajustement** : immédiat jusqu'à 50 €, soumis à validation au-delà ou pour un cadeau protocolaire ; le stock réservé
   ne peut jamais être entamé.
 - **Contrôle à quatre yeux** : personne ne décide de sa propre demande ni de son propre ajustement, sauf un
@@ -75,7 +80,8 @@ Règles de gestion, reprises de la maquette (`maquettes/stock-goodies/`) :
 
 **Import du catalogue** (super-administrateurs) : Stock → Catalogue → *Importer un CSV*. L'analyse contrôle tout le
 fichier sans rien écrire ; l'import n'est possible que sans anomalie. Une référence déjà présente n'est pas modifiée.
-Modèle téléchargeable depuis le même écran ; *Exporter CSV* produit un fichier au même format. Équivalent en ligne de
+Colonne `prix` : prix d'achat unitaire TTC, qui fixe le PMP de départ ; colonne `pmp` (facultative) : PMP repris tel
+quel. Modèle téléchargeable depuis le même écran ; *Exporter CSV* produit un fichier au même format, PMP compris. Équivalent en ligne de
 commande : `node server/dist/import-catalogue.js catalogue.csv [--appliquer]`.
 
 Pour une recette, un jeu de démonstration (catalogue, directions, stocks déportés de la maquette) se charge sur une base

@@ -73,7 +73,7 @@ function Reception({ articles, onFait }: { articles: ArticleStock[]; onFait: () 
 
   const choisirArticle = (articleId: string) => {
     const a = parId.get(articleId);
-    setLigne({ ...ligne, articleId, prix: a && !a.aValoriser ? Math.round(a.pmp * 100) / 100 : 0 });
+    setLigne({ ...ligne, articleId, prix: a ? Math.round((a.prixAchat ?? (a.aValoriser ? 0 : a.pmp)) * 100) / 100 : 0 });
   };
 
   const valider = async () => {
@@ -126,7 +126,7 @@ function Reception({ articles, onFait }: { articles: ArticleStock[]; onFait: () 
           <Champ libelle="Non conforme">
             <InputNumber min={0} value={ligne.nonConforme} onChange={(v) => setLigne({ ...ligne, nonConforme: Number(v ?? 0) })} />
           </Champ>
-          <Champ libelle="Prix unitaire (€)">
+          <Champ libelle="Prix d'achat unitaire TTC (€)">
             <InputNumber min={0} step={0.01} value={ligne.prix} onChange={(v) => setLigne({ ...ligne, prix: Number(v ?? 0) })} />
           </Champ>
           {ligneValide && <Tag color={controleLigne(ligne).couleur}>{controleLigne(ligne).texte}</Tag>}
@@ -153,7 +153,7 @@ function Reception({ articles, onFait }: { articles: ArticleStock[]; onFait: () 
             { title: 'Commandé', dataIndex: 'attendu', align: 'right' },
             { title: 'Conforme', dataIndex: 'recu', align: 'right' },
             { title: 'Non conforme', dataIndex: 'nonConforme', align: 'right' },
-            { title: 'Prix', key: 'p', align: 'right', render: (_, l) => formatEuro(l.prix) },
+            { title: "Prix d'achat TTC", key: 'p', align: 'right', render: (_, l) => formatEuro(l.prix) },
             { title: 'Contrôle', key: 'c', render: (_, l) => <Tag color={controleLigne(l).couleur}>{controleLigne(l).texte}</Tag> },
             {
               title: '',

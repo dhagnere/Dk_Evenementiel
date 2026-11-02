@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
 import { Alert, Button, Card, DatePicker, Descriptions, Drawer, Grid, Input, InputNumber, Popconfirm, Select, Space, Table, Tag, Timeline, Typography, type TableColumnsType } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, PlusOutlined } from '@ant-design/icons';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useDirections } from '../../components/EditeurDroits';
 import { STATUTS_DEMANDE_EN_ATTENTE, type ArticleStock, type DemandeStock, type ParametresStock } from '../../types';
-import { couleurStatut, formatEuro, formatJour, joursAvant } from '../../lib/formatStock';
+import { couleurStatut, formatEuro, formatJour, formatPrixUnitaire, joursAvant } from '../../lib/formatStock';
 import { lancer } from '../../lib/actionStock';
+import { imprimerBonLivraison } from '../../lib/bonLivraison';
 import { SelecteurEvenement } from '../../components/SelecteurEvenement';
 import type { FicheEvenementUnique, IndicateursProjet } from '../../types';
 
@@ -66,14 +67,31 @@ export function DetailDemande({ demande }: { demande: DemandeStock }) {
           {demande.reference} · {demande.libelle}
         </Descriptions.Item>
         <Descriptions.Item label="Quantité">{demande.quantite}</Descriptions.Item>
-        <Descriptions.Item label="Valeur estimée">{formatEuro(demande.valeur)}</Descriptions.Item>
+        {demande.statut === 'Remise' && demande.valeurLivree !== null ? (
+          <>
+            <Descriptions.Item label="PMP unitaire TTC livré">{formatPrixUnitaire(demande.prixUnitaireLivre ?? 0)}</Descriptions.Item>
+            <Descriptions.Item label="Total TTC livré">
+              <Text strong>{formatEuro(demande.valeurLivree)}</Text>
+            </Descriptions.Item>
+            {demande.remiseLe && <Descriptions.Item label="Remise le">{new Date(demande.remiseLe).toLocaleDateString('fr-FR')}</Descriptions.Item>}
+          </>
+        ) : (
+          <Descriptions.Item label="Valeur estimée (PMP TTC)">{formatEuro(demande.valeur)}</Descriptions.Item>
+        )}
         <Descriptions.Item label="Besoin le">{formatJour(demande.dateBesoin)}</Descriptions.Item>
-        {demande.beneficiaire && <Descriptions.Item label="Bénéficiaire">{demande.beneficiaire}</Descriptions.Item>}
-        {demande.occasion && <Descriptions.Item label="Occasion">{demande.occasion}</Descriptions.Item>}
-        {demande.elu && <Descriptions.Item label="Élu remettant">{demande.elu}</Descriptions.Item>}
+        {!!demande.beneficiaire && <Descriptions.Item label="Bénéficiaire">{demande.beneficiaire}</Descriptions.Item>}
+        {!!demande.occasion && <Descriptions.Item label="Occasion">{demande.occasion}</Descriptions.Item>}
+        {!!demande.elu && <Descriptions.Item label="Élu remettant">{demande.elu}</Descriptions.Item>}
         <Descriptions.Item label="Demandeur">{demande.demandeurNom}</Descriptions.Item>
-        {demande.motifRefus && <Descriptions.Item label="Motif du refus">{demande.motifRefus}</Descriptions.Item>}
+        {!!demande.motifRefus && <Descriptions.Item label="Motif du refus">{demande.motifRefus}</Descriptions.Item>}
       </Descriptions>
+      {demande.statut === 'Remise' && demande.valeurLivree !== null && (
+        <div>
+          <Button icon={<FilePdfOutlined />} onClick={() => imprimerBonLivraison(demande)}>
+            Bon de livraison (PDF)
+          </Button>
+        </div>
+      )}
       <Timeline
         items={demande.historique.map((e) => ({
           children: (
@@ -229,6 +247,13 @@ export default function DemandesStock() {
     },
     { title: 'Article', key: 'article', render: (_, d) => `${d.reference} · ${d.libelle}` },
     { title: 'Qté', dataIndex: 'quantite', width: 70, align: 'right' },
+    {
+      title: 'Valeur TTC',
+      key: 'valeur',
+      width: 110,
+      align: 'right',
+      render: (_, d) => (d.valeurLivree !== null ? <Text strong>{formatEuro(d.valeurLivree)}</Text> : <Text type="secondary">{formatEuro(d.valeur)}</Text>),
+    },
     { title: 'Besoin', key: 'besoin', width: 110, render: (_, d) => formatJour(d.dateBesoin) },
     { title: 'Statut', key: 'statut', width: 200, render: (_, d) => <Tag color={couleurStatut(d.statut)}>{d.statut}</Tag> },
   ];
@@ -403,7 +428,7 @@ export default function DemandesStock() {
                   {controles.suffisant ? `${f.quantite} — disponible` : `${f.quantite} — stock insuffisant`}
                 </Text>
               </Descriptions.Item>
-              <Descriptions.Item label="Valeur estimée">{formatEuro(controles.valeur)}</Descriptions.Item>
+              <Descriptions.Item label="Valeur estimée (PMP TTC)">{formatEuro(controles.valeur)}</Descriptions.Item>
               <Descriptions.Item label="Circuit">{controles.circuit}</Descriptions.Item>
               <Descriptions.Item label="Délai">
                 {controles.jours === null ? '—' : controles.jours < 0 ? 'Date passée' : `${controles.jours} jours${controles.tardive ? ' — demande tardive' : ''}`}

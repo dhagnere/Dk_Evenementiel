@@ -2,6 +2,11 @@ const euros = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR
 
 export const formatEuro = (montant: number) => euros.format(montant);
 
+const eurosPrecis = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+/** Prix unitaire : jusqu'à quatre décimales, comme le PMP enregistré (3,7667 €). */
+export const formatPrixUnitaire = (montant: number) => eurosPrecis.format(montant);
+
 /** AAAA-MM-JJ → JJ/MM/AAAA */
 export const formatJour = (jour: string | null | undefined) => (jour ? jour.slice(0, 10).split('-').reverse().join('/') : '—');
 

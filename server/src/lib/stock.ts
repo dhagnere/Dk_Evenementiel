@@ -62,6 +62,7 @@ export interface Article {
   stockReserve: number;
   seuil: number;
   pmp: number;
+  prixAchat: number | null;
   aValoriser: boolean;
   actif: boolean;
 }
@@ -86,6 +87,9 @@ export interface Demande {
   demandeurId: string | null;
   demandeurNom: string;
   historique: EtapeHistorique[];
+  prixUnitaireLivre: number | null;
+  valeurLivree: number | null;
+  remiseLe: Date | null;
   createdAt: Date;
 }
 

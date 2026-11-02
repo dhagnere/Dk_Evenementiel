@@ -113,6 +113,8 @@ export interface ArticleStock {
   stockReserve: number;
   seuil: number;
   pmp: number;
+  /** Dernier prix d'achat unitaire TTC connu. */
+  prixAchat: number | null;
   aValoriser: boolean;
   actif: boolean;
 }
@@ -149,6 +151,10 @@ export interface DemandeStock {
   historique: EtapeDemande[];
   projetId: string | null;
   projetTitre: string | null;
+  /** PMP TTC figé à la remise, et total livré. */
+  prixUnitaireLivre: number | null;
+  valeurLivree: number | null;
+  remiseLe: string | null;
   createdAt: string;
 }
 

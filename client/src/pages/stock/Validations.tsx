@@ -3,9 +3,10 @@ import { Button, Card, Drawer, Empty, Grid, Input, Modal, Popconfirm, Space, Tab
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { STATUTS_DEMANDE_EN_ATTENTE, type DemandeStock, type MouvementStock } from '../../types';
-import { couleurStatut, formatEuro, formatJour } from '../../lib/formatStock';
+import { couleurStatut, formatEuro, formatJour, formatPrixUnitaire } from '../../lib/formatStock';
 import { lancer } from '../../lib/actionStock';
 import { DetailDemande } from './Demandes';
+import { imprimerBonLivraison } from '../../lib/bonLivraison';
 
 const { Text } = Typography;
 
@@ -90,10 +91,25 @@ export default function Validations() {
       render: (_, d) => (
         <Popconfirm
           title={`Remettre ${d.numero} ?`}
-          description="Le stock central est décrémenté ; des goodies vont au stock déporté de la direction s'il existe."
+          description="La sortie est valorisée au PMP TTC du jour, repris sur le bon de livraison. Des goodies vont au stock déporté de la direction s'il existe."
           okText="Remettre"
           cancelText="Annuler"
-          onConfirm={() => agir(api.post(`/stock/demandes/${d._id}/remise`))}
+          onConfirm={async () => {
+            const appel = api.post<{ ok: boolean; message?: string; demande?: DemandeStock }>(`/stock/demandes/${d._id}/remise`);
+            if (await lancer(appel)) {
+              const { demande } = await appel;
+              charger();
+              if (demande) {
+                Modal.confirm({
+                  title: `${d.numero} remise`,
+                  content: `Total livré : ${formatEuro(demande.valeurLivree ?? 0)} TTC (PMP ${formatPrixUnitaire(demande.prixUnitaireLivre ?? 0)}).`,
+                  okText: 'Imprimer le bon de livraison',
+                  cancelText: 'Fermer',
+                  onOk: () => imprimerBonLivraison({ ...d, ...demande }),
+                });
+              }
+            }
+          }}
         >
           <Button size="small">Marquer remise</Button>
         </Popconfirm>

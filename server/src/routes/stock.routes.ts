@@ -115,7 +115,10 @@ const schemaFicheArticle = z.object({
   seuil: z.number().int().min(0).max(1_000_000),
 });
 
-/** Crée un article, avec son stock initial. Prix absent : article « à valoriser » à la première réception. */
+/**
+ * Crée un article, avec son stock initial. Le prix d'achat TTC fixe le PMP de départ ; sans prix, l'article reste
+ * « à valoriser » jusqu'à ce qu'on le renseigne dans sa fiche ou à la première réception.
+ */
 stockRouter.post(
   '/articles',
   administration,
@@ -151,6 +154,7 @@ stockRouter.post(
           seuil: d.seuil,
           stockPhysique: d.stockInitial,
           pmp: d.prix ?? 0,
+          prixAchat: d.prix,
           aValoriser: d.prix === null,
         },
         client
@@ -174,12 +178,17 @@ stockRouter.post(
   })
 );
 
-/** Modifie la fiche d'un article (pas les quantités, qui ne bougent que par mouvement). */
+/**
+ * Modifie la fiche d'un article. Les quantités ne bougent que par mouvement, et le PMP que par réception : le prix
+ * d'achat saisi ici ne valorise le stock que pour un article encore « à valoriser ».
+ */
 stockRouter.put(
   '/articles/:id',
   administration,
   traiter(async (req, res) => {
-    const parsed = schemaFicheArticle.extend({ actif: z.boolean() }).safeParse(req.body);
+    const parsed = schemaFicheArticle
+      .extend({ actif: z.boolean(), prixAchat: z.number().min(0).max(1_000_000).nullable().optional() })
+      .safeParse(req.body);
     if (!parsed.success) return invalide(res);
     const article = await requeteUne<Article>('SELECT * FROM stock_articles WHERE id = $1', [req.params.id]);
     if (!article) return void res.status(404).json({ ok: false, message: 'Article introuvable' });
@@ -188,16 +197,24 @@ stockRouter.put(
       throw new ErreurMetier(`Un cadeau protocolaire se range en « ${parametres.emplacementProtocole} »`);
     }
     const d = parsed.data;
+    const prixAchat = d.prixAchat === undefined ? article.prixAchat : d.prixAchat;
+    // Un article sans valorisation la reçoit de son prix d'achat ; ailleurs, le PMP reste celui des réceptions.
+    const valorise = article.aValoriser && prixAchat !== null && prixAchat > 0;
     await executer(
       `UPDATE stock_articles SET libelle = $2, famille = $3, emplacement = $4, fournisseur = $5, delai_jours = $6,
-              seuil = $7, actif = $8 WHERE id = $1`,
-      [article._id, d.libelle, d.famille, d.emplacement, d.fournisseur, d.delaiJours, d.seuil, d.actif]
+              seuil = $7, actif = $8, prix_achat = $9,
+              pmp = CASE WHEN $10 THEN $9 ELSE pmp END, a_valoriser = a_valoriser AND NOT $10
+        WHERE id = $1`,
+      [article._id, d.libelle, d.famille, d.emplacement, d.fournisseur, d.delaiJours, d.seuil, d.actif, prixAchat, valorise]
     );
     await consigner(identiteDeRequete(req), 'stock_modification_article', `${article.reference} · ${d.libelle}`, {
-      avant: { libelle: article.libelle, seuil: article.seuil, emplacement: article.emplacement, actif: article.actif },
-      apres: d,
+      avant: { libelle: article.libelle, seuil: article.seuil, emplacement: article.emplacement, actif: article.actif, prixAchat: article.prixAchat, pmp: article.pmp },
+      apres: { ...d, prixAchat, ...(valorise ? { pmp: prixAchat } : {}) },
     });
-    res.json({ ok: true, message: 'Article mis à jour' });
+    res.json({
+      ok: true,
+      message: valorise ? `Article mis à jour et valorisé : PMP fixé à ${prixAchat!.toFixed(2).replace('.', ',')} € TTC` : 'Article mis à jour',
+    });
   })
 );
 
@@ -503,6 +520,14 @@ stockRouter.post(
         throw new ErreurMetier(`Seule une demande validée peut être remise (statut : ${demande.statut})`);
       }
       const article = (await verrouillerArticle(demande.articleId, client))!;
+      if (article.aValoriser) {
+        throw new ErreurMetier(
+          `${article.reference} n'est pas valorisé : renseignez son prix d'achat dans la fiche article (Stock → Catalogue) avant la remise`
+        );
+      }
+      // La livraison reprend le PMP TTC du moment, figé sur la demande.
+      const prixUnitaire = article.pmp;
+      const valeurLivree = arrondi(demande.quantite * prixUnitaire);
       await executer(
         'UPDATE stock_articles SET stock_physique = stock_physique - $2, stock_reserve = stock_reserve - $2 WHERE id = $1',
         [article._id, demande.quantite],
@@ -525,7 +550,7 @@ stockRouter.post(
           type: 'Sortie',
           articleId: article._id,
           quantite: -demande.quantite,
-          valeur: demande.quantite * article.pmp,
+          valeur: valeurLivree,
           detail: `${demande.numero} — ${demande.directionNom} — ${demande.evenement}${depot ? ' (versé au stock déporté)' : ''}`,
           statut: 'Appliqué',
           demandeId: demande._id,
@@ -536,8 +561,9 @@ stockRouter.post(
       );
       const historique = [...demande.historique, etape(req, depot ? 'Remise (versée au stock déporté)' : 'Remise')];
       const [maj] = await requete<Demande>(
-        "UPDATE stock_demandes SET statut = 'Remise', historique = $2 WHERE id = $1 RETURNING *",
-        [demande._id, JSON.stringify(historique)],
+        `UPDATE stock_demandes SET statut = 'Remise', historique = $2, prix_unitaire_livre = $3, valeur_livree = $4, remise_le = now()
+          WHERE id = $1 RETURNING *`,
+        [demande._id, JSON.stringify(historique), prixUnitaire, valeurLivree],
         client
       );
       return { demande: maj, verseAuDepot: Boolean(depot) };
@@ -545,7 +571,8 @@ stockRouter.post(
     await consigner(identiteDeRequete(req), 'stock_remise', demande.numero);
     res.json({
       ok: true,
-      message: `${demande.numero} remise : stock central mis à jour${verseAuDepot ? ', quantité versée au stock déporté de la direction' : ''}.`,
+      message: `${demande.numero} remise : ${Number(demande.valeurLivree).toFixed(2).replace('.', ',')} € TTC au PMP, stock central mis à jour${verseAuDepot ? ', quantité versée au stock déporté de la direction' : ''}.`,
+      demande,
     });
   })
 );
@@ -622,8 +649,8 @@ stockRouter.post(
         if (!article) throw new ErreurMetier('Article introuvable');
         if (l.recu > 0) {
           await executer(
-            'UPDATE stock_articles SET stock_physique = stock_physique + $2, pmp = $3, a_valoriser = false WHERE id = $1',
-            [article._id, l.recu, nouveauPmp(article, l.recu, l.prix)],
+            'UPDATE stock_articles SET stock_physique = stock_physique + $2, pmp = $3, prix_achat = $4, a_valoriser = false WHERE id = $1',
+            [article._id, l.recu, nouveauPmp(article, l.recu, l.prix), l.prix],
             client
           );
           await creerMouvement(

@@ -8,7 +8,7 @@ import { lancer } from '../../lib/actionStock';
 const { Text, Paragraph } = Typography;
 
 interface Rapport {
-  articles: { ligne: number; reference: string; libelle: string; famille: string; categorie: string; emplacement: string; stockInitial: number; prix: number | null; actif: boolean }[];
+  articles: { ligne: number; reference: string; libelle: string; famille: string; categorie: string; emplacement: string; stockInitial: number; prix: number | null; pmp: number | null; actif: boolean }[];
   anomalies: { ligne: number; reference: string; message: string }[];
   ecartes: { ligne: number; reference: string }[];
   existants: string[];
@@ -66,8 +66,9 @@ export function ImportCatalogue({ ouvert, onFerme, onImporte }: { ouvert: boolea
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Paragraph style={{ margin: 0 }}>
           Une ligne par article. Colonnes : référence, libellé, famille, catégorie (Goodies ou Protocole), emplacement, stock, prix
-          (vide : à valoriser), seuil, actif (Oui/Non), fournisseur, délai, historique. Séparateur « ; » ou « , ». Le classeur de
-          reprise enregistré en CSV est accepté tel quel ; ses lignes marquées « Écarter » sont ignorées.
+          (prix d'achat unitaire TTC, qui fixe le PMP de départ ; vide : à valoriser), pmp (facultatif, repris tel quel), seuil,
+          actif (Oui/Non), fournisseur, délai, historique. Séparateur « ; » ou « , ». Le classeur de reprise enregistré en CSV est
+          accepté tel quel ; ses lignes marquées « Écarter » sont ignorées.
         </Paragraph>
         <Paragraph type="secondary" style={{ margin: 0 }}>
           Un article dont la référence existe déjà n'est pas modifié : réimporter le même fichier ne crée pas de doublon. Chaque
@@ -175,7 +176,16 @@ export function ImportCatalogue({ ouvert, onFerme, onImporte }: { ouvert: boolea
                 { title: 'Catégorie', dataIndex: 'categorie' },
                 { title: 'Emplacement', dataIndex: 'emplacement' },
                 { title: 'Stock', dataIndex: 'stockInitial', align: 'right' },
-                { title: 'Prix', key: 'p', align: 'right', render: (_, a) => (a.prix === null ? <Text type="secondary">à valoriser</Text> : formatEuro(a.prix)) },
+                { title: "Prix d'achat", key: 'p', align: 'right', render: (_, a) => (a.prix === null ? <Text type="secondary">—</Text> : formatEuro(a.prix)) },
+                {
+                  title: 'PMP',
+                  key: 'pmp',
+                  align: 'right',
+                  render: (_, a) => {
+                    const v = a.pmp ?? a.prix;
+                    return v === null ? <Text type="secondary">à valoriser</Text> : formatEuro(v);
+                  },
+                },
                 { title: 'Actif', key: 'a', render: (_, a) => (a.actif ? 'Oui' : <Tag>Retiré</Tag>) },
                 {
                   title: '',

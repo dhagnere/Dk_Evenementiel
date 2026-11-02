@@ -12,6 +12,9 @@ import { creerMouvement, ecrireParametresStock, lireParametresStock, type Articl
  * Toujours en deux temps : l'analyse contrôle tout le fichier sans rien écrire ; l'application
  * n'est possible que si l'analyse ne relève aucune anomalie, et se fait en une seule transaction.
  * Une référence déjà au catalogue est laissée telle quelle : réimporter ne crée pas de doublon.
+ *
+ * Colonne « prix » : prix d'achat unitaire TTC, qui fixe aussi le PMP de départ. Colonne « pmp » (facultative,
+ * remplie par l'export) : PMP à reprendre tel quel, pour transférer un catalogue d'une base à l'autre.
  */
 
 export const ligneArticle = z.object({
@@ -22,6 +25,7 @@ export const ligneArticle = z.object({
   emplacement: z.string().trim().min(1).max(100),
   stockInitial: z.number().int().min(0),
   prix: z.number().min(0).nullable(),
+  pmp: z.number().min(0).nullable().default(null),
   seuil: z.number().int().min(0).default(0),
   fournisseur: z.string().trim().max(200).default(''),
   delaiJours: z.number().int().min(0).max(365).default(0),
@@ -60,6 +64,7 @@ export const COLONNES_CATALOGUE = [
   'emplacement',
   'stock',
   'prix',
+  'pmp',
   'seuil',
   'actif',
   'fournisseur',
@@ -91,6 +96,11 @@ const ALIAS: Record<string, string> = {
   'quantite en stock': 'stock',
   prix: 'prix',
   'prix unitaire': 'prix',
+  'prix d achat': 'prix',
+  'prix achat': 'prix',
+  'prix d achat ttc': 'prix',
+  pmp: 'pmp',
+  'prix moyen pondere': 'pmp',
   seuil: 'seuil',
   'seuil d alerte': 'seuil',
   actif: 'actif',
@@ -149,9 +159,10 @@ export function lireCsvCatalogue(texte: string): { lignes: { ligne: number; brut
     }
     const stock = nombre(r.stock);
     const prix = nombre(r.prix);
+    const pmp = nombre(r.pmp);
     const seuil = nombre(r.seuil);
     const delai = nombre(r.delai);
-    for (const [champ, v] of [['stock', stock], ['prix', prix], ['seuil', seuil], ['délai', delai]] as const) {
+    for (const [champ, v] of [['stock', stock], ['prix', prix], ['pmp', pmp], ['seuil', seuil], ['délai', delai]] as const) {
       if (Number.isNaN(v)) erreurs.push({ ligne, reference: r.reference ?? '', message: `${champ} illisible` });
     }
     const historique =
@@ -166,6 +177,7 @@ export function lireCsvCatalogue(texte: string): { lignes: { ligne: number; brut
         emplacement: r.emplacement,
         stockInitial: stock ?? 0,
         prix: prix === 0 ? null : prix,
+        pmp: pmp === 0 ? null : pmp,
         seuil: seuil ?? 0,
         fournisseur: r.fournisseur ?? '',
         delaiJours: delai ?? 0,
@@ -176,6 +188,9 @@ export function lireCsvCatalogue(texte: string): { lignes: { ligne: number; brut
   });
   return { lignes, ecartes, erreurs };
 }
+
+/** Valorisation de départ : le PMP du fichier (export d'une autre base), sinon le prix d'achat. */
+export const valorisation = (a: LigneArticle): number | null => a.pmp ?? a.prix;
 
 // --- Analyse et application -----------------------------------------------------------------------
 
@@ -227,10 +242,10 @@ export async function analyserCatalogue(
     ecartes: options.ecartes ?? [],
     existants,
     aCreer: aCreer.length,
-    valeur: Math.round(aCreer.reduce((t, a) => t + a.stockInitial * (a.prix ?? 0), 0) * 100) / 100,
+    valeur: Math.round(aCreer.reduce((t, a) => t + a.stockInitial * (valorisation(a) ?? 0), 0) * 100) / 100,
     protocole: aCreer.filter((a) => a.categorie === 'Protocole').length,
     retires: aCreer.filter((a) => !a.actif).length,
-    aValoriser: aCreer.filter((a) => a.prix === null).length,
+    aValoriser: aCreer.filter((a) => valorisation(a) === null).length,
     emplacementsInconnus: [...inconnus],
   };
 }
@@ -263,8 +278,9 @@ export async function appliquerCatalogue(
           delaiJours: a.delaiJours,
           stockPhysique: a.stockInitial,
           seuil: a.seuil,
-          pmp: a.prix ?? 0,
-          aValoriser: a.prix === null,
+          pmp: valorisation(a) ?? 0,
+          prixAchat: a.prix,
+          aValoriser: valorisation(a) === null,
           actif: a.actif,
         },
         client
@@ -274,7 +290,7 @@ export async function appliquerCatalogue(
           type: 'Création',
           articleId: article._id,
           quantite: a.stockInitial,
-          valeur: a.stockInitial * (a.prix ?? 0),
+          valeur: a.stockInitial * (valorisation(a) ?? 0),
           detail: [options.source, a.historique].filter(Boolean).join(' — '),
           statut: 'Appliqué',
           auteurId: options.auteurId,
@@ -296,8 +312,8 @@ const cellulesCsv = (lignes: Record<string, unknown>[]) =>
 /** Modèle à remplir, avec deux lignes d'exemple. */
 export function modeleCatalogue(): string {
   return cellulesCsv([
-    { reference: 'G-001', libelle: 'Stylo bille corps liège', famille: 'Papeterie', categorie: 'Goodies', emplacement: 'Armoire A1', stock: 250, prix: '0,45', seuil: 50, actif: 'Oui', fournisseur: '', delai: 15, historique: '' },
-    { reference: 'P-101', libelle: 'Médaille de la Ville (coffret)', famille: 'Médailles', categorie: 'Protocole', emplacement: 'Coffre', stock: 12, prix: '', seuil: 5, actif: 'Oui', fournisseur: '', delai: 30, historique: '' },
+    { reference: 'G-001', libelle: 'Stylo bille corps liège', famille: 'Papeterie', categorie: 'Goodies', emplacement: 'Armoire A1', stock: 250, prix: '0,45', pmp: '', seuil: 50, actif: 'Oui', fournisseur: '', delai: 15, historique: '' },
+    { reference: 'P-101', libelle: 'Médaille de la Ville (coffret)', famille: 'Médailles', categorie: 'Protocole', emplacement: 'Coffre', stock: 12, prix: '', pmp: '', seuil: 5, actif: 'Oui', fournisseur: '', delai: 30, historique: '' },
   ]);
 }
 
@@ -311,7 +327,8 @@ export function exporterCatalogue(articles: Article[]): string {
       categorie: a.categorie,
       emplacement: a.emplacement,
       stock: a.stockPhysique,
-      prix: a.aValoriser ? '' : String(a.pmp).replace('.', ','),
+      prix: a.prixAchat === null ? '' : String(a.prixAchat).replace('.', ','),
+      pmp: a.aValoriser ? '' : String(a.pmp).replace('.', ','),
       seuil: a.seuil,
       actif: a.actif ? 'Oui' : 'Non',
       fournisseur: a.fournisseur,
