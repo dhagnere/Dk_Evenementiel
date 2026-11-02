@@ -70,7 +70,7 @@ Règles de gestion, reprises de la maquette (`maquettes/stock-goodies/`) :
 - **Prix d'achat et PMP** (TTC) : la fiche article affiche le dernier prix d'achat unitaire, saisi à la création, mis à
   jour à chaque réception et modifiable. Le **prix moyen pondéré (PMP)**, recalculé à chaque réception, est seul à
   valoriser le stock. Un article sans prix est « à valoriser » : le prix d'achat saisi dans sa fiche fixe son PMP, et il
-  ne peut pas être remis tant qu'il n'est pas valorisé.
+  ne peut être ni demandé ni remis tant qu'il n'est pas valorisé.
 - **Réception** : met à jour le stock, le prix d'achat et le PMP ; tout écart crée une anomalie à traiter.
 - **Ajustement** : immédiat jusqu'à 50 €, soumis à validation au-delà ou pour un cadeau protocolaire ; le stock réservé
   ne peut jamais être entamé.

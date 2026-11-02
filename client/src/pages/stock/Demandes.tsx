@@ -188,6 +188,7 @@ export default function DemandesStock() {
   if (service && !f.directionId) blocage = 'Choisissez la direction demandeuse.';
   else if (!f.evenement.trim()) blocage = "Indiquez l'événement.";
   else if (!article || !controles) blocage = "Choisissez l'article.";
+  else if (article.aValoriser) blocage = "Article non valorisé : son prix d'achat doit d'abord être renseigné dans le catalogue.";
   else if (!controles.suffisant) blocage = 'Ajustez la quantité au disponible.';
   else if (controles.jours === null || controles.jours < 0) blocage = 'Indiquez une date de besoin à venir.';
   else if (controles.tardive && !f.motifTardif.trim()) blocage = 'Motif de demande tardive requis.';
@@ -366,7 +367,8 @@ export default function DemandesStock() {
               onChange={(articleId) => setF({ ...f, articleId })}
               options={articles.map((a) => ({
                 value: a._id,
-                label: `${a.reference} · ${a.libelle} (${a.categorie === 'Protocole' ? 'protocole' : 'goodies'})`,
+                label: `${a.reference} · ${a.libelle} (${a.categorie === 'Protocole' ? 'protocole' : 'goodies'})${a.aValoriser ? ' — non valorisé' : ''}`,
+                disabled: a.aValoriser,
               }))}
               showSearch
               optionFilterProp="label"

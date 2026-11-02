@@ -344,7 +344,7 @@ export default function Catalogue() {
                 </Champ>
               </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Le prix d'achat fixe le PMP de départ. Sans prix, l'article est « à valoriser » et ne peut pas être remis tant que
+                Le prix d'achat fixe le PMP de départ. Sans prix, l'article est « à valoriser » et ne peut être ni demandé ni remis tant que
                 son prix n'est pas renseigné.
                 {fiche.prix !== null && ` Valeur initiale : ${formatEuro(fiche.stockInitial * fiche.prix)}.`}
               </Text>

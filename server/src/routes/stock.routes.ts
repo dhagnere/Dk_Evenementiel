@@ -364,6 +364,12 @@ stockRouter.post(
     const { demande, article } = await transaction(async (client) => {
       const article = await verrouillerArticle(d.articleId, client);
       if (!article || !article.actif) throw new ErreurMetier('Article introuvable ou retiré du catalogue');
+      // Sans PMP, la demande serait estimée à 0 € et échapperait au circuit de validation.
+      if (article.aValoriser) {
+        throw new ErreurMetier(
+          `${article.reference} n'est pas encore valorisé : il ne peut pas être demandé tant que son prix d'achat n'est pas renseigné (Stock → Catalogue)`
+        );
+      }
       if (article.categorie === 'Protocole') {
         if (!service) throw new ErreurMetier('Les cadeaux protocolaires sont demandés par le service Événementiel ou le Protocole');
         if (!d.beneficiaire || !d.occasion || !d.elu) {
