@@ -65,7 +65,15 @@ export default function FicheEvenementUnique() {
             {e.dateDeFin ? ` → ${formatLong(e.dateDeFin)}` : ''}
           </Descriptions.Item>
           <Descriptions.Item label="Validation">
-            <Tag color={e.valide ? 'green' : 'orange'}>{e.valide ? 'Validé' : e.statut || 'À valider'}</Tag>
+            {/* D'après les validations technique et politique, comme la liste du calendrier ; le champ « statut »
+                hérité de l'import ne dit pas si l'événement est validé. */}
+            {e.valide ? (
+              <Tag color="green">Validé</Tag>
+            ) : e.statut === 'Brouillon' ? (
+              <Tag>Brouillon</Tag>
+            ) : (
+              <Tag color="orange">À valider</Tag>
+            )}
           </Descriptions.Item>
           <Descriptions.Item label="Lieu">{e.lieu || '—'}</Descriptions.Item>
           <Descriptions.Item label="Quartier">{e.quartier || '—'}</Descriptions.Item>
