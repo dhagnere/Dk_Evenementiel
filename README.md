@@ -129,7 +129,7 @@ Un seul squelette de rétroplanning, réglé par trois curseurs, plutôt qu'un m
   protocole, accueil, exposition, buvette, hygiène, voirie, sols, climat, animation, nautique, accessibilité, manutention,
   poste de commandement), chacun marqué intérieur, extérieur ou les deux. Les 179 articles proposés arrivent inactifs :
   saisir le stock du parc les rend réservables. La réservation se fait par listes déroulantes thème puis article.
-  Une réservation une réservation bloque le matériel du jour J − 1 au lendemain de
+  Une réservation bloque le matériel du jour J − 1 au lendemain de
   la fin ; un dépassement du stock sur des périodes qui se chevauchent est signalé comme conflit.
 - **Plan d'implantation** 2D et maquette 3D (éditeur repris tel quel de l'artefact, `client/src/projets/balisePlan.js`) :
   matériel, zones, sécurité, capacité théorique, versions figées à chaque réunion jalon, export PNG, report des quantités
