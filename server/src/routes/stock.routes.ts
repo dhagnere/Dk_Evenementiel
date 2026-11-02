@@ -1,7 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import { executer, insererUn, requete, requeteUne, transaction } from '../db.js';
-import { peut, requireModule } from '../middleware/auth.js';
+import { peut, requireModule, requireSuperAdmin } from '../middleware/auth.js';
+import { analyserCatalogue, appliquerCatalogue, decoderFichier, exporterCatalogue, lireCsvCatalogue, modeleCatalogue } from '../lib/importCatalogue.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
 import { queryString } from '../lib/queryString.js';
 import { cleDeLigne, type CleSerie } from '../lib/liaisons.js';
@@ -1096,5 +1098,68 @@ stockRouter.get(
         ORDER BY u.nom`
     );
     res.json({ comptes });
+  })
+);
+
+// --- Import et export du catalogue ---------------------------------------------------------------
+
+const televersement = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+function envoyerCsv(res: Response, nom: string, contenu: string) {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${nom}"`);
+  res.send(contenu);
+}
+
+/** Modèle CSV à remplir pour un import. */
+stockRouter.get('/catalogue/modele', requireSuperAdmin, (_req, res) => {
+  envoyerCsv(res, 'modele-catalogue.csv', modeleCatalogue());
+});
+
+/** Catalogue complet au format d'import (sauvegarde, travail dans un tableur, réimport). */
+stockRouter.get(
+  '/catalogue/export',
+  administration,
+  traiter(async (req, res) => {
+    const articles = await requete<Article>('SELECT * FROM stock_articles ORDER BY categorie, reference');
+    await consigner(identiteDeRequete(req), 'stock_export_catalogue', `${articles.length} article(s)`);
+    envoyerCsv(res, 'catalogue.csv', exporterCatalogue(articles));
+  })
+);
+
+/**
+ * Import d'un catalogue depuis un CSV, réservé aux super-administrateurs. mode=analyse contrôle le
+ * fichier sans rien écrire ; mode=import écrit, seulement si l'analyse est sans anomalie.
+ */
+stockRouter.post(
+  '/catalogue/import',
+  requireSuperAdmin,
+  televersement.single('fichier'),
+  traiter(async (req, res) => {
+    if (!req.file) return invalide(res, 'Aucun fichier reçu');
+    const ajouterEmplacements = req.body?.ajouterEmplacements === 'true';
+    let lecture;
+    try {
+      lecture = lireCsvCatalogue(decoderFichier(req.file.buffer));
+    } catch (err) {
+      throw new ErreurMetier(`Fichier illisible : ${err instanceof Error ? err.message : 'format inattendu'}`);
+    }
+    const analyse = await analyserCatalogue(lecture.lignes, { ajouterEmplacements, ecartes: lecture.ecartes, erreurs: lecture.erreurs });
+    // Aperçu limité aux 500 premières lignes pour l'écran ; les totaux portent sur tout le fichier.
+    const rapport = { ...analyse, articles: analyse.articles.slice(0, 500) };
+    if (req.query.mode !== 'import') return void res.json({ ok: true, rapport });
+    if (analyse.anomalies.length) throw new ErreurMetier(`${analyse.anomalies.length} anomalie(s) : corrigez le fichier avant l'import`);
+    const crees = await appliquerCatalogue(analyse, {
+      source: `Import du catalogue (${req.file.originalname})`,
+      auteurId: req.session!.userId,
+      auteurNom: req.session!.nom,
+    });
+    await consigner(identiteDeRequete(req), 'stock_import_catalogue', req.file.originalname, {
+      crees,
+      existants: analyse.existants.length,
+      ecartes: analyse.ecartes.length,
+      emplacementsAjoutes: analyse.emplacementsInconnus,
+    });
+    res.json({ ok: true, message: `${crees} article(s) créé(s)${analyse.existants.length ? `, ${analyse.existants.length} déjà présent(s) laissé(s) tels quels` : ''}.`, rapport });
   })
 );

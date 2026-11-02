@@ -88,7 +88,7 @@ export function formatBoolFr(value: boolean | undefined | null): string {
 }
 
 /** Devine le séparateur (« , » ou « ; ») d'après la première ligne : les exports Excel français utilisent « ; ». */
-function detecterDelimiteur(content: string): ',' | ';' {
+export function detecterDelimiteur(content: string): ',' | ';' {
   const premiereLigne = content.split(/\r?\n/, 1)[0] ?? '';
   const nbPointVirgule = (premiereLigne.match(/;/g) ?? []).length;
   const nbVirgule = (premiereLigne.match(/,/g) ?? []).length;

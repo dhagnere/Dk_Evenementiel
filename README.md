@@ -73,6 +73,11 @@ Règles de gestion, reprises de la maquette (`maquettes/stock-goodies/`) :
   super-administrateur.
 - Courriels aux valideurs (demande à valider), aux demandeurs (décision) et aux référents (relance).
 
+**Import du catalogue** (super-administrateurs) : Stock → Catalogue → *Importer un CSV*. L'analyse contrôle tout le
+fichier sans rien écrire ; l'import n'est possible que sans anomalie. Une référence déjà présente n'est pas modifiée.
+Modèle téléchargeable depuis le même écran ; *Exporter CSV* produit un fichier au même format. Équivalent en ligne de
+commande : `node server/dist/import-catalogue.js catalogue.csv [--appliquer]`.
+
 Pour une recette, un jeu de démonstration (catalogue, directions, stocks déportés de la maquette) se charge sur une base
 dont le catalogue est vide :
 

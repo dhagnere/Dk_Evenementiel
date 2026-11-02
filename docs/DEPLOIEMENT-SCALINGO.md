@@ -227,7 +227,8 @@ Connecté en super-administrateur :
 3. **Administration → RGPD** : faites valider les durées de conservation par le DPO, puis enregistrez-les.
 4. **Stock & Protocole** :
    - *Paramètres* : seuils (validation automatique, ajustements), délais, emplacements du local ;
-   - *Catalogue* : saisissez les vrais articles. Sur la recette seulement, un jeu de démonstration peut être chargé
+   - *Catalogue* : saisissez les vrais articles, ou importez-les en CSV (*Importer un CSV*, super-administrateurs ;
+     enregistrez d'abord les emplacements dans *Paramètres*). Sur la recette seulement, un jeu de démonstration peut être chargé
      tant que le catalogue est vide :
 
 ```bash

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Drawer, Grid, Input, InputNumber, Segmented, Select, Space, Switch, Table, Tag, Typography, type TableColumnsType } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { ImportCatalogue } from './ImportCatalogue';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import type { ArticleStock, CategorieArticle, ParametresStock } from '../../types';
@@ -47,7 +48,8 @@ function Champ({ libelle, children }: { libelle: string; children: React.ReactNo
 }
 
 export default function Catalogue() {
-  const { peut } = useAuth();
+  const { peut, estSuperAdmin } = useAuth();
+  const [importOuvert, setImportOuvert] = useState(false);
   const navigate = useNavigate();
   const mobile = !Grid.useBreakpoint().md;
   const administrateur = peut('stock', 'administration');
@@ -179,9 +181,19 @@ export default function Catalogue() {
       title="Catalogue & stock"
       extra={
         administrateur && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => ouvrir(null)}>
-            Nouvel article
-          </Button>
+          <Space wrap>
+            <Button icon={<DownloadOutlined />} href="/api/stock/catalogue/export">
+              Exporter CSV
+            </Button>
+            {estSuperAdmin && (
+              <Button icon={<UploadOutlined />} onClick={() => setImportOuvert(true)}>
+                Importer un CSV
+              </Button>
+            )}
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => ouvrir(null)}>
+              Nouvel article
+            </Button>
+          </Space>
         )
       }
     >
@@ -206,6 +218,8 @@ export default function Catalogue() {
         />
       </div>
       <Table rowKey="_id" size="small" columns={colonnes} dataSource={affiches} pagination={false} scroll={{ x: 'max-content' }} />
+
+      {estSuperAdmin && <ImportCatalogue ouvert={importOuvert} onFerme={() => setImportOuvert(false)} onImporte={charger} />}
 
       <Drawer
         title={edition?.article ? `${edition.article.reference} · ${edition.article.libelle}` : 'Nouvel article'}

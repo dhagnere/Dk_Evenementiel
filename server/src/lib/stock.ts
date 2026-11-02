@@ -40,11 +40,12 @@ export async function lireParametresStock(executant: Executant = pool): Promise<
   return lu.success ? lu.data : PARAMETRES_PAR_DEFAUT;
 }
 
-export async function ecrireParametresStock(parametres: ParametresStock): Promise<void> {
+export async function ecrireParametresStock(parametres: ParametresStock, executant: Executant = pool): Promise<void> {
   await executer(
     `INSERT INTO parametres (cle, valeur) VALUES ('stock', $1)
      ON CONFLICT (cle) DO UPDATE SET valeur = EXCLUDED.valeur`,
-    [JSON.stringify(parametres)]
+    [JSON.stringify(parametres)],
+    executant
   );
 }
 
