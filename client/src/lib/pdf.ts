@@ -6,6 +6,9 @@ import { formatDate, majusculeInitiale } from './formatDate';
 import { formatDuree } from './formatDuree';
 import { chargerLogoPourPdf, type LogoCharge } from './logosPdf';
 
+/** Même libellé que la pastille de l'écran : Date Clef, sinon Validé ou À valider. */
+const libelleValidation = (e: Evenement) => (e.validParDateClef ? 'Date Clef' : estValide(e) ? 'Validé' : 'À valider');
+
 const TITRE_APP = 'Calendrier Événements Dunkerque';
 const MARGE = 40;
 const HAUTEUR_LOGO = 28;
@@ -108,7 +111,7 @@ export async function exporterFicheJourPdf(jour: Date, evenements: Evenement[]):
         ['Organisateur', e.organisateur || '—'],
         ['Type', e.type || '—'],
         ['Période', formatDuree(e) ?? formatDate(e.dateDeDebut)],
-        ['Validation', estValide(e) ? 'Validé' : 'À valider'],
+        ['Validation', libelleValidation(e)],
       ],
     });
     y = finalYDe(doc) + 16;
@@ -146,7 +149,7 @@ export async function exporterListePdf(lignes: LigneExportPdf[]): Promise<void> 
       formatTitreEvenement(e.nom),
       e.quartier || '—',
       e.nature || '—',
-      estValide(e) ? 'Validé' : 'À valider',
+      libelleValidation(e),
       formatDuree(e) ?? formatDate(e.dateDeDebut),
     ];
   });
