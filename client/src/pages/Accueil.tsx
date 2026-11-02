@@ -1,3 +1,4 @@
+import { ValidationSerieBadge } from '../components/ValidationBadge';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Card, Progress, Table, Tag, Typography } from 'antd';
@@ -173,7 +174,7 @@ export default function Accueil() {
               { title: 'Manifestation', key: 'n', ellipsis: true, render: (_, e) => <Text strong>{e.nom}</Text> },
               { title: 'Lieu', dataIndex: 'lieu', width: 240, ellipsis: true, render: (v: string) => v || '—' },
               ...(synthese.prochains.some((e) => e.valide !== undefined)
-                ? [{ title: 'Calendrier', key: 'v', width: 110, render: (_: unknown, e: SyntheseAccueil['prochains'][number]) => <Tag color={e.valide ? 'green' : 'orange'}>{e.valide ? 'Validé' : 'À valider'}</Tag> }]
+                ? [{ title: 'Calendrier', key: 'v', width: 120, render: (_: unknown, e: SyntheseAccueil['prochains'][number]) => <ValidationSerieBadge valide={e.valide} dateClef={e.dateClef} /> }]
                 : []),
               ...(synthese.prochains.some((e) => e.projet !== undefined)
                 ? [

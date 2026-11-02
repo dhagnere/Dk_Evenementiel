@@ -386,6 +386,8 @@ export interface ResumeEvenementCalendrier {
   nature?: string;
   statut: string;
   valide?: boolean;
+  /** Une ligne au moins de la série est marquée « Date Clef ». */
+  dateClef?: boolean;
   nombreJours?: number;
 }
 

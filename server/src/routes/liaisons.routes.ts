@@ -244,9 +244,9 @@ liaisonsRouter.get('/synthese', async (req, res, next) => {
     // Manifestations des 30 prochains jours : depuis le calendrier si le compte y a accès, sinon depuis les projets.
     let prochains: unknown[] = [];
     if (peut(s, 'calendrier', 'lecture')) {
-      const series = await requete<{ _id: string; nom: string; dateDeDebut: Date | null; dateDeFin: Date | null; lieu: string; statut: string; valide: boolean }>(
+      const series = await requete<{ _id: string; nom: string; dateDeDebut: Date | null; dateDeFin: Date | null; lieu: string; statut: string; valide: boolean; dateClef: boolean }>(
         `SELECT min(id) AS id, nom, date_de_debut, date_de_fin, min(lieu) AS lieu, min(statut) AS statut,
-                bool_and(validation_technique AND validation_politique) AS valide
+                bool_and(validation_technique AND validation_politique) AS valide, bool_or(valid_par_date_clef) AS date_clef
            FROM evenements
           WHERE date_de_debut >= CURRENT_DATE AND date_de_debut < CURRENT_DATE + 30 AND statut <> 'Brouillon'
           GROUP BY nom, date_de_debut, date_de_fin ORDER BY date_de_debut LIMIT 60`

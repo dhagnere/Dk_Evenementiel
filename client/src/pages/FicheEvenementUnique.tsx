@@ -1,3 +1,4 @@
+import { ValidationSerieBadge } from '../components/ValidationBadge';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Alert, Button, Card, Descriptions, Empty, Progress, Select, Space, Table, Tag, Typography } from 'antd';
@@ -65,15 +66,7 @@ export default function FicheEvenementUnique() {
             {e.dateDeFin ? ` → ${formatLong(e.dateDeFin)}` : ''}
           </Descriptions.Item>
           <Descriptions.Item label="Validation">
-            {/* D'après les validations technique et politique, comme la liste du calendrier ; le champ « statut »
-                hérité de l'import ne dit pas si l'événement est validé. */}
-            {e.valide ? (
-              <Tag color="green">Validé</Tag>
-            ) : e.statut === 'Brouillon' ? (
-              <Tag>Brouillon</Tag>
-            ) : (
-              <Tag color="orange">À valider</Tag>
-            )}
+            <ValidationSerieBadge valide={e.valide} dateClef={e.dateClef} statut={e.statut} />
           </Descriptions.Item>
           <Descriptions.Item label="Lieu">{e.lieu || '—'}</Descriptions.Item>
           <Descriptions.Item label="Quartier">{e.quartier || '—'}</Descriptions.Item>

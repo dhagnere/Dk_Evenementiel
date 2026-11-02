@@ -32,6 +32,7 @@ export interface ResumeEvenement {
   nature: string;
   statut: string;
   valide: boolean;
+  dateClef: boolean;
   nombreJours: number;
   inscritLe: Date;
 }
@@ -59,6 +60,7 @@ function resumer(lignes: Evenement[]): ResumeEvenement | null {
     nature: premiere.nature,
     statut: premiere.statut,
     valide: lignes.every((l) => l.validationTechnique && l.validationPolitique),
+    dateClef: lignes.some((l) => l.validParDateClef),
     nombreJours: lignes.length,
     inscritLe: lignes.reduce((min, l) => (l.createdAt < min ? l.createdAt : min), premiere.createdAt),
   };
