@@ -51,15 +51,34 @@ export async function imprimerBonLivraison(demande: DemandeStock): Promise<void>
 
   const prix = demande.prixUnitaireLivre ?? 0;
   const total = demande.valeurLivree ?? 0;
+  const taux = demande.tauxTvaLivre ?? 20;
+  // Prix TTC enregistrés : le HT et la TVA s'en déduisent, arrondis au centime sur le total.
+  const totalHt = Math.round((total / (1 + taux / 100)) * 100) / 100;
+  const unitaire = (v: number) => (Number.isInteger(Math.round(v * 1e4) / 100) ? euros(v) : euros(v, 4));
+  const tauxTexte = `${String(taux).replace('.', ',')} %`;
   autoTable(doc, {
     startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 16,
-    head: [['Référence', 'Article', 'Quantité', 'PMP unitaire TTC', 'Total TTC']],
-    body: [[demande.reference, demande.libelle, String(demande.quantite), Number.isInteger(Math.round(prix * 1e4) / 100) ? euros(prix) : euros(prix, 4), euros(total)]],
-    foot: [['', '', '', 'Total TTC', euros(total)]],
+    head: [['Référence', 'Article', 'Qté', 'PMP unit. HT', 'TVA', 'PMP unit. TTC', 'Total TTC']],
+    body: [
+      [
+        demande.reference,
+        demande.libelle,
+        String(demande.quantite),
+        unitaire(Math.round((prix / (1 + taux / 100)) * 1e4) / 1e4),
+        tauxTexte,
+        unitaire(prix),
+        euros(total),
+      ],
+    ],
+    foot: [
+      ['', '', '', '', '', 'Total HT', euros(totalHt)],
+      ['', '', '', '', '', `TVA ${tauxTexte}`, euros(Math.round((total - totalHt) * 100) / 100)],
+      ['', '', '', '', '', 'Total TTC', euros(total)],
+    ],
     styles: { fontSize: 10 },
     headStyles: { fillColor: [0, 74, 153] },
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-    columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
   });
 
   let y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;

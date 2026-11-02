@@ -115,6 +115,8 @@ export interface ArticleStock {
   pmp: number;
   /** Dernier prix d'achat unitaire TTC connu. */
   prixAchat: number | null;
+  /** Taux de TVA en % (20, 10, 5,5, 2,1 ou 0) : les prix sont TTC, le HT s'en déduit. */
+  tauxTva: number;
   aValoriser: boolean;
   actif: boolean;
 }
@@ -155,6 +157,7 @@ export interface DemandeStock {
   prixUnitaireLivre: number | null;
   valeurLivree: number | null;
   remiseLe: string | null;
+  tauxTvaLivre: number | null;
   createdAt: string;
 }
 

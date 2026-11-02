@@ -7,7 +7,7 @@ import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useDirections } from '../../components/EditeurDroits';
 import { STATUTS_DEMANDE_EN_ATTENTE, type ArticleStock, type DemandeStock, type ParametresStock } from '../../types';
-import { couleurStatut, formatEuro, formatJour, formatPrixUnitaire, joursAvant } from '../../lib/formatStock';
+import { couleurStatut, formatEuro, formatJour, formatPrixUnitaire, formatTaux, horsTaxe, joursAvant } from '../../lib/formatStock';
 import { lancer } from '../../lib/actionStock';
 import { imprimerBonLivraison } from '../../lib/bonLivraison';
 import { SelecteurEvenement } from '../../components/SelecteurEvenement';
@@ -70,6 +70,11 @@ export function DetailDemande({ demande }: { demande: DemandeStock }) {
         {demande.statut === 'Remise' && demande.valeurLivree !== null ? (
           <>
             <Descriptions.Item label="PMP unitaire TTC livré">{formatPrixUnitaire(demande.prixUnitaireLivre ?? 0)}</Descriptions.Item>
+            {demande.tauxTvaLivre !== null && (
+              <Descriptions.Item label={`Total HT · TVA ${formatTaux(demande.tauxTvaLivre)}`}>
+                {formatEuro(horsTaxe(demande.valeurLivree, demande.tauxTvaLivre))} HT · {formatEuro(demande.valeurLivree - horsTaxe(demande.valeurLivree, demande.tauxTvaLivre))} de TVA
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label="Total TTC livré">
               <Text strong>{formatEuro(demande.valeurLivree)}</Text>
             </Descriptions.Item>

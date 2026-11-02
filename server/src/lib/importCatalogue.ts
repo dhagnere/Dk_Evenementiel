@@ -3,7 +3,7 @@ import { stringify } from 'csv-stringify/sync';
 import { z } from 'zod';
 import { insererUn, pool, requete, transaction, type Executant } from '../db.js';
 import { detecterDelimiteur, parseBoolFr } from './csv.js';
-import { creerMouvement, ecrireParametresStock, lireParametresStock, type Article } from './stock.js';
+import { creerMouvement, ecrireParametresStock, lireParametresStock, schemaTauxTva, type Article } from './stock.js';
 
 /**
  * Reprise d'un catalogue d'articles dans le module Stock, depuis un CSV (écran d'import du
@@ -15,6 +15,7 @@ import { creerMouvement, ecrireParametresStock, lireParametresStock, type Articl
  *
  * Colonne « prix » : prix d'achat unitaire TTC, qui fixe aussi le PMP de départ. Colonne « pmp » (facultative,
  * remplie par l'export) : PMP à reprendre tel quel, pour transférer un catalogue d'une base à l'autre.
+ * Colonne « tva » : taux en % (20, 10, 5,5, 2,1 ou 0), 20 si vide.
  */
 
 export const ligneArticle = z.object({
@@ -26,6 +27,7 @@ export const ligneArticle = z.object({
   stockInitial: z.number().int().min(0),
   prix: z.number().min(0).nullable(),
   pmp: z.number().min(0).nullable().default(null),
+  tauxTva: schemaTauxTva.default(20),
   seuil: z.number().int().min(0).default(0),
   fournisseur: z.string().trim().max(200).default(''),
   delaiJours: z.number().int().min(0).max(365).default(0),
@@ -65,6 +67,7 @@ export const COLONNES_CATALOGUE = [
   'stock',
   'prix',
   'pmp',
+  'tva',
   'seuil',
   'actif',
   'fournisseur',
@@ -100,6 +103,9 @@ const ALIAS: Record<string, string> = {
   'prix achat': 'prix',
   'prix d achat ttc': 'prix',
   pmp: 'pmp',
+  tva: 'tva',
+  'taux de tva': 'tva',
+  'taux tva': 'tva',
   'prix moyen pondere': 'pmp',
   seuil: 'seuil',
   'seuil d alerte': 'seuil',
@@ -160,9 +166,10 @@ export function lireCsvCatalogue(texte: string): { lignes: { ligne: number; brut
     const stock = nombre(r.stock);
     const prix = nombre(r.prix);
     const pmp = nombre(r.pmp);
+    const tva = nombre((r.tva ?? '').replace('%', ''));
     const seuil = nombre(r.seuil);
     const delai = nombre(r.delai);
-    for (const [champ, v] of [['stock', stock], ['prix', prix], ['pmp', pmp], ['seuil', seuil], ['délai', delai]] as const) {
+    for (const [champ, v] of [['stock', stock], ['prix', prix], ['pmp', pmp], ['TVA', tva], ['seuil', seuil], ['délai', delai]] as const) {
       if (Number.isNaN(v)) erreurs.push({ ligne, reference: r.reference ?? '', message: `${champ} illisible` });
     }
     const historique =
@@ -178,6 +185,7 @@ export function lireCsvCatalogue(texte: string): { lignes: { ligne: number; brut
         stockInitial: stock ?? 0,
         prix: prix === 0 ? null : prix,
         pmp: pmp === 0 ? null : pmp,
+        tauxTva: tva ?? undefined,
         seuil: seuil ?? 0,
         fournisseur: r.fournisseur ?? '',
         delaiJours: delai ?? 0,
@@ -211,7 +219,8 @@ export async function analyserCatalogue(
   for (const { ligne, brut } of lignes) {
     const lu = ligneArticle.safeParse(brut);
     if (!lu.success) {
-      const champs = [...new Set(lu.error.issues.map((e) => String(e.path[0])))];
+      const nomChamp = (c: string) => (c === 'tauxTva' ? 'TVA (20, 10, 5,5, 2,1 ou 0)' : c);
+      const champs = [...new Set(lu.error.issues.map((e) => nomChamp(String(e.path[0]))))];
       anomalies.push({ ligne, reference: String(brut.reference ?? ''), message: `à compléter ou corriger : ${champs.join(', ')}` });
       continue;
     }
@@ -280,6 +289,7 @@ export async function appliquerCatalogue(
           seuil: a.seuil,
           pmp: valorisation(a) ?? 0,
           prixAchat: a.prix,
+          tauxTva: a.tauxTva,
           aValoriser: valorisation(a) === null,
           actif: a.actif,
         },
@@ -312,8 +322,8 @@ const cellulesCsv = (lignes: Record<string, unknown>[]) =>
 /** Modèle à remplir, avec deux lignes d'exemple. */
 export function modeleCatalogue(): string {
   return cellulesCsv([
-    { reference: 'G-001', libelle: 'Stylo bille corps liège', famille: 'Papeterie', categorie: 'Goodies', emplacement: 'Armoire A1', stock: 250, prix: '0,45', pmp: '', seuil: 50, actif: 'Oui', fournisseur: '', delai: 15, historique: '' },
-    { reference: 'P-101', libelle: 'Médaille de la Ville (coffret)', famille: 'Médailles', categorie: 'Protocole', emplacement: 'Coffre', stock: 12, prix: '', pmp: '', seuil: 5, actif: 'Oui', fournisseur: '', delai: 30, historique: '' },
+    { reference: 'G-001', libelle: 'Stylo bille corps liège', famille: 'Papeterie', categorie: 'Goodies', emplacement: 'Armoire A1', stock: 250, prix: '0,45', pmp: '', tva: 20, seuil: 50, actif: 'Oui', fournisseur: '', delai: 15, historique: '' },
+    { reference: 'P-101', libelle: 'Médaille de la Ville (coffret)', famille: 'Médailles', categorie: 'Protocole', emplacement: 'Coffre', stock: 12, prix: '', pmp: '', tva: 20, seuil: 5, actif: 'Oui', fournisseur: '', delai: 30, historique: '' },
   ]);
 }
 
@@ -329,6 +339,7 @@ export function exporterCatalogue(articles: Article[]): string {
       stock: a.stockPhysique,
       prix: a.prixAchat === null ? '' : String(a.prixAchat).replace('.', ','),
       pmp: a.aValoriser ? '' : String(a.pmp).replace('.', ','),
+      tva: String(a.tauxTva).replace('.', ','),
       seuil: a.seuil,
       actif: a.actif ? 'Oui' : 'Non',
       fournisseur: a.fournisseur,

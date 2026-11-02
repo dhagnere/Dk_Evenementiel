@@ -12,6 +12,7 @@ import {
   ErreurMetier,
   STATUTS_EN_ATTENTE,
   arrondi,
+  schemaTauxTva,
   circuitDemande,
   creerMouvement,
   ecrireParametresStock,
@@ -128,6 +129,7 @@ stockRouter.post(
         categorie: z.enum(['Goodies', 'Protocole']),
         stockInitial: z.number().int().min(0).max(1_000_000),
         prix: z.number().min(0).max(1_000_000).nullable(),
+        tauxTva: schemaTauxTva.default(20),
       })
       .safeParse(req.body);
     if (!parsed.success) return invalide(res);
@@ -155,6 +157,7 @@ stockRouter.post(
           stockPhysique: d.stockInitial,
           pmp: d.prix ?? 0,
           prixAchat: d.prix,
+          tauxTva: d.tauxTva,
           aValoriser: d.prix === null,
         },
         client
@@ -187,7 +190,11 @@ stockRouter.put(
   administration,
   traiter(async (req, res) => {
     const parsed = schemaFicheArticle
-      .extend({ actif: z.boolean(), prixAchat: z.number().min(0).max(1_000_000).nullable().optional() })
+      .extend({
+        actif: z.boolean(),
+        prixAchat: z.number().min(0).max(1_000_000).nullable().optional(),
+        tauxTva: schemaTauxTva.optional(),
+      })
       .safeParse(req.body);
     if (!parsed.success) return invalide(res);
     const article = await requeteUne<Article>('SELECT * FROM stock_articles WHERE id = $1', [req.params.id]);
@@ -198,18 +205,19 @@ stockRouter.put(
     }
     const d = parsed.data;
     const prixAchat = d.prixAchat === undefined ? article.prixAchat : d.prixAchat;
+    const tauxTva = d.tauxTva ?? article.tauxTva;
     // Un article sans valorisation la reçoit de son prix d'achat ; ailleurs, le PMP reste celui des réceptions.
     const valorise = article.aValoriser && prixAchat !== null && prixAchat > 0;
     await executer(
       `UPDATE stock_articles SET libelle = $2, famille = $3, emplacement = $4, fournisseur = $5, delai_jours = $6,
-              seuil = $7, actif = $8, prix_achat = $9,
+              seuil = $7, actif = $8, prix_achat = $9, taux_tva = $11,
               pmp = CASE WHEN $10 THEN $9 ELSE pmp END, a_valoriser = a_valoriser AND NOT $10
         WHERE id = $1`,
-      [article._id, d.libelle, d.famille, d.emplacement, d.fournisseur, d.delaiJours, d.seuil, d.actif, prixAchat, valorise]
+      [article._id, d.libelle, d.famille, d.emplacement, d.fournisseur, d.delaiJours, d.seuil, d.actif, prixAchat, valorise, tauxTva]
     );
     await consigner(identiteDeRequete(req), 'stock_modification_article', `${article.reference} · ${d.libelle}`, {
-      avant: { libelle: article.libelle, seuil: article.seuil, emplacement: article.emplacement, actif: article.actif, prixAchat: article.prixAchat, pmp: article.pmp },
-      apres: { ...d, prixAchat, ...(valorise ? { pmp: prixAchat } : {}) },
+      avant: { libelle: article.libelle, seuil: article.seuil, emplacement: article.emplacement, actif: article.actif, prixAchat: article.prixAchat, tauxTva: article.tauxTva, pmp: article.pmp },
+      apres: { ...d, prixAchat, tauxTva, ...(valorise ? { pmp: prixAchat } : {}) },
     });
     res.json({
       ok: true,
@@ -567,9 +575,9 @@ stockRouter.post(
       );
       const historique = [...demande.historique, etape(req, depot ? 'Remise (versée au stock déporté)' : 'Remise')];
       const [maj] = await requete<Demande>(
-        `UPDATE stock_demandes SET statut = 'Remise', historique = $2, prix_unitaire_livre = $3, valeur_livree = $4, remise_le = now()
+        `UPDATE stock_demandes SET statut = 'Remise', historique = $2, prix_unitaire_livre = $3, valeur_livree = $4, remise_le = now(), taux_tva_livre = $5
           WHERE id = $1 RETURNING *`,
-        [demande._id, JSON.stringify(historique), prixUnitaire, valeurLivree],
+        [demande._id, JSON.stringify(historique), prixUnitaire, valeurLivree, article.tauxTva],
         client
       );
       return { demande: maj, verseAuDepot: Boolean(depot) };

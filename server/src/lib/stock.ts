@@ -63,6 +63,7 @@ export interface Article {
   seuil: number;
   pmp: number;
   prixAchat: number | null;
+  tauxTva: number;
   aValoriser: boolean;
   actif: boolean;
 }
@@ -90,6 +91,7 @@ export interface Demande {
   prixUnitaireLivre: number | null;
   valeurLivree: number | null;
   remiseLe: Date | null;
+  tauxTvaLivre: number | null;
   createdAt: Date;
 }
 
@@ -101,6 +103,10 @@ export interface EtapeHistorique {
 }
 
 export const STATUTS_EN_ATTENTE = ['En attente chef de service', 'En attente Protocole', 'En attente Cabinet'];
+
+/** Taux de TVA applicables en France métropolitaine (%). */
+export const TAUX_TVA = [20, 10, 5.5, 2.1, 0] as const;
+export const schemaTauxTva = z.number().refine((t) => (TAUX_TVA as readonly number[]).includes(t), 'Taux de TVA inconnu');
 
 export const arrondi = (montant: number) => Math.round(montant * 100) / 100;
 

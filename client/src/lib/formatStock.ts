@@ -7,6 +7,14 @@ const eurosPrecis = new Intl.NumberFormat('fr-FR', { style: 'currency', currency
 /** Prix unitaire : jusqu'à quatre décimales, comme le PMP enregistré (3,7667 €). */
 export const formatPrixUnitaire = (montant: number) => eurosPrecis.format(montant);
 
+/** Taux de TVA proposés (%). */
+export const TAUX_TVA = [20, 10, 5.5, 2.1, 0];
+
+export const formatTaux = (taux: number) => `${String(taux).replace('.', ',')} %`;
+
+/** Montant HT d'un montant TTC. */
+export const horsTaxe = (ttc: number, taux: number) => ttc / (1 + taux / 100);
+
 /** AAAA-MM-JJ → JJ/MM/AAAA */
 export const formatJour = (jour: string | null | undefined) => (jour ? jour.slice(0, 10).split('-').reverse().join('/') : '—');
 

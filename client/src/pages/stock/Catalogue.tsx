@@ -6,7 +6,7 @@ import { ImportCatalogue } from './ImportCatalogue';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import type { ArticleStock, CategorieArticle, ParametresStock } from '../../types';
-import { formatEuro, formatPrixUnitaire } from '../../lib/formatStock';
+import { formatEuro, formatPrixUnitaire, formatTaux, horsTaxe, TAUX_TVA } from '../../lib/formatStock';
 import { lancer } from '../../lib/actionStock';
 
 const { Text } = Typography;
@@ -21,6 +21,7 @@ interface Fiche {
   actif: boolean;
   /** Prix d'achat unitaire TTC : fixe le PMP à la création, et pour un article « à valoriser ». */
   prix: number | null;
+  tauxTva: number;
   // Création uniquement.
   categorie: CategorieArticle;
   stockInitial: number;
@@ -37,6 +38,7 @@ const FICHE_VIDE: Fiche = {
   categorie: 'Goodies',
   stockInitial: 0,
   prix: null,
+  tauxTva: 20,
 };
 
 function Champ({ libelle, children }: { libelle: string; children: React.ReactNode }) {
@@ -95,11 +97,11 @@ export default function Catalogue() {
   const enregistrer = async () => {
     if (!edition) return;
     setEnvoi(true);
-    const { libelle, famille, emplacement, fournisseur, delaiJours, seuil, actif, categorie, stockInitial, prix } = fiche;
+    const { libelle, famille, emplacement, fournisseur, delaiJours, seuil, actif, categorie, stockInitial, prix, tauxTva } = fiche;
     const ok = await lancer(
       edition.article
-        ? api.put(`/stock/articles/${edition.article._id}`, { libelle, famille, emplacement, fournisseur, delaiJours, seuil, actif, prixAchat: prix })
-        : api.post('/stock/articles', { libelle, famille, emplacement, fournisseur, delaiJours, seuil, categorie, stockInitial, prix })
+        ? api.put(`/stock/articles/${edition.article._id}`, { libelle, famille, emplacement, fournisseur, delaiJours, seuil, actif, prixAchat: prix, tauxTva })
+        : api.post('/stock/articles', { libelle, famille, emplacement, fournisseur, delaiJours, seuil, categorie, stockInitial, prix, tauxTva })
     );
     setEnvoi(false);
     if (ok) {
@@ -310,13 +312,30 @@ export default function Catalogue() {
                     placeholder="Non renseigné"
                   />
                 </Champ>
+                <Champ libelle="TVA">
+                  <Select
+                    value={fiche.tauxTva}
+                    onChange={(tauxTva) => setFiche({ ...fiche, tauxTva })}
+                    options={TAUX_TVA.map((t) => ({ value: t, label: formatTaux(t) }))}
+                    style={{ width: 100 }}
+                  />
+                </Champ>
                 <Champ libelle="PMP TTC (valorisation)">
                   <Text strong>{edition.article.aValoriser ? 'à valoriser' : formatPrixUnitaire(edition.article.pmp)}</Text>
+                  {!edition.article.aValoriser && (
+                    <div style={{ fontSize: 12, color: '#8c8c8c' }}>soit {formatPrixUnitaire(horsTaxe(edition.article.pmp, fiche.tauxTva))} HT</div>
+                  )}
                 </Champ>
                 <Champ libelle="Valeur du stock">
                   <Text>{edition.article.aValoriser ? '—' : formatEuro(edition.article.stockPhysique * edition.article.pmp)}</Text>
                 </Champ>
               </div>
+              {fiche.prix !== null && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Prix d'achat : {formatPrixUnitaire(horsTaxe(fiche.prix, fiche.tauxTva))} HT + TVA {formatTaux(fiche.tauxTva)} ={' '}
+                  {formatPrixUnitaire(fiche.prix)} TTC.
+                </Text>
+              )}
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {edition.article.aValoriser
                   ? "Article à valoriser : le prix d'achat saisi fixera son PMP, repris sur les livraisons."
@@ -342,11 +361,20 @@ export default function Catalogue() {
                     placeholder="Inconnu"
                   />
                 </Champ>
+                <Champ libelle="TVA">
+                  <Select
+                    value={fiche.tauxTva}
+                    onChange={(tauxTva) => setFiche({ ...fiche, tauxTva })}
+                    options={TAUX_TVA.map((t) => ({ value: t, label: formatTaux(t) }))}
+                    style={{ width: 100 }}
+                  />
+                </Champ>
               </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 Le prix d'achat fixe le PMP de départ. Sans prix, l'article est « à valoriser » et ne peut être ni demandé ni remis tant que
                 son prix n'est pas renseigné.
-                {fiche.prix !== null && ` Valeur initiale : ${formatEuro(fiche.stockInitial * fiche.prix)}.`}
+                {fiche.prix !== null &&
+                  ` Prix d'achat HT : ${formatPrixUnitaire(horsTaxe(fiche.prix, fiche.tauxTva))}. Valeur initiale : ${formatEuro(fiche.stockInitial * fiche.prix)} TTC.`}
               </Text>
             </>
           )}

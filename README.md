@@ -71,6 +71,9 @@ Règles de gestion, reprises de la maquette (`maquettes/stock-goodies/`) :
   jour à chaque réception et modifiable. Le **prix moyen pondéré (PMP)**, recalculé à chaque réception, est seul à
   valoriser le stock. Un article sans prix est « à valoriser » : le prix d'achat saisi dans sa fiche fixe son PMP, et il
   ne peut être ni demandé ni remis tant qu'il n'est pas valorisé.
+- **TVA** : chaque article porte son taux (20 % par défaut ; 10, 5,5, 2,1 ou 0 %). Les prix restent saisis et valorisés
+  TTC ; le taux en déduit le HT, affiché dans la fiche et ventilé (HT, TVA, TTC) sur le bon de livraison. Le taux est figé
+  sur la demande à la remise.
 - **Réception** : met à jour le stock, le prix d'achat et le PMP ; tout écart crée une anomalie à traiter.
 - **Ajustement** : immédiat jusqu'à 50 €, soumis à validation au-delà ou pour un cadeau protocolaire ; le stock réservé
   ne peut jamais être entamé.
@@ -81,7 +84,7 @@ Règles de gestion, reprises de la maquette (`maquettes/stock-goodies/`) :
 **Import du catalogue** (super-administrateurs) : Stock → Catalogue → *Importer un CSV*. L'analyse contrôle tout le
 fichier sans rien écrire ; l'import n'est possible que sans anomalie. Une référence déjà présente n'est pas modifiée.
 Colonne `prix` : prix d'achat unitaire TTC, qui fixe le PMP de départ ; colonne `pmp` (facultative) : PMP repris tel
-quel. Modèle téléchargeable depuis le même écran ; *Exporter CSV* produit un fichier au même format, PMP compris. Équivalent en ligne de
+quel ; colonne `tva` : taux en %, 20 si vide. Modèle téléchargeable depuis le même écran ; *Exporter CSV* produit un fichier au même format, PMP compris. Équivalent en ligne de
 commande : `node server/dist/import-catalogue.js catalogue.csv [--appliquer]`.
 
 Pour une recette, un jeu de démonstration (catalogue, directions, stocks déportés de la maquette) se charge sur une base
