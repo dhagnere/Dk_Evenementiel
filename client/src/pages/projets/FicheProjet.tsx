@@ -443,8 +443,67 @@ function Equipe({ fiche, referentiels: ref, majProjet, peut }: Ops) {
     return majProjet({ roles });
   };
   const lignes = p.roles.filter((x) => x.utile);
+  const formation = fiche.formation;
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <Card
+      size="small"
+      title="Accompagnement du pilote"
+      extra={
+        formation &&
+        (formation.autonome ? (
+          <Tag color="green">Pilote autonome</Tag>
+        ) : (
+          <Space size={4} wrap>
+            {formation.etapes.map((e) => (
+              <Tag key={e.code} color={e.acquise ? 'green' : e.code === formation.prochaine ? 'blue' : undefined}>
+                {e.acquise ? '✓ ' : ''}
+                {e.libelle}
+              </Tag>
+            ))}
+          </Space>
+        ))
+      }
+    >
+      {!projet.roles.pilote?.utilisateurId ? (
+        <Text type="secondary">Désignez d'abord le pilote (compte de l'application) ci-dessous.</Text>
+      ) : (
+        <Space wrap>
+          <Select
+            allowClear
+            disabled={!modifiable}
+            placeholder="Mode d'accompagnement"
+            value={projet.formationMode ?? undefined}
+            onChange={(v) => majProjet({ formationMode: v ?? null })}
+            options={[
+              { value: 'binome', label: 'En binôme avec un formateur' },
+              { value: 'seul', label: 'Seul' },
+              { value: 'copilote', label: 'En copilote' },
+            ]}
+            style={{ width: 260 }}
+          />
+          {(projet.formationMode === 'binome' || projet.formationMode === 'copilote') && (
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              disabled={!modifiable}
+              placeholder="Formateur"
+              value={projet.formateur?.utilisateurId ?? undefined}
+              onChange={(v) => majProjet({ formateur: v ? { utilisateurId: v, nom: intervenants.find((i) => i._id === v)?.nom ?? '' } : null })}
+              options={intervenants.filter((i) => i._id !== projet.roles.pilote?.utilisateurId).map((i) => ({ value: i._id, label: i.nom }))}
+              style={{ width: 240 }}
+            />
+          )}
+        </Space>
+      )}
+      {formation?.avis && <Alert type="warning" showIcon style={{ marginTop: 10 }} message={formation.avis} />}
+      <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+        Parcours : un N1 en binôme, un N1 seul, un N2 en binôme, un N3 en copilote, puis autonomie. Une étape est acquise au bilan
+        (dernier jalon franchi). Suivi complet : Projets → Formation des pilotes.
+      </Text>
+    </Card>
     <Card
       title="Équipe du projet"
       extra={<Text type="secondary">Un seul « P » par tâche : la personne désignée ici reçoit les relances.</Text>}
@@ -511,6 +570,7 @@ function Equipe({ fiche, referentiels: ref, majProjet, peut }: Ops) {
         En N1 et N2, le pilote tient aussi le rôle de régisseur jour J ; à partir de N3, les deux rôles sont séparés.
       </Text>
     </Card>
+    </div>
   );
 }
 

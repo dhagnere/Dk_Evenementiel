@@ -296,6 +296,27 @@ export interface SimulationProjet {
   nombreTaches: number;
 }
 
+export type ModeFormation = 'binome' | 'seul' | 'copilote';
+
+export interface ProgressionPilote {
+  utilisateurId: string;
+  nom: string;
+  autonome: boolean;
+  autonomeLe: string | null;
+  decidePar: string;
+  notes: string;
+  prochaine: string | null;
+  etapes: {
+    code: string;
+    libelle: string;
+    niveau: number;
+    mode: ModeFormation;
+    acquise: boolean;
+    projets: { _id: string; titre: string; dateJour: string; niveau: number; statut: string; formateur: Personne | null; valide: boolean }[];
+  }[];
+  projets: { _id: string; titre: string; dateJour: string; niveau: number; statut: string; formationMode: ModeFormation | null; bilanFranchi: boolean }[];
+}
+
 export interface Personne {
   utilisateurId?: string | null;
   nom: string;
@@ -358,6 +379,8 @@ export interface Projet {
   niveau: number;
   criteres: string[];
   roles: Record<string, Personne>;
+  formationMode: ModeFormation | null;
+  formateur: Personne | null;
   dateJour: string;
   dateFin: string | null;
   lieu: string;
@@ -454,6 +477,7 @@ export interface FicheProjetComplete {
   demandesStock: DemandeStockLiee[] | null;
   projet: Projet;
   pilotage: PilotageProjet;
+  formation: { autonome: boolean; prochaine: string | null; etapes: { code: string; libelle: string; acquise: boolean }[]; avis: string | null } | null;
   taches: TacheProjet[];
   demarches: DemarcheProjet[];
   prestataires: PrestataireProjet[];

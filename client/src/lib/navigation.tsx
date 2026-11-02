@@ -96,6 +96,7 @@ export const SECTIONS: SectionNavigation[] = [
       { chemin: '/projets/deposer', libelle: 'Demander un événement', icone: <FormOutlined /> },
       { chemin: '/projets/demandes', libelle: 'Demandes reçues', icone: <InboxOutlined />, niveau: 'validation' },
       { chemin: '/projets/materiel', libelle: 'Matériel', icone: <BuildOutlined /> },
+      { chemin: '/projets/formation', libelle: 'Formation des pilotes', icone: <SolutionOutlined />, niveau: 'validation' },
       { chemin: '/projets/referentiel', libelle: 'Référentiel', icone: <ProfileOutlined />, niveau: 'administration' },
     ],
   },

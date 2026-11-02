@@ -190,9 +190,14 @@ export async function exporterPersonne(email: string) {
         [compte._id]
       )
     : [];
+  // Suivi de formation au pilotage de projets (effacé avec le compte, par cascade).
+  const formationPilote = compte
+    ? await requeteUne('SELECT autonome, autonome_le, decide_par, notes, created_at FROM pilotes_formation WHERE utilisateur_id = $1', [compte._id])
+    : null;
   return {
     personne: adresse,
     exporteLe: new Date().toISOString(),
+    formationPilote,
     compte,
     droits,
     demandesAcces,

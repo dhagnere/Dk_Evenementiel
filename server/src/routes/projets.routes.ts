@@ -33,6 +33,7 @@ import {
   type TacheProjet,
 } from '../lib/projets.js';
 import { REFERENTIEL_DEFAUT } from '../lib/referentielProjets.js';
+import { ETAPES, MODES, avisPilotage, progressionDe, progressions } from '../lib/formation.js';
 
 export const projetsRouter = Router();
 
@@ -142,6 +143,47 @@ projetsRouter.get(
         WHERE u.statut = 'Actif' AND (u.super_admin OR d.utilisateur_id IS NOT NULL) ORDER BY u.nom`
     );
     res.json({ intervenants });
+  })
+);
+
+// --- Formation des pilotes -------------------------------------------------------------------------
+
+/** Progression de tous les pilotes (comptes ayant piloté un projet, ou suivis en formation). */
+projetsRouter.get(
+  '/formation',
+  validation,
+  traiter(async (_req, res) => {
+    res.json({ pilotes: await progressions(null), etapes: ETAPES, modes: MODES });
+  })
+);
+
+/** Ajoute un compte au suivi, le déclare autonome (ou revient sur l'autonomie), note le suivi. */
+projetsRouter.put(
+  '/formation/:utilisateurId',
+  validation,
+  traiter(async (req, res) => {
+    const parsed = z.object({ autonome: z.boolean().optional(), notes: texte(5000).optional() }).safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const compte = await requeteUne<{ nom: string }>('SELECT nom FROM utilisateurs WHERE id = $1', [req.params.utilisateurId]);
+    if (!compte) return void res.status(404).json({ ok: false, message: 'Compte introuvable' });
+    const d = parsed.data;
+    await executer(
+      `INSERT INTO pilotes_formation (utilisateur_id, autonome, autonome_le, decide_par, notes)
+       VALUES ($1, COALESCE($2, false), CASE WHEN $2 THEN CURRENT_DATE END, CASE WHEN $2 IS NOT NULL THEN $3 ELSE '' END, COALESCE($4, ''))
+       ON CONFLICT (utilisateur_id) DO UPDATE SET
+         autonome = COALESCE($2, pilotes_formation.autonome),
+         autonome_le = CASE WHEN $2 IS NULL THEN pilotes_formation.autonome_le WHEN $2 THEN CURRENT_DATE END,
+         decide_par = CASE WHEN $2 IS NULL THEN pilotes_formation.decide_par ELSE $3 END,
+         notes = COALESCE($4, pilotes_formation.notes)`,
+      [req.params.utilisateurId, d.autonome ?? null, req.session!.nom, d.notes ?? null]
+    );
+    if (d.autonome !== undefined) {
+      await consigner(identiteDeRequete(req), 'projets_formation_autonomie', compte.nom, { autonome: d.autonome });
+    }
+    res.json({
+      ok: true,
+      message: d.autonome === true ? `Autonomie déclarée pour ${compte.nom}` : d.autonome === false ? `${compte.nom} reprend le parcours de formation` : 'Enregistré',
+    });
   })
 );
 
@@ -348,7 +390,15 @@ projetsRouter.get(
       lireReferentiel(),
     ]);
     const vue = pilotage(ref, projet, taches, franchis);
+    const progression = await progressionDe(projet.roles.pilote?.utilisateurId);
+    const p = projet as typeof projet & { formationMode: 'binome' | 'seul' | 'copilote' | null; formateur: Personne | null };
     res.json({
+      formation: progression && {
+        autonome: progression.autonome,
+        prochaine: progression.prochaine,
+        etapes: progression.etapes.map((e) => ({ code: e.code, libelle: e.libelle, acquise: e.acquise })),
+        avis: avisPilotage(progression, vue.niveau, p.formationMode, !!p.formateur?.nom),
+      },
       projet,
       pilotage: vue,
       taches: vue.taches,
@@ -368,6 +418,8 @@ const CHAMPS_PROJET: Record<string, { niveau: Niveau; schema: z.ZodTypeAny }> = 
   titre: { niveau: 'administration', schema: texte(300).min(1) },
   type: { niveau: 'administration', schema: z.enum(CODES_TYPES).nullable() },
   criteres: { niveau: 'administration', schema: z.array(z.string().max(40)).max(40) },
+  formationMode: { niveau: 'validation', schema: z.enum(['binome', 'seul', 'copilote']).nullable() },
+  formateur: { niveau: 'validation', schema: z.object({ utilisateurId: z.string().max(60).nullable().optional(), nom: texte(200) }).nullable() },
   roles: {
     niveau: 'validation',
     schema: z.record(

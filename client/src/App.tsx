@@ -33,6 +33,7 @@ import DeposerDemande from './pages/projets/DeposerDemande';
 import DemandesRecues from './pages/projets/DemandesRecues';
 import Materiel from './pages/projets/Materiel';
 import Referentiel from './pages/projets/Referentiel';
+import FormationPilotes from './pages/projets/FormationPilotes';
 import FicheEvenementUnique from './pages/FicheEvenementUnique';
 
 export default function App() {
@@ -82,6 +83,7 @@ export default function App() {
         </Route>
         <Route element={<RequireModule module="projets" niveau="validation" />}>
           <Route path="/projets/demandes" element={<DemandesRecues />} />
+          <Route path="/projets/formation" element={<FormationPilotes />} />
         </Route>
         <Route element={<RequireModule module="projets" niveau="administration" />}>
           <Route path="/projets/referentiel" element={<Referentiel />} />

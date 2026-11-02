@@ -63,6 +63,7 @@ avec le DPO :
 | Registre protocolaire | 3 650 jours (10 ans) après la remise | Anonymisation du nom du bénéficiaire |
 | Demandes de stock | Durée d'utilité administrative | [À fixer avec les Archives] |
 | Projets événementiels (dont contacts des prestataires) et demandes d'événement | Durée d'utilité administrative | [À fixer avec les Archives] |
+| Suivi de formation des pilotes (étapes, autonomie, notes de suivi) | Durée d'emploi de l'agent dans le service | Supprimé avec le compte |
 
 ## 6. Droits des personnes
 

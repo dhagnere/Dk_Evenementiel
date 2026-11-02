@@ -182,9 +182,9 @@ const TABLES = {
     colonnes: [
       '_id', 'titre', 'type', 'dateJour', 'dateFin', 'lieu', 'jauge', 'demandeur', 'referent', 'description', 'statut',
       'inscritLe', 'demandeId', 'evenementId', 'evenementNom', 'evenementDebut', 'evenementFin', 'montage', 'ouverture', 'fermeture', 'demontage', 'implantation', 'bilan',
-      'criteres', 'niveau', 'roles', 'createdAt', 'updatedAt',
+      'criteres', 'niveau', 'roles', 'formationMode', 'formateur', 'createdAt', 'updatedAt',
     ],
-    json: ['bilan', 'criteres', 'roles'],
+    json: ['bilan', 'criteres', 'roles', 'formateur'],
   },
   projet_taches: {
     colonnes: [

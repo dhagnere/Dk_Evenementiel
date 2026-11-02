@@ -120,6 +120,11 @@ Un seul squelette de rétroplanning, réglé par trois curseurs, plutôt qu'un m
   modules, tâches types, rôles ; export et import JSON. Il s'applique aux nouveaux projets, et à un projet existant dès que
   sa jauge ou ses caractéristiques changent (tâches faites et tâches ajoutées à la main jamais retirées).
 - Les projets créés avant les niveaux gardent leurs tâches, reclassées dans les jalons du squelette.
+- **Formation des pilotes** (Projets → Formation des pilotes, niveau Validation) : un N1 en binôme, un N1 seul, un N2 en
+  binôme, un N3 en copilote avant toute autonomie. Le mode d'accompagnement et le formateur se renseignent dans l'onglet
+  Équipe du projet ; une étape est acquise quand le projet a franchi son bilan. L'onglet Équipe avertit quand un pilote
+  en formation prend un projet au-delà de son étape. Un agent expérimenté peut être déclaré autonome directement ; notes
+  de suivi par pilote.
 - **Matériel logistique** (barrières, tentes, podium…) : une réservation bloque le matériel du jour J − 1 au lendemain de
   la fin ; un dépassement du stock sur des périodes qui se chevauchent est signalé comme conflit.
 - **Plan d'implantation** 2D et maquette 3D (éditeur repris tel quel de l'artefact, `client/src/projets/balisePlan.js`) :
