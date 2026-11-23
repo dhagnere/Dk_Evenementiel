@@ -244,8 +244,8 @@ const TABLES = {
     json: [],
   },
   assistant_dossiers: {
-    colonnes: ['code', 'evenementCode', 'branche', 'titre', 'statut', 'priorite', 'donnees', 'converties', 'createdAt', 'updatedAt'],
-    json: ['donnees', 'converties'],
+    colonnes: ['code', 'evenementCode', 'branche', 'titre', 'statut', 'priorite', 'donnees', 'converties', 'corrections', 'createdAt', 'updatedAt'],
+    json: ['donnees', 'converties', 'corrections'],
   },
   assistant_mails: {
     colonnes: ['_id', 'numero', 'date', 'expediteur', 'objet', 'dossierCode', 'createdAt', 'updatedAt'],

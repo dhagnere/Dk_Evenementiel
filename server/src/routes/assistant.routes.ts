@@ -93,6 +93,7 @@ interface LigneDossier {
   priorite: string;
   donnees: Record<string, unknown> & { echeances?: { date?: string | null; libelle?: string }[]; actions?: string[] };
   converties: Record<string, { tacheId: string; projetId: string; le: string }>;
+  corrections: { statut?: string; note?: string; maj?: string; par?: string };
 }
 
 /** Remplace l'index par celui fourni, en conservant rattachements et tâches déjà créées. */
@@ -130,6 +131,12 @@ export async function importerIndex(index: IndexAssistant, par: string) {
       );
     }
     const dossiersRetires = await executer('DELETE FROM assistant_dossiers WHERE NOT (code = ANY($1))', [[...codesDos]], client);
+    // Un statut corrigé que l'assistant a repris dans son nouvel index n'est plus une correction.
+    await executer(
+      "UPDATE assistant_dossiers SET corrections = corrections - 'statut' WHERE corrections->>'statut' = statut",
+      [],
+      client
+    );
 
     await executer('DELETE FROM assistant_mails', [], client);
     for (let i = 0; i < index.mails.length; i += 500) {
@@ -417,6 +424,77 @@ assistantRouter.post(
     await consigner(identiteDeRequete(req), 'projets_creation', projet.titre, { depuis: 'assistant', evenement: ev.code });
     const niveau = (await requeteUne<{ niveau: number }>('SELECT niveau FROM projets WHERE id = $1', [projet._id]))!.niveau;
     res.json({ ok: true, message: `Projet « ${projet.titre} » créé au niveau N${niveau} et rattaché`, projetId: projet._id });
+  })
+);
+
+// --- Vue complète et corrections -------------------------------------------------------------------
+
+/** Tout ce que l'onglet affiche, en un appel : l'index, ses liens aux projets et les corrections. */
+assistantRouter.get(
+  '/index',
+  traiter(async (_req, res) => {
+    const [dernier, evenements, dossiers, mails, prestataires, projets] = await Promise.all([
+      requeteUne('SELECT * FROM assistant_imports ORDER BY created_at DESC LIMIT 1'),
+      requete<{ code: string; nom: string; dateJour: string | null; lieu: string; projetId: string | null }>(
+        `SELECT e.*, p.titre AS projet_titre FROM assistant_evenements e LEFT JOIN projets p ON p.id = e.projet_id
+          ORDER BY e.date_jour NULLS LAST, e.nom`
+      ),
+      requete<LigneDossier>('SELECT code, donnees, converties, corrections FROM assistant_dossiers ORDER BY code'),
+      requete('SELECT numero, date, expediteur, objet, dossier_code FROM assistant_mails ORDER BY numero'),
+      requete('SELECT nom, domaine, donnees FROM assistant_prestataires ORDER BY nom'),
+      requete<{ _id: string; titre: string; dateJour: string }>("SELECT id, titre, date_jour FROM projets WHERE statut <> 'annule' ORDER BY date_jour"),
+    ]);
+    res.json({
+      dernierImport: dernier,
+      joursAvantAlerte: JOURS_AVANT_ALERTE,
+      evenements: evenements.map((e) => ({ ...e, proposition: e.projetId ? null : proposerProjet(e, projets) })),
+      dossiers,
+      mails,
+      prestataires,
+      projets,
+    });
+  })
+);
+
+/** Corrige le statut d'un dossier ou y note un commentaire. Conservé d'un import à l'autre. */
+assistantRouter.put(
+  '/dossiers/:code/correction',
+  traiter(async (req, res) => {
+    const parsed = z
+      .object({ statut: z.string().trim().max(120).nullable().optional(), note: z.string().max(5000).optional() })
+      .refine((v) => v.statut !== undefined || v.note !== undefined)
+      .safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const d = await requeteUne<LigneDossier>('SELECT code, statut, corrections FROM assistant_dossiers WHERE code = $1', [req.params.code]);
+    if (!d) return void res.status(404).json({ ok: false, message: 'Dossier introuvable' });
+    const c = { ...d.corrections };
+    if (parsed.data.statut !== undefined) {
+      if (parsed.data.statut === null || parsed.data.statut === d.statut) delete c.statut;
+      else c.statut = parsed.data.statut;
+    }
+    if (parsed.data.note !== undefined) {
+      if (parsed.data.note.trim() === '') delete c.note;
+      else c.note = parsed.data.note;
+    }
+    const vide = c.statut === undefined && c.note === undefined;
+    const corrections = vide ? {} : { ...c, maj: new Date().toISOString(), par: req.session!.nom };
+    await executer('UPDATE assistant_dossiers SET corrections = $2, updated_at = now() WHERE code = $1', [d.code, JSON.stringify(corrections)]);
+    res.json({ ok: true, message: 'Enregistré', corrections });
+  })
+);
+
+/** Corrections à transmettre à l'assistant pour sa prochaine mise à jour (même format que l'application d'origine). */
+assistantRouter.get(
+  '/corrections/export',
+  traiter(async (req, res) => {
+    const lignes = await requete<{ code: string; corrections: Record<string, unknown> }>(
+      "SELECT code, corrections FROM assistant_dossiers WHERE corrections <> '{}'::jsonb ORDER BY code"
+    );
+    const corrections = Object.fromEntries(lignes.map((l) => [l.code, l.corrections]));
+    const jour = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Disposition', `attachment; filename="corrections_dossiers_${jour}.json"`);
+    res.json({ exporte_le: new Date().toISOString(), corrections });
+    void consigner(identiteDeRequete(req), 'assistant_export_corrections', `${lignes.length} dossier(s)`);
   })
 );
 

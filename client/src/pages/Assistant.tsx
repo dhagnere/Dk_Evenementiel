@@ -1,534 +1,710 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Descriptions,
-  Drawer,
-  Empty,
-  Input,
-  InputNumber,
-  Popover,
-  Row,
-  Select,
-  Space,
-  Statistic,
-  Table,
-  Tabs,
-  Tag,
-  Typography,
-  Upload,
-  type TableColumnsType,
-} from 'antd';
-import { CheckOutlined, InboxOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, DatePicker, Drawer, InputNumber, Popover, Select, Space, Typography, Upload, message } from 'antd';
+import { CheckOutlined, InboxOutlined, PlusOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { api } from '../api';
 import { lancer } from '../lib/actionStock';
 
-const { Text, Paragraph, Title } = Typography;
+const { Paragraph, Text } = Typography;
 
-// --- Types renvoyés par /api/assistant -----------------------------------------------------------
+// --- Données renvoyées par /api/assistant/index ---------------------------------------------------
 
 interface Echeance {
   date?: string | null;
   libelle?: string;
 }
-interface FicheDossier {
+interface PieceJointe {
+  nom?: string;
+  type?: string;
+  taille?: string;
+  emplacement?: string;
+}
+interface LigneBudget {
+  type?: string;
+  reference?: string;
+  fournisseur?: string;
+  montant_ttc?: number | null;
+  statut_lecture?: string;
+}
+interface Fiche {
   id: string;
+  evenement: string;
+  branche: string;
+  titre: string;
   demandeur?: string;
   contacts?: string[];
+  statut: string;
+  priorite: string;
+  echeances?: Echeance[];
   resume?: string;
   actions?: string[];
-  echeances?: Echeance[];
-  vigilance?: string[] | string;
-  pieces_jointes?: unknown[];
-  budget?: unknown;
-  brouillon?: string;
-  historique?: unknown[];
-  [cle: string]: unknown;
+  vigilance?: string[];
+  pieces_jointes?: PieceJointe[];
+  budget?: LigneBudget[];
+  mails?: number[];
+  brouillon?: string | null;
+}
+interface Corrections {
+  statut?: string;
+  note?: string;
+  maj?: string;
+  par?: string;
 }
 interface Dossier {
   code: string;
-  evenementCode: string;
-  evenementNom: string;
-  projetId: string | null;
-  branche: string;
-  titre: string;
-  statut: string;
-  priorite: string;
-  nombreMails: number;
-  donnees: FicheDossier;
-  converties: Record<string, { tacheId: string; projetId: string; le: string }>;
+  donnees: Fiche;
+  converties: Record<string, { tacheId: string; projetId: string }>;
+  corrections: Corrections;
 }
-interface Synthese {
-  dernierImport: { genereLe: string; periode: string; par: string; createdAt: string; compte: Record<string, number> } | null;
-  joursDepuis: number | null;
-  alerte: boolean;
-  joursAvantAlerte: number;
-  dossiers: number;
-  aTraiter: number;
-  prioriteHaute: number;
-  parStatut: Record<string, number>;
-  evenementsSansProjet: number;
-  echeancesEnRetard: number;
-  echeances: {
-    dossier: string;
-    titre: string;
-    branche: string;
-    evenement: string;
-    date: string;
-    libelle: string;
-    convertie: boolean;
-    enRetard: boolean;
-    avecProjet: boolean;
-  }[];
-}
-interface EvenementAssistant {
+interface Evenement {
   code: string;
   nom: string;
   dateJour: string | null;
   lieu: string;
   projetId: string | null;
   projetTitre: string | null;
-  projetDate: string | null;
-  nombreDossiers: number;
-  proposition: { projetId: string; titre: string; score: number } | null;
-}
-interface Prestataire {
-  nom: string;
-  domaine: string;
-  donnees: { contacts?: string[]; evenements?: string[]; documents?: string[]; dossiers?: string[]; [cle: string]: unknown };
+  proposition: { projetId: string; titre: string } | null;
 }
 interface Mail {
-  _id: string;
   numero: number;
   date: string;
   expediteur: string;
   objet: string;
+  dossierCode: string;
+}
+interface Prestataire {
+  nom: string;
+  domaine: string;
+  donnees: { contacts?: string[]; evenements?: string[]; documents?: string[]; dossiers?: string[] };
+}
+interface Index {
+  dernierImport: { genereLe: string; periode: string; par: string; createdAt: string; compte: Record<string, number> } | null;
+  joursAvantAlerte: number;
+  evenements: Evenement[];
+  dossiers: Dossier[];
+  mails: Mail[];
+  prestataires: Prestataire[];
+  projets: { _id: string; titre: string; dateJour: string }[];
 }
 
-const COULEUR_PRIORITE: Record<string, string> = { Haute: 'red', Normale: 'blue', Basse: 'default' };
-const couleurStatut = (s: string) =>
-  s === 'À traiter' ? 'orange' : s === 'Clos' ? 'default' : s.startsWith('En attente') ? 'gold' : s === 'Pour information' ? 'cyan' : 'green';
-const formatJour = (j?: string | null) => (j ? dayjs(j).format('DD/MM/YYYY') : '—');
-const enListe = (v: unknown): string[] =>
-  Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : texteDe(x))) : typeof v === 'string' && v ? [v] : [];
-/** Rend lisible un élément libre de la fiche (pièce jointe, ligne d'historique, ligne de budget…). */
-function texteDe(x: unknown): string {
-  if (x === null || x === undefined) return '';
-  if (typeof x !== 'object') return String(x);
-  const o = x as Record<string, unknown>;
-  const euros = (v: unknown) => (typeof v === 'number' ? `${v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € TTC` : v);
-  const champs: [string, (v: unknown) => unknown][] = [
-    ['date', (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? formatJour(v) : v)],
-    ['type', (v) => v],
-    ['libelle', (v) => v],
-    ['nom', (v) => v],
-    ['titre', (v) => v],
-    ['reference', (v) => v],
-    ['fournisseur', (v) => v],
-    ['de', (v) => v],
-    ['objet', (v) => v],
-    ['resume', (v) => v],
-    ['montant', euros],
-    ['montant_ttc', euros],
-    ['taille', (v) => (v === '—' ? null : v)],
-    ['emplacement', (v) => v],
-    ['statut_lecture', (v) => v],
-    ['lien', (v) => v],
-  ];
-  const morceaux = champs
-    .map(([k, f]) => (o[k] === undefined || o[k] === null || o[k] === '' ? null : f(o[k])))
-    .filter((v) => v !== undefined && v !== null && v !== '')
-    .map(String);
-  return morceaux.length ? morceaux.join(' · ') : JSON.stringify(o);
-}
+// --- Règles d'affichage reprises de l'application d'origine ----------------------------------------
 
-// --- Page ----------------------------------------------------------------------------------------
+const STATUTS = [
+  'À traiter',
+  'En attente de réponse',
+  'En attente de validation',
+  'En cours',
+  'Rendez-vous fixé',
+  'Bon de commande émis',
+  'Bon de commande transmis au fournisseur',
+  'Répondu',
+  'Validé',
+  'Validé – consultation lancée',
+  'Pour information',
+  'Clos',
+];
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const aujourdhui = () => dayjs().startOf('day');
+const jours = (date: string) => dayjs(date.slice(0, 10)).diff(aujourdhui(), 'day');
+const fdate = (s?: string | null) => (s ? dayjs(s.slice(0, 10)).format('DD/MM/YYYY') : '—');
+const classeStatut = (s: string) =>
+  /traiter/.test(s) ? 'st-todo' : /attente/i.test(s) ? 'st-wait' : /information/.test(s) ? 'st-info' : /Clos|Répondu|Validé/.test(s) ? 'st-done' : 'st-run';
+const statutOuvert = (s: string) => !/Clos|information/.test(s);
+const euros = (v?: number | null) => (v === null || v === undefined ? '—' : v.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }).replace(/\u202f/g, '\u00a0'));
+const statutDe = (d: Dossier) => d.corrections.statut ?? d.donnees.statut;
+const prochaineEcheance = (f: Fiche) =>
+  (f.echeances ?? []).filter((e) => e.date && jours(e.date) >= 0).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))[0];
+const delai = (date: string) => {
+  const n = jours(date);
+  return n < 0 ? `J+${-n}` : `J-${n}`;
+};
+
+type Vue = 'dossiers' | 'echeances' | 'budget' | 'mails' | 'annuaire' | 'projets';
+const ONGLETS: [Vue, string][] = [
+  ['dossiers', 'Dossiers'],
+  ['echeances', 'Échéances'],
+  ['budget', 'Suivi budgétaire'],
+  ['mails', 'Registre des mails'],
+  ['annuaire', 'Annuaire prestataires'],
+  ['projets', 'Rattachement aux projets'],
+];
 
 /**
- * Onglet Assistant (super-administrateur) : dossiers produits par l'assistant de messagerie du service,
- * reliés aux projets. L'assistant lit Outlook et dépose ici son index à chaque mise à jour.
+ * Onglet Assistant (super-administrateur). Reprend la présentation de l'application d'origine de l'assistant
+ * de messagerie, avec en plus le lien aux projets : rattachement, création, échéances et actions versées au
+ * rétroplanning. Les statuts corrigés et les notes sont enregistrés sur le serveur.
  */
 export default function Assistant() {
-  const [onglet, setOnglet] = useState('synthese');
-  const [synthese, setSynthese] = useState<Synthese | null>(null);
-  const [dossiers, setDossiers] = useState<Dossier[]>([]);
-  const [evenements, setEvenements] = useState<EvenementAssistant[]>([]);
-  const [projets, setProjets] = useState<{ _id: string; titre: string; dateJour: string }[]>([]);
-  const [prestataires, setPrestataires] = useState<Prestataire[]>([]);
+  const navigate = useNavigate();
+  const [index, setIndex] = useState<Index | null>(null);
+  const [vue, setVue] = useState<Vue>('dossiers');
+  const [q, setQ] = useState('');
+  const [fMois, setFMois] = useState('');
+  const [fEv, setFEv] = useState('');
+  const [fBr, setFBr] = useState('');
+  const [fSt, setFSt] = useState('');
+  const [fVig, setFVig] = useState(false);
   const [ouvert, setOuvert] = useState<string | null>(null);
+  const [miseAJour, setMiseAJour] = useState(false);
 
-  const charger = async () => {
-    const [s, d, e, p] = await Promise.all([
-      api.get<Synthese>('/assistant/synthese'),
-      api.get<{ dossiers: Dossier[] }>('/assistant/dossiers'),
-      api.get<{ evenements: EvenementAssistant[]; projets: { _id: string; titre: string; dateJour: string }[] }>('/assistant/evenements'),
-      api.get<{ prestataires: Prestataire[] }>('/assistant/prestataires'),
-    ]);
-    setSynthese(s);
-    setDossiers(d.dossiers);
-    setEvenements(e.evenements);
-    setProjets(e.projets);
-    setPrestataires(p.prestataires);
-  };
+  const charger = () => api.get<Index>('/assistant/index').then(setIndex);
   useEffect(() => {
     charger();
   }, []);
 
-  const dossierOuvert = dossiers.find((d) => d.code === ouvert) ?? null;
-  const vide = synthese !== null && !synthese.dernierImport;
-
-  return (
-    <Card
-      title="Assistant de messagerie"
-      extra={
-        synthese?.dernierImport && (
-          <Text type="secondary">
-            Mise à jour du {dayjs(synthese.dernierImport.createdAt).format('DD/MM/YYYY à HH:mm')} · {synthese.dernierImport.periode}
-          </Text>
-        )
-      }
-    >
-      {synthese?.alerte && !vide && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={`Dernière mise à jour il y a ${synthese.joursDepuis} jours : les dossiers ne sont peut-être plus à jour.`}
-          description="Demandez à l'assistant « mets à jour l'assistant », puis déposez le nouvel index dans l'onglet Import."
-        />
-      )}
-      {vide && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="Aucun index importé"
-          description="Déposez le fichier donnees.json de l'assistant dans l'onglet Import pour commencer."
-        />
-      )}
-      <Tabs
-        activeKey={vide ? 'import' : onglet}
-        onChange={setOnglet}
-        items={[
-          { key: 'synthese', label: 'Synthèse', disabled: vide, children: synthese && <OngletSynthese s={synthese} ouvrir={setOuvert} /> },
-          {
-            key: 'dossiers',
-            label: `Dossiers${dossiers.length ? ` (${dossiers.length})` : ''}`,
-            disabled: vide,
-            children: <OngletDossiers dossiers={dossiers} evenements={evenements} ouvrir={setOuvert} />,
-          },
-          {
-            key: 'evenements',
-            label: `Événements et projets${synthese?.evenementsSansProjet ? ` (${synthese.evenementsSansProjet} à rattacher)` : ''}`,
-            disabled: vide,
-            children: <OngletEvenements evenements={evenements} projets={projets} recharger={charger} />,
-          },
-          { key: 'prestataires', label: 'Annuaire des prestataires', disabled: vide, children: <OngletPrestataires prestataires={prestataires} /> },
-          { key: 'import', label: 'Import', children: <OngletImport apres={charger} dernier={synthese?.dernierImport ?? null} /> },
-        ]}
-      />
-      <FicheDossierDrawer dossier={dossierOuvert} fermer={() => setOuvert(null)} recharger={charger} />
-    </Card>
+  const mailParNumero = useMemo(() => new Map((index?.mails ?? []).map((m) => [m.numero, m])), [index]);
+  const branches = useMemo(() => [...new Set((index?.dossiers ?? []).map((d) => d.donnees.branche).filter(Boolean))], [index]);
+  const mois = useMemo(
+    () => [...new Set((index?.mails ?? []).map((m) => m.date.slice(0, 7)).filter((k) => /^\d{4}-\d{2}$/.test(k)))].sort().reverse(),
+    [index]
   );
-}
 
-// --- Synthèse ------------------------------------------------------------------------------------
+  const filtres = useMemo(() => {
+    if (!index) return [];
+    const r = q.trim().toLowerCase();
+    return index.dossiers.filter((d) => {
+      const f = d.donnees;
+      return (
+        (!fMois || (f.mails ?? []).some((n) => mailParNumero.get(n)?.date.slice(0, 7) === fMois)) &&
+        (!fEv || f.evenement === fEv) &&
+        (!fBr || f.branche === fBr) &&
+        (!fSt || statutDe(d) === fSt) &&
+        (!fVig || (f.vigilance ?? []).length > 0) &&
+        (!r || JSON.stringify(f).toLowerCase().includes(r) || (d.corrections.note ?? '').toLowerCase().includes(r))
+      );
+    });
+  }, [index, q, fMois, fEv, fBr, fSt, fVig, mailParNumero]);
 
-function OngletSynthese({ s, ouvrir }: { s: Synthese; ouvrir: (code: string) => void }) {
-  return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Row gutter={[16, 16]}>
-        <Col xs={12} md={6}>
-          <Statistic title="Dossiers" value={s.dossiers} />
-        </Col>
-        <Col xs={12} md={6}>
-          <Statistic title="À traiter" value={s.aTraiter} valueStyle={s.aTraiter ? { color: '#d46b08' } : undefined} />
-        </Col>
-        <Col xs={12} md={6}>
-          <Statistic title="Priorité haute ouverte" value={s.prioriteHaute} valueStyle={s.prioriteHaute ? { color: '#cf1322' } : undefined} />
-        </Col>
-        <Col xs={12} md={6}>
-          <Statistic title="Événements sans projet" value={s.evenementsSansProjet} />
-        </Col>
-      </Row>
-      <div>
-        <Title level={5}>Échéances des 14 prochains jours{s.echeancesEnRetard ? `, dont ${s.echeancesEnRetard} dépassée(s)` : ''}</Title>
-        {s.echeances.length === 0 ? (
-          <Empty description="Aucune échéance proche" />
-        ) : (
-          <Table
-            size="small"
-            rowKey={(e) => `${e.dossier}-${e.date}-${e.libelle}`}
-            pagination={false}
-            dataSource={s.echeances}
-            onRow={(e) => ({ onClick: () => ouvrir(e.dossier), style: { cursor: 'pointer' } })}
-            columns={[
-              { title: 'Date', dataIndex: 'date', width: 110, render: (d: string, e) => <Text type={e.enRetard ? 'danger' : undefined}>{formatJour(d)}</Text> },
-              { title: 'Échéance', dataIndex: 'libelle' },
-              { title: 'Dossier', dataIndex: 'titre', render: (t: string, e) => `${e.dossier} · ${t}` },
-              { title: 'Branche', dataIndex: 'branche', width: 150 },
-              {
-                title: 'Rétroplanning',
-                width: 130,
-                render: (_: unknown, e) => (e.convertie ? <Tag color="green">Tâche créée</Tag> : e.avecProjet ? <Tag>À reporter</Tag> : <Tag>Sans projet</Tag>),
-              },
-            ]}
-          />
-        )}
-      </div>
-      <div>
-        <Title level={5}>Dossiers par statut</Title>
-        <Space wrap>
-          {Object.entries(s.parStatut)
-            .sort((a, b) => b[1] - a[1])
-            .map(([statut, n]) => (
-              <Tag key={statut} color={couleurStatut(statut)}>
-                {statut} : {n}
-              </Tag>
-            ))}
-        </Space>
-      </div>
-    </Space>
-  );
-}
+  if (!index) return <div style={{ padding: 24, color: '#5f6b73' }}>Chargement…</div>;
 
-// --- Dossiers ------------------------------------------------------------------------------------
-
-function OngletDossiers({ dossiers, evenements, ouvrir }: { dossiers: Dossier[]; evenements: EvenementAssistant[]; ouvrir: (c: string) => void }) {
-  const [recherche, setRecherche] = useState('');
-  const [evenement, setEvenement] = useState<string | undefined>();
-  const [branche, setBranche] = useState<string | undefined>();
-  const [statut, setStatut] = useState<string | undefined>();
-  const branches = useMemo(() => [...new Set(dossiers.map((d) => d.branche).filter(Boolean))].sort(), [dossiers]);
-  const statuts = useMemo(() => [...new Set(dossiers.map((d) => d.statut).filter(Boolean))].sort(), [dossiers]);
-  const r = recherche.trim().toLowerCase();
-  const affiches = dossiers.filter(
-    (d) =>
-      (!evenement || d.evenementCode === evenement) &&
-      (!branche || d.branche === branche) &&
-      (!statut || d.statut === statut) &&
-      (!r || `${d.code} ${d.titre} ${d.donnees.demandeur ?? ''} ${d.donnees.resume ?? ''}`.toLowerCase().includes(r))
-  );
-  const colonnes: TableColumnsType<Dossier> = [
-    { title: 'N°', dataIndex: 'code', width: 70 },
-    { title: 'Dossier', dataIndex: 'titre', render: (t: string, d) => <Space direction="vertical" size={0}><Text strong>{t}</Text><Text type="secondary">{d.donnees.demandeur}</Text></Space> },
-    { title: 'Événement', dataIndex: 'evenementNom', responsive: ['md'] },
-    { title: 'Branche', dataIndex: 'branche', width: 140, responsive: ['lg'] },
-    { title: 'Priorité', dataIndex: 'priorite', width: 90, render: (p: string) => <Tag color={COULEUR_PRIORITE[p]}>{p}</Tag> },
-    { title: 'Statut', dataIndex: 'statut', width: 170, render: (s: string) => <Tag color={couleurStatut(s)}>{s}</Tag> },
-    { title: 'Mails', dataIndex: 'nombreMails', width: 70, align: 'right', responsive: ['lg'] },
-  ];
-  return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <Space wrap>
-        <Input.Search placeholder="Rechercher un dossier, un demandeur…" allowClear onChange={(e) => setRecherche(e.target.value)} style={{ width: 280 }} />
-        <Select allowClear placeholder="Événement" style={{ width: 260 }} value={evenement} onChange={setEvenement} options={evenements.map((e) => ({ value: e.code, label: e.nom }))} />
-        <Select allowClear placeholder="Branche" style={{ width: 180 }} value={branche} onChange={setBranche} options={branches.map((b) => ({ value: b, label: b }))} />
-        <Select allowClear placeholder="Statut" style={{ width: 200 }} value={statut} onChange={setStatut} options={statuts.map((s) => ({ value: s, label: s }))} />
-      </Space>
-      <Table
-        size="small"
-        rowKey="code"
-        dataSource={affiches}
-        columns={colonnes}
-        pagination={{ pageSize: 25, hideOnSinglePage: true }}
-        onRow={(d) => ({ onClick: () => ouvrir(d.code), style: { cursor: 'pointer' } })}
-      />
-    </Space>
-  );
-}
-
-function FicheDossierDrawer({ dossier, fermer, recharger }: { dossier: Dossier | null; fermer: () => void; recharger: () => void }) {
-  const navigate = useNavigate();
-  const [mails, setMails] = useState<Mail[]>([]);
-  useEffect(() => {
-    setMails([]);
-    if (dossier) api.get<{ mails: Mail[] }>(`/assistant/dossiers/${dossier.code}/mails`).then((r) => setMails(r.mails));
-  }, [dossier?.code]);
-  if (!dossier) return null;
-  const f = dossier.donnees;
-
-  const versTache = async (type: 'echeance' | 'action', index: number) => {
-    if (await lancer(api.post(`/assistant/dossiers/${dossier.code}/tache`, { type, index }))) recharger();
+  const ev = (code: string) => index.evenements.find((e) => e.code === code);
+  const dernier = index.dernierImport;
+  const age = dernier ? aujourdhui().diff(dayjs(dernier.createdAt).startOf('day'), 'day') : null;
+  const ouverts = index.dossiers.filter((d) => statutOuvert(statutDe(d)));
+  const aTraiter = index.dossiers.filter((d) => /traiter/.test(statutDe(d)));
+  const semaine = index.dossiers.flatMap((d) => (d.donnees.echeances ?? []).filter((e) => e.date && jours(e.date) >= 0 && jours(e.date) <= 7));
+  const vigilance = index.dossiers.filter((d) => (d.donnees.vigilance ?? []).length > 0);
+  const kpi = (k: 'all' | 'todo' | 'week' | 'vig') => {
+    setFSt(k === 'todo' ? 'À traiter' : '');
+    setFVig(k === 'vig');
+    setVue(k === 'week' ? 'echeances' : 'dossiers');
   };
-  const boutonTache = (type: 'echeance' | 'action', index: number) =>
-    dossier.converties[`${type}:${index}`] ? (
-      <Tag icon={<CheckOutlined />} color="green">
-        Dans le rétroplanning
-      </Tag>
-    ) : dossier.projetId ? (
-      <Button size="small" icon={<PlusOutlined />} onClick={() => versTache(type, index)}>
-        En faire une tâche
-      </Button>
-    ) : null;
+  const dossierOuvert = index.dossiers.find((d) => d.code === ouvert) ?? null;
+  const nbCorrections = index.dossiers.filter((d) => d.corrections.statut || d.corrections.note).length;
+  const sansProjet = index.evenements.filter((e) => !e.projetId).length;
+
+  const exporterCorrections = () => {
+    window.location.href = '/api/assistant/corrections/export';
+  };
 
   return (
-    <Drawer open width={720} onClose={fermer} title={`${dossier.code} · ${dossier.titre}`}>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <Space wrap>
-          <Tag color={couleurStatut(dossier.statut)}>{dossier.statut}</Tag>
-          <Tag color={COULEUR_PRIORITE[dossier.priorite]}>Priorité {dossier.priorite.toLowerCase()}</Tag>
-          <Tag>{dossier.branche}</Tag>
-          {dossier.projetId ? (
-            <Button size="small" icon={<LinkOutlined />} onClick={() => navigate(`/projets/${dossier.projetId}`)}>
-              Ouvrir le projet
-            </Button>
-          ) : (
-            <Text type="secondary">Événement non rattaché à un projet : les tâches ne peuvent pas encore être créées.</Text>
-          )}
-        </Space>
-        <Descriptions size="small" column={1} bordered>
-          <Descriptions.Item label="Événement">{dossier.evenementNom}</Descriptions.Item>
-          {f.demandeur && <Descriptions.Item label="Demandeur">{f.demandeur}</Descriptions.Item>}
-          {enListe(f.contacts).length > 0 && <Descriptions.Item label="Contacts">{enListe(f.contacts).map((c) => <div key={c}>{c}</div>)}</Descriptions.Item>}
-        </Descriptions>
-        {f.resume && (
-          <div>
-            <Title level={5}>Résumé</Title>
-            <Paragraph>{f.resume}</Paragraph>
-          </div>
-        )}
-        {(f.echeances ?? []).length > 0 && (
-          <div>
-            <Title level={5}>Échéances</Title>
-            {(f.echeances ?? []).map((e, i) => (
-              <Row key={i} gutter={8} align="middle" style={{ marginBottom: 6 }} wrap={false}>
-                <Col flex="100px"><Text strong>{formatJour(e.date)}</Text></Col>
-                <Col flex="auto">{e.libelle}</Col>
-                <Col>{boutonTache('echeance', i)}</Col>
-              </Row>
-            ))}
-          </div>
-        )}
-        {enListe(f.actions).length > 0 && (
-          <div>
-            <Title level={5}>Actions</Title>
-            {enListe(f.actions).map((a, i) => (
-              <Row key={i} gutter={8} align="middle" style={{ marginBottom: 6 }} wrap={false}>
-                <Col flex="auto">{a}</Col>
-                <Col>{boutonTache('action', i)}</Col>
-              </Row>
-            ))}
-          </div>
-        )}
-        {enListe(f.vigilance).length > 0 && (
-          <Alert type="warning" showIcon message="Points de vigilance" description={<ul style={{ margin: 0, paddingLeft: 18 }}>{enListe(f.vigilance).map((v) => <li key={v}>{v}</li>)}</ul>} />
-        )}
-        {enListe(f.pieces_jointes).length > 0 && (
-          <div>
-            <Title level={5}>Pièces jointes</Title>
-            <ul style={{ paddingLeft: 18 }}>{enListe(f.pieces_jointes).map((p, i) => <li key={i}>{p}</li>)}</ul>
-          </div>
-        )}
-        {f.budget !== undefined && f.budget !== null && enListe(Array.isArray(f.budget) ? f.budget : [f.budget]).filter(Boolean).length > 0 && (
-          <div>
-            <Title level={5}>Budget</Title>
-            <ul style={{ paddingLeft: 18 }}>{enListe(Array.isArray(f.budget) ? f.budget : [f.budget]).map((b, i) => <li key={i}>{b}</li>)}</ul>
-          </div>
-        )}
-        {f.brouillon && (
-          <div>
-            <Title level={5}>Brouillon de réponse</Title>
-            <Paragraph copyable style={{ whiteSpace: 'pre-wrap', background: '#fafafa', padding: 12, borderRadius: 6 }}>
-              {f.brouillon}
-            </Paragraph>
-          </div>
-        )}
-        {enListe(f.historique).length > 0 && (
-          <div>
-            <Title level={5}>Historique</Title>
-            <ul style={{ paddingLeft: 18 }}>{enListe(f.historique).map((h, i) => <li key={i}>{h}</li>)}</ul>
-          </div>
-        )}
+    <div className="asst">
+      <style>{CSS}</style>
+      <header>
         <div>
-          <Title level={5}>Mails du dossier ({mails.length})</Title>
-          <Table
-            size="small"
-            rowKey="_id"
-            pagination={false}
-            dataSource={mails}
-            columns={[
-              { title: 'Date', dataIndex: 'date', width: 110, render: (d: string) => formatJour(d) },
-              { title: 'Expéditeur', dataIndex: 'expediteur', width: 200 },
-              { title: 'Objet', dataIndex: 'objet' },
-            ]}
-          />
+          <h1>Service événementiel – Gestion des dossiers</h1>
+          <div className="sub">
+            {dernier
+              ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')}`
+              : 'Aucun index importé'}
+          </div>
         </div>
-      </Space>
-    </Drawer>
+        <div className="kpis">
+          <div className="kpi" onClick={() => kpi('all')}>
+            <b>{ouverts.length}</b>
+            <span>dossiers ouverts</span>
+          </div>
+          <div className="kpi alert" onClick={() => kpi('todo')}>
+            <b>{aTraiter.length}</b>
+            <span>à traiter</span>
+          </div>
+          <div className="kpi" onClick={() => kpi('week')}>
+            <b>{semaine.length}</b>
+            <span>échéances à 7 jours</span>
+          </div>
+          <div className="kpi" onClick={() => kpi('vig')}>
+            <b>{vigilance.length}</b>
+            <span>points de vigilance</span>
+          </div>
+          <button className="maj" onClick={() => setMiseAJour(true)}>
+            <SyncOutlined /> Mettre à jour l'assistant
+          </button>
+        </div>
+      </header>
+      {(age === null || age > index.joursAvantAlerte) && (
+        <div className="stale">
+          {age === null
+            ? "Aucun index : cliquez sur « Mettre à jour l'assistant » pour déposer le premier."
+            : `Dernière mise à jour il y a ${age} jours : les dossiers ne sont peut-être plus à jour. Cliquez sur « Mettre à jour l'assistant ».`}
+        </div>
+      )}
+      <nav>
+        {ONGLETS.map(([v, l]) => (
+          <button key={v} className={vue === v ? 'on' : ''} onClick={() => setVue(v)}>
+            {l}
+            {v === 'projets' && sansProjet ? ` (${sansProjet})` : ''}
+          </button>
+        ))}
+      </nav>
+      {vue !== 'projets' && (
+        <div className="filters">
+          <input type="search" placeholder="Rechercher (titre, contact, mot-clé…)" value={q} onChange={(e) => setQ(e.target.value)} />
+          <select value={fMois} onChange={(e) => setFMois(e.target.value)}>
+            <option value="">Tous les mois</option>
+            {mois.map((k) => (
+              <option key={k} value={k}>
+                {MOIS[Number(k.slice(5, 7)) - 1]} {k.slice(0, 4)}
+              </option>
+            ))}
+          </select>
+          <select value={fEv} onChange={(e) => setFEv(e.target.value)}>
+            <option value="">Tous les événements</option>
+            {index.evenements.map((e) => (
+              <option key={e.code} value={e.code}>
+                {e.nom}
+              </option>
+            ))}
+          </select>
+          <select value={fBr} onChange={(e) => setFBr(e.target.value)}>
+            <option value="">Toutes les branches</option>
+            {branches.map((b) => (
+              <option key={b}>{b}</option>
+            ))}
+          </select>
+          <select value={fSt} onChange={(e) => setFSt(e.target.value)}>
+            <option value="">Tous les statuts</option>
+            {STATUTS.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+          <label className="row muted">
+            <input type="checkbox" checked={fVig} onChange={(e) => setFVig(e.target.checked)} /> Avec point de vigilance
+          </label>
+          <span style={{ marginLeft: 'auto' }} />
+          <button className="btn" onClick={exporterCorrections} title="Vos statuts et notes, dans un fichier à transmettre à l'assistant">
+            Exporter mes corrections{nbCorrections ? ` (${nbCorrections})` : ''}
+          </button>
+        </div>
+      )}
+      <main>
+        {vue === 'dossiers' && <VueDossiers dossiers={filtres} index={index} ouvrir={setOuvert} />}
+        {vue === 'echeances' && <VueEcheances dossiers={filtres} ev={ev} ouvrir={setOuvert} />}
+        {vue === 'budget' && <VueBudget dossiers={filtres} ev={ev} ouvrir={setOuvert} />}
+        {vue === 'mails' && <VueMails dossiers={filtres} mails={index.mails} ev={ev} ouvrir={setOuvert} />}
+        {vue === 'annuaire' && <VueAnnuaire dossiers={filtres} prestataires={index.prestataires} q={q} ev={ev} ouvrir={setOuvert} />}
+        {vue === 'projets' && <VueProjets index={index} recharger={charger} ouvrirProjet={(id) => navigate(`/projets/${id}`)} />}
+      </main>
+      <footer>
+        {index.dossiers.length} dossiers issus de {index.mails.length} mails. Statuts corrigés et notes enregistrés dans l'application ;
+        « Exporter mes corrections » produit le fichier à transmettre à l'assistant pour sa mise à jour suivante.
+      </footer>
+      <FicheDossier
+        dossier={dossierOuvert}
+        evenement={dossierOuvert ? ev(dossierOuvert.donnees.evenement) : undefined}
+        mails={(dossierOuvert?.donnees.mails ?? []).map((n) => mailParNumero.get(n)).filter((m): m is Mail => !!m)}
+        fermer={() => setOuvert(null)}
+        recharger={charger}
+        ouvrirProjet={(id) => navigate(`/projets/${id}`)}
+      />
+      <PanneauMiseAJour
+        ouvert={miseAJour}
+        fermer={() => setMiseAJour(false)}
+        dernier={dernier}
+        nbCorrections={nbCorrections}
+        exporter={exporterCorrections}
+        apres={() => {
+          setMiseAJour(false);
+          charger();
+        }}
+      />
+    </div>
   );
 }
 
-// --- Événements et projets -----------------------------------------------------------------------
+// --- Vues ----------------------------------------------------------------------------------------
 
-function OngletEvenements({
-  evenements,
-  projets,
-  recharger,
+function Carte({ d, ouvrir }: { d: Dossier; ouvrir: (c: string) => void }) {
+  const f = d.donnees;
+  const s = statutDe(d);
+  const n = prochaineEcheance(f);
+  const nbMails = (f.mails ?? []).length;
+  const nbTaches = Object.keys(d.converties).length;
+  return (
+    <div className={`card p-${f.priorite}`} onClick={() => ouvrir(d.code)}>
+      <div className="meta">
+        <span className="tag">{f.branche}</span>
+        <span className={`tag st ${classeStatut(s)}`}>{s}</span>
+        <span>
+          {d.code} · {nbMails} mail{nbMails > 1 ? 's' : ''}
+        </span>
+        {nbTaches > 0 && <span className="tag st-done">{nbTaches} au rétroplanning</span>}
+      </div>
+      <h3>{f.titre}</h3>
+      <div className="meta">{f.demandeur}</div>
+      {n?.date && (
+        <div className="next">
+          <b>{fdate(n.date)}</b> ({delai(n.date)}) – {n.libelle}
+        </div>
+      )}
+      {(f.vigilance ?? []).length > 0 && <div className="warn">⚠ {f.vigilance![0]}</div>}
+      {d.corrections.note && <div className="note-carte">✎ {d.corrections.note}</div>}
+    </div>
+  );
+}
+
+function VueDossiers({ dossiers, index, ouvrir }: { dossiers: Dossier[]; index: Index; ouvrir: (c: string) => void }) {
+  if (!dossiers.length) return <div className="empty">Aucun dossier ne correspond aux filtres.</div>;
+  const parEv = new Map<string, Dossier[]>();
+  dossiers.forEach((d) => parEv.set(d.donnees.evenement, [...(parEv.get(d.donnees.evenement) ?? []), d]));
+  // Événements à venir d'abord (du plus proche au plus lointain), puis sans date, puis passés.
+  const rang = (e: Evenement) => (!e.dateJour ? 1 : jours(e.dateJour) >= 0 ? 0 : 2);
+  const tries = [...index.evenements].sort((a, b) => rang(a) - rang(b) || (rang(a) === 2 ? -1 : 1) * (a.dateJour ?? '').localeCompare(b.dateJour ?? ''));
+  const ordre = [...tries.map((e) => e.code), ...[...parEv.keys()].filter((k) => !index.evenements.some((e) => e.code === k))];
+  return (
+    <>
+      {ordre
+        .filter((code) => parEv.has(code))
+        .map((code) => {
+          const e = index.evenements.find((x) => x.code === code);
+          const items = parEv.get(code)!.sort((a, b) => (a.donnees.priorite === 'Haute' ? 0 : 1) - (b.donnees.priorite === 'Haute' ? 0 : 1));
+          return (
+            <div key={code}>
+              <div className="group">
+                <h2>{e?.nom ?? code}</h2>
+                <small>
+                  {e?.dateJour ? fdate(e.dateJour) : ''}
+                  {e?.lieu ? ` · ${e.lieu}` : ''} · {items.length} dossier{items.length > 1 ? 's' : ''}
+                  {e?.projetTitre ? ` · projet : ${e.projetTitre}` : ''}
+                </small>
+              </div>
+              <div className="grid">
+                {items.map((d) => (
+                  <Carte key={d.code} d={d} ouvrir={ouvrir} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+    </>
+  );
+}
+
+function VueEcheances({ dossiers, ev, ouvrir }: { dossiers: Dossier[]; ev: (c: string) => Evenement | undefined; ouvrir: (c: string) => void }) {
+  const lignes = dossiers
+    .flatMap((d) => (d.donnees.echeances ?? []).filter((e) => e.date).map((e) => ({ ...e, d })))
+    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+  if (!lignes.length) return <div className="empty">Aucune échéance.</div>;
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Délai</th>
+          <th>Échéance</th>
+          <th>Dossier</th>
+          <th>Événement</th>
+          <th>Statut</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lignes.map((r, i) => {
+          const n = jours(r.date!);
+          const s = statutDe(r.d);
+          return (
+            <tr key={i} className={`click ${n < 0 ? 'late' : n <= 7 ? 'soon' : ''}`} onClick={() => ouvrir(r.d.code)}>
+              <td>{fdate(r.date)}</td>
+              <td>{n < 0 ? 'passée' : n === 0 ? "aujourd'hui" : `J-${n}`}</td>
+              <td>{r.libelle}</td>
+              <td>{r.d.donnees.titre}</td>
+              <td>{ev(r.d.donnees.evenement)?.nom ?? r.d.donnees.evenement}</td>
+              <td>
+                <span className={`tag ${classeStatut(s)}`}>{s}</span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+type LigneBudgetDossier = LigneBudget & { d: Dossier };
+
+function VueBudget({ dossiers, ev, ouvrir }: { dossiers: Dossier[]; ev: (c: string) => Evenement | undefined; ouvrir: (c: string) => void }) {
+  const lignes: LigneBudgetDossier[] = dossiers.flatMap((d) => (d.donnees.budget ?? []).map((b) => ({ ...b, d })));
+  const lus = lignes.filter((r) => typeof r.montant_ttc === 'number');
+  const somme = (arr: LigneBudgetDossier[]) => arr.reduce((a, r) => a + (r.montant_ttc ?? 0), 0);
+  const grouper = (cle: (r: LigneBudgetDossier) => string): [string, LigneBudgetDossier[]][] => {
+    const m = new Map<string, LigneBudgetDossier[]>();
+    lignes.forEach((r) => m.set(cle(r), [...(m.get(cle(r)) ?? []), r]));
+    return [...m.entries()];
+  };
+  const tableauCumul = (titre: string, colonne: string, entrees: [string, LigneBudgetDossier[]][]) => (
+    <>
+      <h3 className="h3">{titre}</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>{colonne}</th>
+            <th>Documents</th>
+            <th>Montant lu (TTC)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entrees.length ? (
+            entrees.map(([k, v]) => (
+              <tr key={k}>
+                <td>{k}</td>
+                <td>{v.length}</td>
+                <td>{euros(somme(v))}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={3} className="empty">
+                —
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </>
+  );
+  return (
+    <>
+      <div className="note">
+        Le cumul ne compte que les montants effectivement lus. {lignes.length - lus.length} document(s) sur {lignes.length} restent à lire
+        (pièce jointe non encore consultée ou montant absent du mail).
+      </div>
+      <div className="totals">
+        <div className="tot">
+          <b>{euros(somme(lus))}</b>Total lu (TTC)
+        </div>
+        <div className="tot">
+          <b>{lignes.length}</b>documents financiers détectés
+        </div>
+        <div className="tot">
+          <b>{lignes.filter((r) => /commande/i.test(r.type ?? '')).length}</b>bon(s) de commande
+        </div>
+      </div>
+      {tableauCumul('Cumul par événement', 'Événement', grouper((r) => ev(r.d.donnees.evenement)?.nom ?? r.d.donnees.evenement))}
+      {tableauCumul('Cumul par branche', 'Branche', grouper((r) => r.d.donnees.branche))}
+      <h3 className="h3">Détail des documents</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Référence</th>
+            <th>Fournisseur</th>
+            <th>Dossier</th>
+            <th>Montant TTC</th>
+            <th>Lecture</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lignes.map((r, i) => (
+            <tr key={i} className="click" onClick={() => ouvrir(r.d.code)}>
+              <td>{r.type}</td>
+              <td>{r.reference}</td>
+              <td>{r.fournisseur}</td>
+              <td>{r.d.donnees.titre}</td>
+              <td>{euros(r.montant_ttc)}</td>
+              <td>{r.statut_lecture}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function VueMails({
+  dossiers,
+  mails,
+  ev,
+  ouvrir,
 }: {
-  evenements: EvenementAssistant[];
-  projets: { _id: string; titre: string; dateJour: string }[];
-  recharger: () => void;
+  dossiers: Dossier[];
+  mails: Mail[];
+  ev: (c: string) => Evenement | undefined;
+  ouvrir: (c: string) => void;
 }) {
-  const navigate = useNavigate();
+  const parCode = new Map(dossiers.map((d) => [d.code, d]));
+  const lignes = mails.filter((m) => parCode.has(m.dossierCode));
+  if (!lignes.length) return <div className="empty">Aucun mail.</div>;
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>N°</th>
+          <th>Reçu le</th>
+          <th>Expéditeur</th>
+          <th>Objet</th>
+          <th>Dossier</th>
+          <th>Événement</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lignes.map((m) => {
+          const d = parCode.get(m.dossierCode)!;
+          return (
+            <tr key={m.numero} className="click" onClick={() => ouvrir(d.code)}>
+              <td>{m.numero}</td>
+              <td>
+                {fdate(m.date)} {m.date.slice(11, 16)}
+              </td>
+              <td>{m.expediteur}</td>
+              <td>{m.objet}</td>
+              <td>{d.code}</td>
+              <td>{ev(d.donnees.evenement)?.nom ?? d.donnees.evenement}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function VueAnnuaire({
+  dossiers,
+  prestataires,
+  q,
+  ev,
+  ouvrir,
+}: {
+  dossiers: Dossier[];
+  prestataires: Prestataire[];
+  q: string;
+  ev: (c: string) => Evenement | undefined;
+  ouvrir: (c: string) => void;
+}) {
+  const codes = new Set(dossiers.map((d) => d.code));
+  const r = q.trim().toLowerCase();
+  const lignes = prestataires.filter(
+    (p) =>
+      (!r || JSON.stringify(p).toLowerCase().includes(r)) &&
+      (!(p.donnees.dossiers ?? []).length || (p.donnees.dossiers ?? []).some((x) => codes.has(x)))
+  );
+  if (!lignes.length) return <div className="empty">Aucun prestataire ne correspond.</div>;
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Prestataire</th>
+          <th>Domaine</th>
+          <th>Contacts</th>
+          <th>Événements</th>
+          <th>Documents</th>
+          <th>Dossiers</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lignes.map((p) => (
+          <tr key={p.nom}>
+            <td>
+              <b>{p.nom}</b>
+            </td>
+            <td>{p.domaine}</td>
+            <td>{(p.donnees.contacts ?? []).join(', ')}</td>
+            <td>{(p.donnees.evenements ?? []).map((e) => ev(e)?.nom ?? e).join(' ; ')}</td>
+            <td>{(p.donnees.documents ?? []).join(' ; ')}</td>
+            <td>
+              {(p.donnees.dossiers ?? []).map((x) => (
+                <a
+                  key={x}
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    ouvrir(x);
+                  }}
+                  style={{ marginRight: 6 }}
+                >
+                  {x}
+                </a>
+              ))}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharger: () => void; ouvrirProjet: (id: string) => void }) {
   const rattacher = async (code: string, projetId: string | null) => {
     if (await lancer(api.put(`/assistant/evenements/${code}/projet`, { projetId }))) recharger();
   };
-  const colonnes: TableColumnsType<EvenementAssistant> = [
-    { title: 'Événement', dataIndex: 'nom', render: (n: string, e) => <Space direction="vertical" size={0}><Text strong>{n}</Text><Text type="secondary">{e.lieu || 'Lieu à préciser'}</Text></Space> },
-    { title: 'Date', dataIndex: 'dateJour', width: 110, render: (d: string | null) => formatJour(d) },
-    { title: 'Dossiers', dataIndex: 'nombreDossiers', width: 90, align: 'right' },
-    {
-      title: 'Projet',
-      width: 420,
-      render: (_: unknown, e) =>
-        e.projetId ? (
-          <Space wrap>
-            <Button type="link" style={{ padding: 0 }} onClick={() => navigate(`/projets/${e.projetId}`)}>
-              {e.projetTitre}
-            </Button>
-            <Button size="small" type="text" onClick={() => rattacher(e.code, null)}>
-              Détacher
-            </Button>
-          </Space>
-        ) : (
-          <Space wrap>
-            {e.proposition && (
-              <Button size="small" type="primary" ghost onClick={() => rattacher(e.code, e.proposition!.projetId)}>
-                Rattacher à « {e.proposition.titre} »
-              </Button>
-            )}
-            <Select
-              size="small"
-              showSearch
-              placeholder="Choisir un projet"
-              style={{ width: 200 }}
-              optionFilterProp="label"
-              onChange={(v: string) => rattacher(e.code, v)}
-              options={projets.map((p) => ({ value: p._id, label: `${p.titre} (${formatJour(p.dateJour)})` }))}
-            />
-            <CreerProjet evenement={e} apres={recharger} />
-          </Space>
-        ),
-    },
-  ];
+  const nbDossiers = (code: string) => index.dossiers.filter((d) => d.donnees.evenement === code).length;
   return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <Text type="secondary">
+    <>
+      <div className="note">
         Rattachez chaque événement de l'assistant à son projet. Le lien est conservé d'une mise à jour à l'autre. Les dossiers rattachés
-        peuvent alors verser leurs échéances et actions au rétroplanning.
-      </Text>
-      <Table size="small" rowKey="code" dataSource={evenements} columns={colonnes} pagination={false} />
-    </Space>
+        peuvent alors verser leurs échéances et actions au rétroplanning du projet.
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Événement</th>
+            <th>Date</th>
+            <th>Dossiers</th>
+            <th>Projet</th>
+          </tr>
+        </thead>
+        <tbody>
+          {index.evenements.map((e) => (
+            <tr key={e.code}>
+              <td>
+                <b>{e.nom}</b>
+                <div className="muted">{e.lieu || 'Lieu à préciser'}</div>
+              </td>
+              <td>{fdate(e.dateJour)}</td>
+              <td>{nbDossiers(e.code)}</td>
+              <td>
+                {e.projetId ? (
+                  <Space wrap>
+                    <a
+                      href="#"
+                      onClick={(x) => {
+                        x.preventDefault();
+                        ouvrirProjet(e.projetId!);
+                      }}
+                    >
+                      {e.projetTitre}
+                    </a>
+                    <Button size="small" type="text" onClick={() => rattacher(e.code, null)}>
+                      Détacher
+                    </Button>
+                  </Space>
+                ) : (
+                  <Space wrap>
+                    {e.proposition && (
+                      <Button size="small" type="primary" ghost onClick={() => rattacher(e.code, e.proposition!.projetId)}>
+                        Rattacher à « {e.proposition.titre} »
+                      </Button>
+                    )}
+                    <Select
+                      size="small"
+                      showSearch
+                      placeholder="Choisir un projet"
+                      style={{ width: 220 }}
+                      optionFilterProp="label"
+                      onChange={(v: string) => rattacher(e.code, v)}
+                      options={index.projets.map((p) => ({ value: p._id, label: `${p.titre} (${fdate(p.dateJour)})` }))}
+                    />
+                    <CreerProjet evenement={e} apres={recharger} />
+                  </Space>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 
-function CreerProjet({ evenement, apres }: { evenement: EvenementAssistant; apres: () => void }) {
+function CreerProjet({ evenement, apres }: { evenement: Evenement; apres: () => void }) {
   const [ouvert, setOuvert] = useState(false);
   const [jour, setJour] = useState<Dayjs | null>(evenement.dateJour ? dayjs(evenement.dateJour) : null);
   const [jauge, setJauge] = useState<number | null>(null);
@@ -568,35 +744,215 @@ function CreerProjet({ evenement, apres }: { evenement: EvenementAssistant; apre
   );
 }
 
-// --- Prestataires --------------------------------------------------------------------------------
+// --- Fiche d'un dossier ----------------------------------------------------------------------------
 
-function OngletPrestataires({ prestataires }: { prestataires: Prestataire[] }) {
-  const [recherche, setRecherche] = useState('');
-  const r = recherche.trim().toLowerCase();
-  const affiches = prestataires.filter((p) => !r || `${p.nom} ${p.domaine} ${enListe(p.donnees.contacts).join(' ')}`.toLowerCase().includes(r));
+function FicheDossier({
+  dossier,
+  evenement,
+  mails,
+  fermer,
+  recharger,
+  ouvrirProjet,
+}: {
+  dossier: Dossier | null;
+  evenement?: Evenement;
+  mails: Mail[];
+  fermer: () => void;
+  recharger: () => Promise<unknown>;
+  ouvrirProjet: (id: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  useEffect(() => setNote(dossier?.corrections.note ?? ''), [dossier?.code]);
+  if (!dossier) return null;
+  const f = dossier.donnees;
+  const s = statutDe(dossier);
+
+  const corriger = async (corps: { statut?: string | null; note?: string }) => {
+    const res = await api.put<{ ok: boolean; message: string }>(`/assistant/dossiers/${dossier.code}/correction`, corps);
+    if (!res.ok) message.error(res.message);
+    await recharger();
+  };
+  const versTache = async (type: 'echeance' | 'action', i: number) => {
+    if (await lancer(api.post(`/assistant/dossiers/${dossier.code}/tache`, { type, index: i }))) recharger();
+  };
+  const boutonTache = (type: 'echeance' | 'action', i: number) =>
+    dossier.converties[`${type}:${i}`] ? (
+      <span className="tag st-done">
+        <CheckOutlined /> au rétroplanning
+      </span>
+    ) : evenement?.projetId ? (
+      <button className="lien" onClick={() => versTache(type, i)}>
+        + en faire une tâche
+      </button>
+    ) : null;
+  const liste = (items: string[]) =>
+    items.length ? (
+      <ul>
+        {items.map((x, i) => (
+          <li key={i}>{x}</li>
+        ))}
+      </ul>
+    ) : (
+      <span className="muted">—</span>
+    );
+
   return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <Input.Search placeholder="Rechercher un prestataire, un domaine, un contact…" allowClear onChange={(e) => setRecherche(e.target.value)} style={{ width: 320 }} />
-      <Table
-        size="small"
-        rowKey="nom"
-        dataSource={affiches}
-        pagination={{ pageSize: 25, hideOnSinglePage: true }}
-        columns={[
-          { title: 'Prestataire', dataIndex: 'nom', render: (n: string, p) => <Space direction="vertical" size={0}><Text strong>{n}</Text><Text type="secondary">{p.domaine}</Text></Space> },
-          { title: 'Contacts', render: (_: unknown, p) => enListe(p.donnees.contacts).map((c) => <div key={c}>{c}</div>) },
-          { title: 'Devis et commandes', render: (_: unknown, p) => enListe(p.donnees.documents).map((c) => <div key={c}>{c}</div>), responsive: ['md'] },
-          { title: 'Dossiers', width: 120, render: (_: unknown, p) => enListe(p.donnees.dossiers).join(', ') },
-        ]}
-      />
-    </Space>
+    <Drawer open width={640} onClose={fermer} closable={false} styles={{ body: { padding: 0 } }}>
+      <div className="asst fiche">
+        <style>{CSS}</style>
+        <button className="close" aria-label="Fermer" onClick={fermer}>
+          ×
+        </button>
+        <div className="meta">
+          <span className="tag">{f.branche}</span>
+          <span>{dossier.code}</span>
+          <span>Priorité {f.priorite.toLowerCase()}</span>
+        </div>
+        <h2>{f.titre}</h2>
+        <div className="meta">
+          {evenement?.nom ?? f.evenement}
+          {evenement?.dateJour ? ` · ${fdate(evenement.dateJour)}` : ''}
+        </div>
+        <h4>Projet</h4>
+        {evenement?.projetId ? (
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              ouvrirProjet(evenement.projetId!);
+            }}
+          >
+            {evenement.projetTitre}
+          </a>
+        ) : (
+          <span className="muted">Événement non rattaché : voir l'onglet « Rattachement aux projets ».</span>
+        )}
+        <h4>Statut</h4>
+        <div className="row">
+          <select value={s} onChange={(e) => corriger({ statut: e.target.value })}>
+            {[...new Set([...STATUTS, s])].map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+          {dossier.corrections.statut && (
+            <>
+              <span className="tag">modifié par vous (assistant : {f.statut})</span>
+              <button className="lien" onClick={() => corriger({ statut: null })}>
+                annuler
+              </button>
+            </>
+          )}
+        </div>
+        <h4>Demandeur</h4>
+        <div>{f.demandeur || '—'}</div>
+        <h4>Contacts</h4>
+        {liste(f.contacts ?? [])}
+        <h4>Résumé</h4>
+        <div>{f.resume || '—'}</div>
+        <h4>Échéances</h4>
+        {(f.echeances ?? []).length ? (
+          <ul>
+            {(f.echeances ?? []).map((e, i) => (
+              <li key={i}>
+                {fdate(e.date)} – {e.libelle} {boutonTache('echeance', i)}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <span className="muted">—</span>
+        )}
+        <h4>Actions à mener</h4>
+        {(f.actions ?? []).length ? (
+          <ul>
+            {(f.actions ?? []).map((a, i) => (
+              <li key={i}>
+                {a} {boutonTache('action', i)}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <span className="muted">—</span>
+        )}
+        {(f.vigilance ?? []).length > 0 && (
+          <>
+            <h4 style={{ color: 'var(--amber)' }}>Points de vigilance</h4>
+            {liste(f.vigilance ?? [])}
+          </>
+        )}
+        <h4>Pièces jointes</h4>
+        {(f.pieces_jointes ?? []).length ? (
+          (f.pieces_jointes ?? []).map((p, i) => (
+            <div className="pj" key={i}>
+              <div>{p.nom}</div>
+              <span>
+                {p.type} · {p.taille}
+                <br />
+                {p.emplacement || 'à récupérer'}
+              </span>
+            </div>
+          ))
+        ) : (
+          <span className="muted">Aucune</span>
+        )}
+        {(f.budget ?? []).length > 0 && (
+          <>
+            <h4>Suivi budgétaire</h4>
+            {liste(
+              (f.budget ?? []).map(
+                (b) =>
+                  `${b.type ?? ''} ${b.reference ?? ''} – ${b.fournisseur ?? ''} : ${
+                    b.montant_ttc == null ? 'montant à lire' : `${euros(b.montant_ttc)} TTC`
+                  } (${b.statut_lecture ?? ''})`
+              )
+            )}
+          </>
+        )}
+        {f.brouillon && (
+          <>
+            <h4>Brouillon de réponse</h4>
+            <Paragraph copyable={{ text: f.brouillon, tooltips: ['Copier le brouillon', 'Copié'] }} style={{ margin: 0 }}>
+              <pre className="draft">{f.brouillon}</pre>
+            </Paragraph>
+          </>
+        )}
+        <h4>Mails du dossier</h4>
+        {liste(mails.map((m) => `${fdate(m.date)} ${m.date.slice(11, 16)} – ${m.expediteur} : ${m.objet}`))}
+        <h4>Mes notes</h4>
+        <textarea
+          placeholder="Notes personnelles, enregistrées dans l'application"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onBlur={() => note !== (dossier.corrections.note ?? '') && corriger({ note })}
+        />
+      </div>
+    </Drawer>
   );
 }
 
-// --- Import --------------------------------------------------------------------------------------
+// --- Mise à jour ---------------------------------------------------------------------------------
 
-function OngletImport({ apres, dernier }: { apres: () => void; dernier: Synthese['dernierImport'] }) {
+function PanneauMiseAJour({
+  ouvert,
+  fermer,
+  dernier,
+  nbCorrections,
+  exporter,
+  apres,
+}: {
+  ouvert: boolean;
+  fermer: () => void;
+  dernier: Index['dernierImport'];
+  nbCorrections: number;
+  exporter: () => void;
+  apres: () => void;
+}) {
   const [envoi, setEnvoi] = useState(false);
+  const depuis = dernier ? dayjs(dernier.genereLe || dernier.createdAt).format('DD/MM/YYYY') : null;
+  const consigne =
+    `Mets à jour l'assistant${depuis ? ` depuis le ${depuis}` : ''}` +
+    (nbCorrections ? ', en tenant compte de mes corrections (fichier corrections_dossiers joint)' : '') +
+    ", puis dépose le nouveau donnees.json dans Dk Événementiel : Administration → Assistant → Mettre à jour l'assistant.";
+
   const importer = async (fichier: File) => {
     setEnvoi(true);
     try {
@@ -605,43 +961,135 @@ function OngletImport({ apres, dernier }: { apres: () => void; dernier: Synthese
       const json = JSON.parse(texte.replace(/^﻿/, '').replace(/^\s*window\.DONNEES\s*=\s*/, '').replace(/;\s*$/, ''));
       if (await lancer(api.post('/assistant/import', json))) apres();
     } catch {
-      await lancer(Promise.resolve({ ok: false, message: "Fichier illisible : déposez le donnees.json produit par l'assistant" }));
+      message.error("Fichier illisible : déposez le donnees.json produit par l'assistant");
     } finally {
       setEnvoi(false);
     }
   };
+
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%', maxWidth: 640 }}>
-      <Upload.Dragger
-        accept=".json,.js"
-        multiple={false}
-        showUploadList={false}
-        disabled={envoi}
-        beforeUpload={(f) => {
-          importer(f);
-          return false;
-        }}
-      >
-        <p className="ant-upload-drag-icon">
-          <InboxOutlined />
-        </p>
-        <p className="ant-upload-text">Déposez ici le fichier donnees.json de l'assistant</p>
-        <p className="ant-upload-hint">Dossier Documents\Evenementiel_Assistant\99_Index. Le nouvel index remplace le précédent.</p>
-      </Upload.Dragger>
-      <Paragraph type="secondary" style={{ margin: 0 }}>
-        Les rattachements aux projets et les tâches déjà créées sont conservés d'un import à l'autre. Un dossier que l'assistant a retiré ou
-        fusionné disparaît de l'onglet ; ses tâches restent dans le rétroplanning.
-      </Paragraph>
-      {dernier && (
-        <Descriptions size="small" column={1} bordered title="Dernier import">
-          <Descriptions.Item label="Importé le">{dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')} par {dernier.par}</Descriptions.Item>
-          <Descriptions.Item label="Produit par l'assistant le">{dernier.genereLe ? dayjs(dernier.genereLe).format('DD/MM/YYYY à HH:mm') : '—'}</Descriptions.Item>
-          <Descriptions.Item label="Période">{dernier.periode || '—'}</Descriptions.Item>
-          <Descriptions.Item label="Contenu">
-            {dernier.compte.evenements} événements, {dernier.compte.dossiers} dossiers, {dernier.compte.mails} mails, {dernier.compte.prestataires} prestataires
-          </Descriptions.Item>
-        </Descriptions>
-      )}
-    </Space>
+    <Drawer open={ouvert} onClose={fermer} width={560} title="Mettre à jour l'assistant">
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <div>
+          <Text strong>1. Lancer la lecture des mails</Text>
+          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            L'assistant lit la boîte Outlook du service dans votre Chrome. Ouvrez votre conversation avec lui et envoyez-lui ce message :
+          </Paragraph>
+          <Paragraph copyable={{ text: consigne, tooltips: ['Copier le message', 'Copié'] }} style={{ background: '#f6f7f4', padding: 12, borderRadius: 6 }}>
+            {consigne}
+          </Paragraph>
+          {nbCorrections > 0 && (
+            <Button onClick={exporter}>
+              Télécharger mes corrections ({nbCorrections} dossier{nbCorrections > 1 ? 's' : ''}) à lui joindre
+            </Button>
+          )}
+        </div>
+        <div>
+          <Text strong>2. Déposer le nouvel index</Text>
+          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            L'assistant le dépose lui-même ici. À défaut, prenez le fichier dans Documents\Evenementiel_Assistant\99_Index.
+          </Paragraph>
+          <Upload.Dragger
+            accept=".json,.js"
+            multiple={false}
+            showUploadList={false}
+            disabled={envoi}
+            beforeUpload={(f) => {
+              importer(f);
+              return false;
+            }}
+          >
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">Déposez ici donnees.json</p>
+            <p className="ant-upload-hint">
+              Le nouvel index remplace le précédent. Rattachements, tâches créées, statuts corrigés et notes sont conservés.
+            </p>
+          </Upload.Dragger>
+        </div>
+        {dernier && (
+          <Text type="secondary">
+            Dernier import le {dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')} par {dernier.par} : {dernier.compte.evenements} événements,{' '}
+            {dernier.compte.dossiers} dossiers, {dernier.compte.mails} mails, {dernier.compte.prestataires} prestataires.
+          </Text>
+        )}
+      </Space>
+    </Drawer>
   );
 }
+
+// --- Styles repris de l'application d'origine de l'assistant ---------------------------------------
+
+const CSS = `
+.asst{--bg:#f4f5f2;--panel:#fff;--ink:#1d2a33;--muted:#5f6b73;--line:#dde1dc;--navy:#16324f;--sea:#1f6f8b;--sand:#e9e2d0;
+  --red:#b3392f;--amber:#b7791f;--green:#2f7d4f;--grey:#7a838a;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45;
+  border-radius:8px;overflow:hidden}
+.asst header{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.asst header h1{font-size:18px;margin:0;font-weight:600;color:#fff}
+.asst header .sub{font-size:12px;opacity:.75}
+.asst .kpis{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap;align-items:stretch}
+.asst .kpi{background:rgba(255,255,255,.1);border-radius:6px;padding:6px 12px;min-width:92px;cursor:pointer}
+.asst .kpi b{display:block;font-size:20px;line-height:1.1}
+.asst .kpi span{font-size:11px;opacity:.85}
+.asst .kpi.alert b{color:#ffb4a8}
+.asst .maj{border:1px solid rgba(255,255,255,.6);background:#fff;color:var(--navy);border-radius:6px;padding:6px 14px;font:inherit;font-weight:600;cursor:pointer}
+.asst .maj:hover{background:#e9f2f6}
+.asst .stale{background:#fff1d6;color:#7a4b00;padding:8px 24px;font-size:13px;border-bottom:1px solid #efdca8}
+.asst nav{display:flex;gap:2px;padding:0 24px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+.asst nav button{border:0;background:none;padding:12px 16px;font:inherit;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+.asst nav button.on{color:var(--navy);border-bottom-color:var(--sea);font-weight:600}
+.asst .filters{display:flex;gap:10px;padding:14px 24px;flex-wrap:wrap;align-items:center}
+.asst select,.asst input[type=search],.asst textarea{font:inherit;border:1px solid var(--line);border-radius:5px;padding:7px 9px;background:#fff;color:var(--ink)}
+.asst input[type=search]{min-width:240px}
+.asst .btn{border:1px solid var(--sea);color:var(--sea);background:#fff;border-radius:5px;padding:7px 12px;font:inherit;cursor:pointer}
+.asst .lien{border:0;background:none;color:var(--sea);cursor:pointer;font:inherit;font-size:12px;padding:0 4px}
+.asst main{padding:0 24px 30px}
+.asst .group{margin:18px 0 6px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.asst .group h2{font-size:15px;margin:0;color:var(--navy)}
+.asst .group small{color:var(--muted)}
+.asst .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.asst .card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--grey);border-radius:6px;padding:12px 14px;cursor:pointer;transition:box-shadow .15s}
+.asst .card:hover{box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.asst .card.p-Haute{border-left-color:var(--red)}
+.asst .card.p-Normale{border-left-color:var(--sea)}
+.asst .card h3{font-size:14px;margin:4px 0 6px;font-weight:600}
+.asst .meta{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.asst .tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:10px;background:var(--sand);color:var(--ink)}
+.asst .st{font-weight:600}
+.asst .st-todo{background:#f6d9d5;color:var(--red)}
+.asst .st-wait{background:#f6e8cf;color:var(--amber)}
+.asst .st-run{background:#d6e9ef;color:var(--sea)}
+.asst .st-done{background:#d9ecdf;color:var(--green)}
+.asst .st-info{background:#e6e8ea;color:var(--grey)}
+.asst .next{font-size:12px;margin-top:8px}
+.asst .next b{color:var(--navy)}
+.asst .warn{font-size:12px;color:var(--amber);margin-top:4px}
+.asst .note-carte{font-size:12px;color:var(--sea);margin-top:4px;font-style:italic}
+.asst table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:14px}
+.asst th,.asst td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.asst th{background:#eef0ec;font-size:12px;color:var(--muted);font-weight:600}
+.asst tr.click{cursor:pointer}
+.asst tr.click:hover td{background:#f8f9f6}
+.asst .late td:first-child{color:var(--red);font-weight:600}
+.asst .soon td:first-child{color:var(--amber);font-weight:600}
+.asst .empty{color:var(--muted);padding:30px;text-align:center}
+.asst .muted{color:var(--muted)}
+.asst .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.asst .totals{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:14px 0}
+.asst .tot{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px}
+.asst .tot b{font-size:20px;display:block;color:var(--navy)}
+.asst .note{background:#fff8e6;border:1px solid #efdca8;border-radius:6px;padding:10px 12px;font-size:13px;margin:12px 0}
+.asst .h3{font-size:14px;color:var(--navy);margin:18px 0 0}
+.asst footer{color:var(--muted);font-size:12px;padding:0 24px 20px}
+.asst.fiche{background:var(--panel);padding:22px 26px;border-radius:0;position:relative;min-height:100%}
+.asst.fiche h2{margin:6px 0 4px;font-size:18px;color:var(--navy)}
+.asst.fiche h4{margin:18px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+.asst.fiche ul{margin:0;padding-left:18px}
+.asst.fiche li{margin:2px 0}
+.asst .close{position:absolute;top:14px;right:16px;border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted)}
+.asst pre.draft{white-space:pre-wrap;background:#f6f7f4;border:1px solid var(--line);border-radius:5px;padding:10px;font-size:13px;line-height:1.5;margin:0;font-family:inherit}
+.asst textarea{width:100%;min-height:70px}
+.asst .pj{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.asst .pj span{color:var(--muted);text-align:right}
+`;

@@ -14,30 +14,55 @@ dans Chrome, sur le poste du chef de service, à la demande (« mets à jour l'a
 3. Il range les pièces jointes utiles dans OneDrive > Assistant > [événement].
 4. Il produit un index complet, `donnees.json`, dans `Documents\Evenementiel_Assistant\99_Index`.
 
-L'application reçoit cet index et le relie aux projets :
+L'application reçoit cet index et l'affiche comme l'index d'origine de l'assistant :
 
-- **Synthèse** : dossiers à traiter, priorité haute, échéances des 14 prochains jours. Un bandeau signale un index
-  vieux de plus de 7 jours.
-- **Dossiers** : recherche et filtres. Chaque fiche affiche tout ce que l'assistant a relevé, les mails du dossier et,
-  si l'événement est rattaché, un bouton « En faire une tâche » sur chaque échéance et chaque action.
-- **Événements et projets** : rattachement de chaque événement de l'assistant à un projet. L'application propose le
-  projet au titre le plus proche. Un projet absent se crée en un clic, avec son rétroplanning.
-- **Annuaire des prestataires** : contacts, devis et bons de commande relevés dans le courrier.
-- **Import** : dépôt de `donnees.json` (ou `donnees.js`).
+- **Bandeau** : dossiers ouverts, à traiter, échéances à 7 jours, points de vigilance (chaque chiffre filtre la liste),
+  date de la dernière mise à jour et bouton **Mettre à jour l'assistant**. Un avertissement signale un index vieux de
+  plus de 7 jours.
+- **Dossiers** : cartes groupées par événement, du plus proche au plus lointain ; la bordure gauche indique la priorité.
+  Filtres par mois, événement, branche, statut et point de vigilance, recherche libre.
+- **Fiche dossier** (clic sur une carte) : tout ce que l'assistant a relevé, les mails du dossier, le statut corrigeable,
+  une zone de notes et, si l'événement est rattaché à un projet, un lien « + en faire une tâche » sur chaque échéance
+  et chaque action.
+- **Échéances**, **Suivi budgétaire**, **Registre des mails**, **Annuaire prestataires** : mêmes onglets que l'index
+  d'origine.
+- **Rattachement aux projets** : chaque événement de l'assistant se relie à un projet. L'application propose le projet
+  au titre le plus proche ; un projet absent se crée en un clic, avec son rétroplanning.
 
-## Mise à jour
+## Mettre à jour l'assistant
 
-Après chaque « mets à jour l'assistant », déposez le nouveau `donnees.json` dans l'onglet Import. Vous pouvez aussi
-demander à l'assistant de le faire lui-même : il pilote déjà Chrome et peut ouvrir l'application, aller dans
-Administration → Assistant → Import et y déposer le fichier.
+Le bouton **Mettre à jour l'assistant** ouvre un panneau en deux étapes.
+
+1. **Lancer la lecture des mails.** Le panneau donne le message à envoyer à l'assistant (bouton copier), avec la date du
+   dernier import. Si des statuts ont été corrigés ou des notes saisies, le message le signale et le panneau propose de
+   télécharger le fichier de corrections à transmettre à l'assistant.
+2. **Déposer le nouvel index.** Glisser `donnees.json` (ou `donnees.js`) dans la zone de dépôt. L'assistant peut le faire
+   lui-même : il pilote déjà Chrome et peut ouvrir l'application, aller dans Administration → Assistant et déposer le
+   fichier.
 
 Chaque import **remplace** l'index. Restent acquis d'un import à l'autre :
 
 - le projet rattaché à chaque événement ;
-- les échéances et actions déjà transformées en tâches (elles ne sont pas proposées une seconde fois).
+- les échéances et actions déjà transformées en tâches (elles ne sont pas proposées une seconde fois) ;
+- les notes saisies sur les dossiers ;
+- les statuts corrigés, tant que l'assistant ne les a pas repris. Quand le nouvel index porte le même statut que la
+  correction, celle-ci est retirée : l'assistant est à jour.
 
 Un dossier retiré ou fusionné par l'assistant disparaît de l'onglet ; les tâches qu'il a produites restent dans le
 rétroplanning du projet.
+
+## Corrections
+
+Le bouton **Exporter mes corrections** télécharge `corrections_dossiers_AAAA-MM-JJ.json` :
+
+```json
+{ "exporte_le": "2026-11-23T15:45:00Z",
+  "corrections": { "D02": { "statut": "En cours", "note": "…", "par": "…", "maj": "…" } } }
+```
+
+C'est le même usage que dans l'index d'origine : on transmet ce fichier à l'assistant pour qu'il reprenne les statuts
+et les remarques dans sa prochaine mise à jour. Les corrections sont enregistrées dans la base (colonne `corrections`
+de `assistant_dossiers`, migration 012), et non plus dans le navigateur : elles suivent le compte et non le poste.
 
 ## Règles de transformation en tâche
 
