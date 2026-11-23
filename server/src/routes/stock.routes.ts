@@ -15,6 +15,7 @@ import {
   schemaTauxTva,
   circuitDemande,
   creerMouvement,
+  ETAPE_AVIS_PROTOCOLE,
   ecrireParametresStock,
   joursAvant,
   lireParametresStock,
@@ -64,6 +65,7 @@ const etape = (req: Request, action: string, motif?: string): EtapeHistorique =>
   date: new Date().toISOString(),
   action,
   par: req.session!.nom,
+  parId: req.session!.userId,
   ...(motif ? { motif } : {}),
 });
 
@@ -467,9 +469,17 @@ stockRouter.post(
         message = `${demande.numero} refusée. Réservation libérée.`;
       } else if (demande.statut === 'En attente Protocole') {
         statut = 'En attente Cabinet';
-        historique.push(etape(req, 'Avis favorable du Protocole', motif || undefined));
+        historique.push(etape(req, ETAPE_AVIS_PROTOCOLE, motif || undefined));
         message = `${demande.numero} : avis favorable du Protocole, transmise au Cabinet.`;
       } else {
+        // Cadeau protocolaire : l'avis du Protocole et la validation du Cabinet portent deux signatures distinctes.
+        if (demande.statut === 'En attente Cabinet' && !req.session!.superAdmin) {
+          const avis = [...historique].reverse().find((e) => e.action === ETAPE_AVIS_PROTOCOLE);
+          const memePersonne = avis && (avis.parId ? avis.parId === req.session!.userId : avis.par === req.session!.nom);
+          if (memePersonne) {
+            throw new ErreurMetier("Vous avez rendu l'avis du Protocole : la validation du Cabinet revient à une autre personne");
+          }
+        }
         statut = 'Validée';
         historique.push(etape(req, demande.statut === 'En attente Cabinet' ? 'Validation du Cabinet' : 'Validation du chef de service', motif || undefined));
         message = `${demande.numero} validée.`;
@@ -1040,6 +1050,21 @@ stockRouter.post(
           );
           if (modifies === 0) throw new ErreurMetier(`Quantité supérieure au stock déporté pour ${article.libelle}`);
         } else {
+          // Un retour ne peut excéder ce qui a été déclaré distribué et n'est pas encore revenu.
+          const cumul = await requeteUne<{ retournable: number }>(
+            `SELECT COALESCE(SUM(CASE WHEN type = 'Sortie déportée' THEN -quantite ELSE 0 END), 0)
+                  - COALESCE(SUM(CASE WHEN type = 'Retour déporté' THEN quantite ELSE 0 END), 0) AS retournable
+               FROM stock_mouvements
+              WHERE depot_id = $1 AND article_id = $2 AND type IN ('Sortie déportée', 'Retour déporté')`,
+            [depot._id, article._id],
+            client
+          );
+          const retournable = Number(cumul?.retournable ?? 0);
+          if (l.quantite > retournable) {
+            throw new ErreurMetier(
+              `Retour supérieur aux quantités distribuées pour ${article.libelle} : ${Math.max(0, retournable)} au plus`
+            );
+          }
           await executer(
             `INSERT INTO stock_depot_lignes (depot_id, article_id, quantite) VALUES ($1, $2, $3)
              ON CONFLICT (depot_id, article_id) DO UPDATE SET quantite = stock_depot_lignes.quantite + EXCLUDED.quantite`,

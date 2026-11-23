@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import { insererUn, requete, requeteUne } from '../db.js';
+import { insererUn, requete, requeteUne, transaction } from '../db.js';
 import type { Utilisateur } from '../modeles.js';
 import { genererHash, verifierMotDePasse } from '../lib/password.js';
 import { signSession, setSessionCookie, clearSessionCookie } from '../lib/session.js';
 import { requireAuth } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
-import { chargerProfil } from '../lib/comptes.js';
+import { chargerProfil, compterSuperAdminsActifs } from '../lib/comptes.js';
 import { MODULES } from '../lib/droits.js';
 
 export const authRouter = Router();
@@ -21,17 +21,22 @@ const limiteurConnexion = rateLimit({
   message: { ok: false, message: 'Trop de tentatives de connexion, réessayez dans quelques minutes' },
 });
 
-/** Existe-t-il déjà un super-administrateur actif ? (contrôle affiché à l'écran de connexion) */
+/**
+ * Existe-t-il déjà un super-administrateur ? (contrôle affiché à l'écran de connexion)
+ * Compte tout super-administrateur non suspendu, y compris celui qui n'a pas encore choisi son mot de passe :
+ * c'est la même règle que celle qui protège le dernier super-administrateur (lib/comptes.ts).
+ */
 authRouter.get('/existe-administrateur', async (_req, res) => {
-  const [{ nombreComptes, existe }] = await requete<{ nombreComptes: number; existe: boolean }>(
-    `SELECT count(*) AS nombre_comptes,
-            bool_or(super_admin AND statut = 'Actif') IS TRUE AS existe
-       FROM utilisateurs`
-  );
+  const [{ nombreComptes }] = await requete<{ nombreComptes: number }>('SELECT count(*) AS nombre_comptes FROM utilisateurs');
+  const existe = (await compterSuperAdminsActifs()) > 0;
   res.json({ existe, nombreComptes });
 });
 
-/** Initialise le tout premier compte, super-administrateur. */
+/**
+ * Initialise le tout premier compte, super-administrateur.
+ * Possible uniquement tant qu'aucun super-administrateur non suspendu n'existe. Le verrou évite que deux
+ * créations simultanées passent toutes les deux le contrôle.
+ */
 authRouter.post('/initialiser-administrateur', async (req, res) => {
   const schema = z.object({
     nom: z.string().min(1),
@@ -44,17 +49,20 @@ authRouter.post('/initialiser-administrateur', async (req, res) => {
     return;
   }
 
-  const admin = await requeteUne("SELECT 1 FROM utilisateurs WHERE super_admin AND statut = 'Actif' LIMIT 1");
-  if (admin) {
-    res.json({ ok: false, message: 'Un administrateur existe déjà' });
-    return;
-  }
-
   const { nom, motDePasse } = parsed.data;
   const email = parsed.data.email.toLowerCase();
   const { hash, sel } = await genererHash(motDePasse);
 
-  const compte = await insererUn<Utilisateur>('utilisateurs', { nom, email, superAdmin: true, statut: 'Actif', hash, sel });
+  const compte = await transaction(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['initialiser-administrateur']);
+    if ((await compterSuperAdminsActifs(undefined, client)) > 0) return null;
+    return insererUn<Utilisateur>('utilisateurs', { nom, email, superAdmin: true, statut: 'Actif', hash, sel }, client);
+  });
+  if (!compte) {
+    res.json({ ok: false, message: 'Un administrateur existe déjà' });
+    return;
+  }
+
   console.log(`[auth] Super-administrateur initial créé : ${email}`);
   await consigner({ userId: compte._id, nom: compte.nom, email: compte.email }, 'creation_compte', email, { superAdmin: true, initial: true });
   res.json({ ok: true, message: 'Compte super-administrateur créé avec succès' });

@@ -3,6 +3,7 @@ import { AppLayout } from './components/AppLayout';
 import { RequireModule, RequireSuperAdmin } from './components/RequireAcces';
 import { ANCIENNES_ADRESSES } from './lib/navigation';
 import Login from './pages/Login';
+import MotDePasse from './pages/MotDePasse';
 import Accueil from './pages/Accueil';
 import Calendrier from './pages/Calendrier';
 import Liste from './pages/Liste';
@@ -40,6 +41,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/connexion" element={<Login />} />
+      <Route path="/mot-de-passe" element={<MotDePasse />} />
       <Route element={<AppLayout />}>
         <Route path="/" element={<Accueil />} />
         <Route path="/evenement/:id" element={<FicheEvenementUnique />} />

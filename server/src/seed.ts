@@ -48,6 +48,12 @@ async function seedEvents(): Promise<void> {
 }
 
 async function seedUsers(): Promise<void> {
+  // Les comptes d'exemple ont des mots de passe publiés dans le README : jamais en production,
+  // sauf demande explicite de l'exploitant.
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_COMPTES_EXEMPLE !== 'oui') {
+    console.log("[seed] Production : comptes d'exemple non chargés (SEED_COMPTES_EXEMPLE=oui pour forcer).");
+    return;
+  }
   const filePath = path.join(DATA_DIR, 'utilisateurs.csv');
   if (!existsSync(filePath)) {
     console.log(`[seed] Fichier introuvable, ignoré : ${filePath}`);

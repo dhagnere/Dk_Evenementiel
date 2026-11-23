@@ -165,9 +165,7 @@ importRouter.post('/utilisateurs', requireSuperAdmin, upload.single('fichier'), 
       }
     });
 
-    if (motsDePasseGeneres.length > 0) {
-      console.log('[import] Mots de passe temporaires générés :', motsDePasseGeneres);
-    }
+    // Les mots de passe générés sont rendus au seul super-administrateur dans la réponse, jamais écrits dans le journal.
     console.log(`[import] Utilisateurs : ${created} créés, ${updated} mis à jour, ${errors.length} lignes ignorées`);
     await consigner(identiteDeRequete(req), 'import_utilisateurs', `${created} créé(s), ${updated} mis à jour`, {
       created,

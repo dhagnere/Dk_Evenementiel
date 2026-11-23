@@ -99,8 +99,13 @@ export interface EtapeHistorique {
   date: string;
   action: string;
   par: string;
+  /** Identifiant du compte auteur de l'étape (absent des étapes enregistrées avant son ajout). */
+  parId?: string;
   motif?: string;
 }
+
+/** Libellé de l'étape où le Protocole rend son avis sur un cadeau protocolaire. */
+export const ETAPE_AVIS_PROTOCOLE = 'Avis favorable du Protocole';
 
 export const STATUTS_EN_ATTENTE = ['En attente chef de service', 'En attente Protocole', 'En attente Cabinet'];
 
@@ -210,10 +215,10 @@ function lien(chemin: string): string {
 async function adressesValideurs(): Promise<string[]> {
   const valideurs = await requete<{ email: string }>(
     `SELECT DISTINCT u.email FROM utilisateurs u JOIN droits_modules d ON d.utilisateur_id = u.id
-      WHERE d.module = 'stock' AND d.niveau IN ('validation', 'administration') AND u.statut = 'Actif'`
+      WHERE d.module = 'stock' AND d.niveau IN ('validation', 'administration') AND u.statut <> 'Suspendu'`
   );
   if (valideurs.length > 0) return valideurs.map((v) => v.email);
-  const admins = await requete<{ email: string }>("SELECT email FROM utilisateurs WHERE super_admin AND statut = 'Actif'");
+  const admins = await requete<{ email: string }>("SELECT email FROM utilisateurs WHERE super_admin AND statut <> 'Suspendu'");
   return admins.map((a) => a.email);
 }
 

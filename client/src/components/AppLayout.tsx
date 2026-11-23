@@ -5,6 +5,7 @@ import { HomeOutlined, MenuOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import { LOGO_DUNKERQUE_CUD } from '../logos';
 import { SECTIONS, sectionDuChemin, type SectionNavigation } from '../lib/navigation';
+import { STATUT_MOT_DE_PASSE_A_DEFINIR } from '../pages/MotDePasse';
 
 const { Header, Content } = Layout;
 const { Text } = Typography;
@@ -64,6 +65,7 @@ export function AppLayout() {
     );
   }
   if (!session) return <Navigate to="/connexion" replace />;
+  if (session.statut === STATUT_MOT_DE_PASSE_A_DEFINIR) return <Navigate to="/mot-de-passe" replace />;
 
   // Sections visibles : modules accessibles au moins en lecture, administration pour les super-administrateurs.
   const pagesVisibles = (section: SectionNavigation) =>
@@ -127,6 +129,7 @@ export function AppLayout() {
             <Space style={{ flexShrink: 0, whiteSpace: 'nowrap' }} align="center">
               {profil}
               <Text type="secondary">{session.nom}</Text>
+              <Button onClick={() => navigate('/mot-de-passe')}>Mot de passe</Button>
               <Button onClick={() => deconnexion()}>Déconnexion</Button>
             </Space>
           )}
@@ -180,6 +183,9 @@ export function AppLayout() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
           {profil}
           <Text type="secondary">{session.nom}</Text>
+          <Button block onClick={() => navigate('/mot-de-passe')}>
+            Mot de passe
+          </Button>
           <Button block onClick={() => deconnexion()}>
             Déconnexion
           </Button>

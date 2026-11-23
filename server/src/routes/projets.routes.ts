@@ -142,7 +142,7 @@ projetsRouter.get(
   traiter(async (_req, res) => {
     const intervenants = await requete(
       `SELECT DISTINCT u.id, u.nom FROM utilisateurs u LEFT JOIN droits_modules d ON d.utilisateur_id = u.id AND d.module = 'projets'
-        WHERE u.statut = 'Actif' AND (u.super_admin OR d.utilisateur_id IS NOT NULL) ORDER BY u.nom`
+        WHERE u.statut <> 'Suspendu' AND (u.super_admin OR d.utilisateur_id IS NOT NULL) ORDER BY u.nom`
     );
     res.json({ intervenants });
   })
@@ -625,7 +625,7 @@ projetsRouter.post(
     if (!personne?.utilisateurId) {
       throw new ErreurMetier(`Aucun compte n'est désigné pour le rôle « ${libelleRole} » : désignez la personne dans l'onglet Équipe`);
     }
-    const compte = await requeteUne<{ email: string; nom: string }>("SELECT email, nom FROM utilisateurs WHERE id = $1 AND statut = 'Actif'", [personne.utilisateurId]);
+    const compte = await requeteUne<{ email: string; nom: string }>("SELECT email, nom FROM utilisateurs WHERE id = $1 AND statut <> 'Suspendu'", [personne.utilisateurId]);
     if (!compte) throw new ErreurMetier(`Le compte de ${personne.nom} n'est pas actif`);
     const echeance = decalerJour(projet.dateJour, tache.decalage);
     void notifier(
@@ -778,6 +778,12 @@ async function reserver(projetId: string, lignes: { articleId: string; quantite:
       if (l.quantite === 0) {
         await executer('DELETE FROM projet_materiel WHERE projet_id = $1 AND article_id = $2', [projetId, l.articleId], client);
       } else {
+        // Un article proposé mais encore inactif (stock du parc non saisi) n'est pas réservable.
+        const article = await requeteUne<{ nom: string; actif: boolean }>('SELECT nom, actif FROM materiel_articles WHERE id = $1', [l.articleId], client);
+        if (!article) throw new ErreurMetier('Article de matériel introuvable');
+        if (!article.actif) {
+          throw new ErreurMetier(`« ${article.nom} » n'est pas encore réservable : saisissez d'abord son stock dans le catalogue du matériel`);
+        }
         await executer(
           `INSERT INTO projet_materiel (projet_id, article_id, quantite) VALUES ($1, $2, $3)
            ON CONFLICT (projet_id, article_id) DO UPDATE SET quantite = EXCLUDED.quantite`,
@@ -916,11 +922,11 @@ projetsRouter.post(
     await consigner(identiteDeRequete(req), 'projets_demande', demande.intitule);
     const valideurs = await requete<{ email: string }>(
       `SELECT DISTINCT u.email FROM utilisateurs u JOIN droits_modules d ON d.utilisateur_id = u.id
-        WHERE d.module = 'projets' AND d.niveau IN ('validation', 'administration') AND u.statut = 'Actif'`
+        WHERE d.module = 'projets' AND d.niveau IN ('validation', 'administration') AND u.statut <> 'Suspendu'`
     );
     const destinataires = valideurs.length
       ? valideurs.map((v) => v.email)
-      : (await requete<{ email: string }>("SELECT email FROM utilisateurs WHERE super_admin AND statut = 'Actif'")).map((a) => a.email);
+      : (await requete<{ email: string }>("SELECT email FROM utilisateurs WHERE super_admin AND statut <> 'Suspendu'")).map((a) => a.email);
     void notifier(
       destinataires,
       `Nouvelle demande d'événement — ${demande.intitule}`,

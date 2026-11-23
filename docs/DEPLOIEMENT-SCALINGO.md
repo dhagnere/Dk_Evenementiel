@@ -178,8 +178,9 @@ scalingo --app dk-evenementiel-recette run --file sauvegarde.json "node server/d
 super-administrateurs ; les « Consultant » gardent le calendrier, au niveau Contribution. Le script refuse d'écrire dans
 une base qui contient déjà des données, sauf avec `--remplacer`.
 
-> **Ne lancez pas `npm run seed` sur la recette ni sur la production** : il crée des comptes d'exemple au mot de passe
-> connu (`admin@dunkerque.example` / `ChangezMoi123!`).
+> **Ne lancez pas `npm run seed` sur la recette ni sur la production** : il charge le calendrier d'exemple et, hors
+> production, des comptes d'exemple au mot de passe connu (`admin@dunkerque.example` / `ChangezMoi123!`). Avec
+> `NODE_ENV=production`, ces comptes ne sont chargés que si `SEED_COMPTES_EXEMPLE=oui`.
 
 ## Étape 8 — Stockage des fichiers (S3)
 

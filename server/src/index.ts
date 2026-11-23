@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { config } from './config.js';
 import { connectDb } from './db.js';
-import { readSession } from './middleware/auth.js';
+import { exigerMotDePasseDefini, readSession } from './middleware/auth.js';
 import { authRouter } from './routes/auth.routes.js';
 import { eventsRouter } from './routes/events.routes.js';
 import { accountsRouter } from './routes/accounts.routes.js';
@@ -45,6 +45,7 @@ async function main() {
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
   app.use('/api/auth', authRouter);
+  app.use('/api', exigerMotDePasseDefini);
   app.use('/api/evenements', eventsRouter);
   app.use('/api/comptes', accountsRouter);
   app.use('/api/import', importRouter);

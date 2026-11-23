@@ -7,6 +7,7 @@ import { requireSuperAdmin } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
 import { chargerCompte, compterSuperAdminsActifs, ecrireDroits, listerComptes } from '../lib/comptes.js';
 import { NIVEAUX, CODES_MODULES } from '../lib/droits.js';
+import { envoyerMotDePasseTemporaire, messageTransmission } from '../lib/email.js';
 
 export const accountsRouter = Router();
 
@@ -60,9 +61,10 @@ accountsRouter.post('/', async (req, res) => {
     if (!superAdmin) await ecrireDroits(compte._id, droits, client);
   });
 
-  console.log(`[accounts] Compte créé pour ${email} — mot de passe temporaire : ${parsed.data.motDePasseTemporaire}`);
+  console.log(`[accounts] Compte créé pour ${email}`);
   await consigner(identiteDeRequete(req), 'creation_compte', email, { superAdmin, directionId, droits: superAdmin ? {} : droits });
-  res.json({ ok: true, message: 'Compte créé avec succès', email });
+  const courrielEnvoye = await envoyerMotDePasseTemporaire({ email, nom: parsed.data.nom }, parsed.data.motDePasseTemporaire);
+  res.json({ ok: true, message: `Compte créé avec succès. ${messageTransmission(courrielEnvoye)}`, email, courrielEnvoye });
 });
 
 /** Modifie le profil d'accès d'un compte : super-administrateur, direction et droits par module. */
@@ -161,7 +163,7 @@ accountsRouter.post('/:id/reinitialiser-mot-de-passe', async (req, res) => {
   }
   const { hash, sel } = await genererHash(parsed.data.nouveauMotDePasseTemporaire);
   const compte = await requeteUne<Utilisateur>(
-    "UPDATE utilisateurs SET hash = $2, sel = $3, statut = 'Mot de passe à définir' WHERE id = $1 RETURNING email",
+    "UPDATE utilisateurs SET hash = $2, sel = $3, statut = 'Mot de passe à définir' WHERE id = $1 RETURNING email, nom",
     [req.params.id, hash, sel]
   );
   if (!compte) {
@@ -169,7 +171,8 @@ accountsRouter.post('/:id/reinitialiser-mot-de-passe', async (req, res) => {
     return;
   }
 
-  console.log(`[accounts] Mot de passe réinitialisé pour ${compte.email} — temporaire : ${parsed.data.nouveauMotDePasseTemporaire}`);
+  console.log(`[accounts] Mot de passe réinitialisé pour ${compte.email}`);
   await consigner(identiteDeRequete(req), 'reinitialisation_mot_de_passe', compte.email);
-  res.json({ ok: true, message: 'Mot de passe réinitialisé' });
+  const courrielEnvoye = await envoyerMotDePasseTemporaire(compte, parsed.data.nouveauMotDePasseTemporaire);
+  res.json({ ok: true, message: `Mot de passe réinitialisé. ${messageTransmission(courrielEnvoye)}`, courrielEnvoye });
 });

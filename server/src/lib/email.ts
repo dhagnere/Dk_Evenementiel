@@ -27,6 +27,8 @@ interface EmailOptions {
   subject: string;
   html: string;
   text: string;
+  /** Message contenant un secret (mot de passe) : son contenu n'est jamais écrit dans le journal. */
+  confidentiel?: boolean;
 }
 
 /**
@@ -40,7 +42,7 @@ export async function envoyerEmail(options: EmailOptions): Promise<boolean> {
   if (!t) {
     console.log(`[email] SMTP non configuré — email NON envoyé à ${destinataires}`);
     console.log(`[email] Sujet : ${options.subject}`);
-    console.log(`[email] ${options.text}`);
+    if (!options.confidentiel) console.log(`[email] ${options.text}`);
     return false;
   }
 
@@ -58,7 +60,7 @@ export async function envoyerEmail(options: EmailOptions): Promise<boolean> {
 async function destinatairesAdministrateurs(): Promise<string[]> {
   if (config.adminNotificationEmail) return [config.adminNotificationEmail];
   const admins = await requete<{ email: string }>(
-    "SELECT email FROM utilisateurs WHERE super_admin AND statut = 'Actif'"
+    "SELECT email FROM utilisateurs WHERE super_admin AND statut <> 'Suspendu'"
   );
   return admins.map((a) => a.email).filter((email) => !!email);
 }
@@ -106,4 +108,35 @@ export async function notifierNouvelleDemandeAcces(demande: {
   `;
 
   await envoyerEmail({ to: destinataires, subject, html, text: lignesTexte.join('\n') });
+}
+
+/**
+ * Transmet à la personne le mot de passe temporaire de son compte (création, approbation d'une demande
+ * d'accès, réinitialisation). Le mot de passe ne figure jamais dans le journal du serveur.
+ * Retourne false si le courriel n'a pas pu partir : l'administrateur le transmet alors lui-même.
+ */
+export async function envoyerMotDePasseTemporaire(destinataire: { email: string; nom: string }, motDePasse: string): Promise<boolean> {
+  const lien = `${config.appUrl.replace(/\/$/, '')}/connexion`;
+  return envoyerEmail({
+    to: destinataire.email,
+    subject: 'Votre accès à DK Événementiel',
+    confidentiel: true,
+    text:
+      `Bonjour ${destinataire.nom},\n\n` +
+      `Un compte DK Événementiel vous a été ouvert, ou son mot de passe vient d'être réinitialisé.\n` +
+      `Identifiant : ${destinataire.email}\nMot de passe temporaire : ${motDePasse}\n\n` +
+      `Connectez-vous sur ${lien} : vous serez invité à choisir votre propre mot de passe.\n`,
+    html:
+      `<p>Bonjour ${echapperHtml(destinataire.nom)},</p>` +
+      `<p>Un compte DK Événementiel vous a été ouvert, ou son mot de passe vient d'être réinitialisé.</p>` +
+      `<p>Identifiant : <strong>${echapperHtml(destinataire.email)}</strong><br>Mot de passe temporaire : <strong>${echapperHtml(motDePasse)}</strong></p>` +
+      `<p>Connectez-vous sur <a href="${echapperHtml(lien)}">${echapperHtml(lien)}</a> : vous serez invité à choisir votre propre mot de passe.</p>`,
+  });
+}
+
+/** Message rendu à l'administrateur selon que le mot de passe temporaire est parti par courriel ou non. */
+export function messageTransmission(envoye: boolean): string {
+  return envoye
+    ? 'Mot de passe temporaire envoyé par courriel.'
+    : "Le courriel n'a pas pu partir : transmettez vous-même le mot de passe temporaire.";
 }

@@ -202,7 +202,9 @@ npm run seed
 
 `npm run seed` applique les migrations puis charge `data/evenements.csv` et `data/utilisateurs.csv`. Le CSV de comptes
 fourni contient des **comptes d'exemple** (`admin@dunkerque.example` / `ChangezMoi123!`) : à remplacer avant tout
-usage réel. Sans seed, l'écran de connexion propose de créer le premier compte super-administrateur.
+usage réel. Avec `NODE_ENV=production`, le seed ne les charge pas, sauf si `SEED_COMPTES_EXEMPLE=oui`. Sans aucun
+super-administrateur non suspendu, l'écran de connexion propose de créer le premier compte super-administrateur ; dès
+qu'il en existe un, même s'il n'a pas encore choisi son mot de passe, cette création est refusée.
 
 ```bash
 npm run dev
@@ -244,6 +246,9 @@ Voir `server/.env.example`, commenté. Les principales :
 ## Sécurité
 
 - `JWT_SECRET` aléatoire en production, jamais la valeur d'exemple.
-- Les mots de passe temporaires (création de compte, réinitialisation, import CSV) s'affichent à l'écran du
-  super-administrateur et dans les journaux du serveur : ils ne sont pas encore envoyés par courriel.
+- Les mots de passe temporaires (création de compte, approbation d'une demande d'accès, réinitialisation) partent
+  par courriel à la personne ; sans serveur d'envoi, le super-administrateur les transmet lui-même. L'import CSV les
+  rend à l'écran du super-administrateur. Ils ne sont jamais écrits dans les journaux du serveur.
+- Un compte au mot de passe temporaire (statut « Mot de passe à définir ») doit le remplacer à sa première connexion :
+  le serveur refuse toute autre action tant que ce n'est pas fait. L'en-tête propose ensuite « Mot de passe ».
 - Aucun identifiant réel (`SMTP_PASS`, clés S3) dans le dépôt : variables d'environnement uniquement.

@@ -73,3 +73,16 @@ export function requireSuperAdmin(req: Request, res: Response, next: NextFunctio
   }
   next();
 }
+
+/**
+ * Un compte au statut « Mot de passe à définir » travaille encore avec un mot de passe temporaire :
+ * il doit le remplacer avant toute autre action. Monté après les routes /api/auth, qui restent ouvertes
+ * (session, déconnexion, changement de mot de passe).
+ */
+export function exigerMotDePasseDefini(req: Request, res: Response, next: NextFunction): void {
+  if (req.session?.statut === 'Mot de passe à définir') {
+    res.status(403).json({ ok: false, code: 'mot_de_passe_a_definir', message: 'Choisissez votre mot de passe avant de continuer' });
+    return;
+  }
+  next();
+}

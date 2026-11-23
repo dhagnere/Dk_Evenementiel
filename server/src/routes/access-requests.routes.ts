@@ -4,7 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { insererUn, requete, requeteUne, transaction } from '../db.js';
 import type { DemandeAcces } from '../modeles.js';
 import { genererHash } from '../lib/password.js';
-import { notifierNouvelleDemandeAcces } from '../lib/email.js';
+import { envoyerMotDePasseTemporaire, messageTransmission, notifierNouvelleDemandeAcces } from '../lib/email.js';
 import { requireSuperAdmin } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
 import { ecrireDroits } from '../lib/comptes.js';
@@ -116,13 +116,14 @@ accessRequestsRouter.post('/:id/approuver', async (req, res) => {
     await marquerApprouvee(client);
   });
 
-  console.log(`[demandes-acces] Demande approuvée pour ${demande.email} — mot de passe temporaire : ${parsed.data.motDePasseTemporaire}`);
+  console.log(`[demandes-acces] Demande approuvée pour ${demande.email}`);
   await consigner(identiteDeRequete(req), 'approbation_demande_acces', demande.email, {
     superAdmin,
     directionId,
     droits: superAdmin ? {} : droits,
   });
-  res.json({ ok: true, message: 'Compte créé avec succès', email: demande.email });
+  const courrielEnvoye = await envoyerMotDePasseTemporaire(demande, parsed.data.motDePasseTemporaire);
+  res.json({ ok: true, message: `Compte créé avec succès. ${messageTransmission(courrielEnvoye)}`, email: demande.email, courrielEnvoye });
 });
 
 /** Rejette une demande d'accès. */
