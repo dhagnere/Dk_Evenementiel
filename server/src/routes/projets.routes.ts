@@ -43,7 +43,7 @@ const contribution = requireModule('projets', 'contribution');
 const validation = requireModule('projets', 'validation');
 const administration = requireModule('projets', 'administration');
 
-class ErreurMetier extends Error {}
+export class ErreurMetier extends Error {}
 
 function traiter(fn: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -323,7 +323,7 @@ async function avecMeteo<T extends { _id: string; dateJour: string; jauge: numbe
   });
 }
 
-const schemaInfos = z.object({
+export const schemaInfos = z.object({
   titre: texte(300).min(1),
   type: z.enum(CODES_TYPES).nullable().default(null),
   criteres: z.array(z.string().max(40)).max(40).default([]),
@@ -337,7 +337,7 @@ const schemaInfos = z.object({
 });
 
 /** Crée un projet et génère son rétroplanning d'après son niveau et ses modules. */
-async function creerProjet(donnees: z.infer<typeof schemaInfos> & { inscritLe?: string; demandeId?: string }) {
+export async function creerProjet(donnees: z.infer<typeof schemaInfos> & { inscritLe?: string; demandeId?: string }) {
   if (donnees.dateFin && donnees.dateFin < donnees.dateJour) throw new ErreurMetier('La date de fin précède le jour J');
   return transaction(async (client) => {
     const projet = await insererUn<{ _id: string; titre: string }>('projets', donnees, client);
@@ -595,13 +595,16 @@ lignesDeProjet(
     if (champs.fait === true) Object.assign(champs, { faitPar: req.session!.nom, faitLe: new Date() });
     if (champs.fait === false) Object.assign(champs, { faitPar: '', faitLe: null });
     // Jalon d'origine d'une échéance : premier jalon du squelette qui la suit.
-    if (typeof champs.decalage === 'number') {
-      const ref = await lireReferentiel();
-      const suivant = [...ref.jalons].sort((a, b) => a.offset - b.offset).find((j) => j.offset >= (champs.decalage as number));
-      champs.jalon = (suivant ?? ref.jalons[ref.jalons.length - 1]).code;
-    }
+    if (typeof champs.decalage === 'number') champs.jalon = await jalonDuDecalage(champs.decalage);
   }
 );
+
+/** Jalon d'origine d'une échéance : premier jalon du squelette qui la suit (même règle que l'ajout d'une tâche). */
+export async function jalonDuDecalage(decalage: number): Promise<string> {
+  const ref = await lireReferentiel();
+  const tries = [...ref.jalons].sort((a, b) => a.offset - b.offset);
+  return (tries.find((j) => j.offset >= decalage) ?? tries[tries.length - 1]).code;
+}
 
 /** Relance du « P » d'une tâche par courriel. */
 projetsRouter.post(

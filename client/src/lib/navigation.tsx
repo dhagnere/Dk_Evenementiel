@@ -8,6 +8,7 @@ import {
   BookOutlined,
   CheckCircleOutlined,
   InboxOutlined,
+  MailOutlined,
   MobileOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
@@ -106,6 +107,7 @@ export const SECTIONS: SectionNavigation[] = [
     icone: <SettingOutlined />,
     racine: '/admin/comptes',
     pages: [
+      { chemin: '/admin/assistant', libelle: 'Assistant', icone: <MailOutlined /> },
       { chemin: '/admin/comptes', libelle: 'Comptes et droits', icone: <TeamOutlined /> },
       { chemin: '/admin/demandes', libelle: "Demandes d'accès", icone: <UserAddOutlined /> },
       { chemin: '/admin/directions', libelle: 'Directions', icone: <ApartmentOutlined /> },

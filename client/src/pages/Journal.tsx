@@ -39,6 +39,9 @@ const LIBELLES_ACTION: Record<string, { libelle: string; couleur?: string }> = {
   creation_sauvegarde_manuelle: { libelle: 'Sauvegarde manuelle' },
   synchronisation_github: { libelle: 'Synchronisation GitHub', couleur: 'cyan' },
   restauration_sauvegarde: { libelle: 'Restauration de sauvegarde', couleur: 'red' },
+  assistant_import: { libelle: "Import de l'assistant", couleur: 'purple' },
+  assistant_rattachement: { libelle: 'Assistant : rattachement à un projet', couleur: 'cyan' },
+  assistant_tache: { libelle: 'Assistant : tâche créée', couleur: 'cyan' },
 };
 
 function libelleAction(action: string): { libelle: string; couleur?: string } {

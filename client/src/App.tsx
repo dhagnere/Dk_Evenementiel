@@ -18,6 +18,7 @@ import Doublons from './pages/Doublons';
 import Journal from './pages/Journal';
 import Rgpd from './pages/Rgpd';
 import Systeme from './pages/Systeme';
+import Assistant from './pages/Assistant';
 import TableauDeBordStock from './pages/stock/TableauDeBordStock';
 import Catalogue from './pages/stock/Catalogue';
 import DemandesStock from './pages/stock/Demandes';
@@ -96,6 +97,7 @@ export default function App() {
         </Route>
 
         <Route element={<RequireSuperAdmin />}>
+          <Route path="/admin/assistant" element={<Assistant />} />
           <Route path="/admin/comptes" element={<Comptes />} />
           <Route path="/admin/demandes" element={<Demandes />} />
           <Route path="/admin/directions" element={<Directions />} />

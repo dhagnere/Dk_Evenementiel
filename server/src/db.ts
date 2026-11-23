@@ -235,6 +235,26 @@ const TABLES = {
     colonnes: ['_id', 'type', 'nombreEvenements', 'nombreUtilisateurs', 'evenements', 'utilisateurs', 'createdAt', 'updatedAt'],
     json: ['evenements', 'utilisateurs'],
   },
+  assistant_imports: {
+    colonnes: ['_id', 'genereLe', 'periode', 'compte', 'par', 'createdAt', 'updatedAt'],
+    json: ['compte'],
+  },
+  assistant_evenements: {
+    colonnes: ['code', 'nom', 'dateJour', 'lieu', 'projetId', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  assistant_dossiers: {
+    colonnes: ['code', 'evenementCode', 'branche', 'titre', 'statut', 'priorite', 'donnees', 'converties', 'createdAt', 'updatedAt'],
+    json: ['donnees', 'converties'],
+  },
+  assistant_mails: {
+    colonnes: ['_id', 'numero', 'date', 'expediteur', 'objet', 'dossierCode', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  assistant_prestataires: {
+    colonnes: ['nom', 'domaine', 'donnees', 'createdAt', 'updatedAt'],
+    json: ['donnees'],
+  },
   journal_actions: {
     colonnes: ['_id', 'utilisateurId', 'utilisateurNom', 'utilisateurEmail', 'action', 'cible', 'details', 'createdAt', 'updatedAt'],
     json: ['details'],
