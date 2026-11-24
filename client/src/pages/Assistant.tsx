@@ -104,6 +104,8 @@ interface EtatReleve {
   /** Réglages saisis à l'écran ou posés sur le serveur. */
   origine: 'ecran' | 'serveur' | null;
   illisible: boolean;
+  /** Identifiants refusés : la mise à jour automatique attend leur correction. */
+  suspendue: boolean;
   adresseMasquee: string;
   /** Pièces jointes copiées dans l'application. */
   stockage: boolean;
@@ -201,6 +203,7 @@ export default function Assistant() {
   const [fVig, setFVig] = useState(false);
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [miseAJour, setMiseAJour] = useState(false);
+  const [corriger, setCorriger] = useState(false);
   const [releveEnCours, setReleveEnCours] = useState(false);
 
   const charger = () => api.get<Index>('/assistant/index').then(setIndex);
@@ -282,7 +285,7 @@ export default function Assistant() {
           <div className="sub">
             {releve.configure
               ? `${
-                  dernierReleve ? `Dernière mise à jour le ${dayjs(dernierReleve.debut).format('DD/MM/YYYY à HH:mm')}` : "Aucune mise à jour pour l'instant"
+                  dernierReussi ? `Dernière mise à jour le ${dayjs(dernierReussi.debut).format('DD/MM/YYYY à HH:mm')}` : 'Aucune mise à jour réussie'
                 }${releve.minutes ? ` · automatique toutes les ${releve.minutes} min` : ''}`
               : dernier
                 ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')}`
@@ -313,14 +316,27 @@ export default function Assistant() {
         </div>
       </header>
       {releve.configure && dernierReleve?.erreur && (
-        <div className="stale err">Dernière mise à jour : {dernierReleve.erreur}</div>
+        <div className="stale err">
+          Dernière mise à jour : {dernierReleve.erreur}
+          {releve.suspendue && ' La mise à jour automatique est suspendue jusqu’à la correction des réglages.'}
+          {releve.origine === 'serveur' && ' Ces réglages viennent du serveur ; ceux saisis à l’écran les remplacent.'}{' '}
+          <button
+            className="btn petit"
+            onClick={() => {
+              setCorriger(true);
+              setMiseAJour(true);
+            }}
+          >
+            Corriger les réglages
+          </button>
+        </div>
       )}
       {!releve.configure && !dernier && (
         <div className="stale">
           La mise à jour automatique n'est pas encore configurée : voir « état et réglages ».
         </div>
       )}
-      {(releve.configure || dernier) && (age === null || age > index.joursAvantAlerte) && (
+      {(releve.configure || dernier) && !(releve.configure && dernierReleve?.erreur) && (age === null || age > index.joursAvantAlerte) && (
         <div className="stale">
           {age === null
             ? "Aucune mise à jour réussie pour l'instant : cliquez sur « Mettre à jour l'assistant »."
@@ -398,7 +414,11 @@ export default function Assistant() {
       />
       <PanneauMiseAJour
         ouvert={miseAJour}
-        fermer={() => setMiseAJour(false)}
+        corriger={corriger}
+        fermer={() => {
+          setMiseAJour(false);
+          setCorriger(false);
+        }}
         releve={releve}
         relever={releverMaintenant}
         releveEnCours={releveEnCours}
@@ -1226,6 +1246,7 @@ function Reglages({ releve, annuler, apres }: { releve: EtatReleve; annuler?: ()
 
 function PanneauMiseAJour({
   ouvert,
+  corriger,
   fermer,
   releve,
   relever,
@@ -1236,6 +1257,7 @@ function PanneauMiseAJour({
   apres,
 }: {
   ouvert: boolean;
+  corriger: boolean;
   fermer: () => void;
   releve: EtatReleve;
   relever: () => void;
@@ -1248,6 +1270,9 @@ function PanneauMiseAJour({
   const [envoi, setEnvoi] = useState(false);
   const [ancien, setAncien] = useState(false);
   const [edition, setEdition] = useState(false);
+  useEffect(() => {
+    if (ouvert) setEdition(corriger);
+  }, [ouvert, corriger]);
 
   const importer = async (fichier: File) => {
     setEnvoi(true);
@@ -1408,6 +1433,7 @@ const CSS = `
 .asst .kpi.alert b{color:#ffb4a8}
 .asst .maj{border:1px solid rgba(255,255,255,.6);background:#fff;color:var(--navy);border-radius:6px;padding:6px 14px;font:inherit;font-weight:600;cursor:pointer}
 .asst .maj:hover{background:#e9f2f6}
+.asst .stale .btn.petit{padding:2px 10px;font-size:12px;margin-left:6px;border-color:#8a2a21;color:#8a2a21}
 .asst .stale.err{background:#fde8e5;color:#8a2a21;border-bottom-color:#f2c2bb}
 .asst .lien.clair{color:#cfe3ec;font-size:12px;padding:0;text-decoration:underline}
 .asst .lien-gris{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;padding:0}

@@ -113,7 +113,8 @@ export async function lireConfiguration(): Promise<ConfigMessagerie> {
     valeur = {
       ...technique,
       adresse,
-      motDePasse: env('MESSAGERIE_MOT_DE_PASSE', 'GMAIL_MOT_DE_PASSE_APPLI') ?? '',
+      // Un mot de passe d'application se recopie souvent avec ses espaces (« abcd efgh ijkl mnop ») : on les retire.
+      motDePasse: (env('MESSAGERIE_MOT_DE_PASSE', 'GMAIL_MOT_DE_PASSE_APPLI') ?? '').replace(/\s+/g, ''),
       minutes: minutesServeur,
       adressesService: adressesServeur,
       origine: adresse ? 'serveur' : null,
@@ -150,14 +151,34 @@ export async function connecter(c: Pick<ConfigMessagerie, 'adresse' | 'motDePass
     await imap.connect();
     return imap;
   } catch (e) {
-    console.error('[assistant] Connexion impossible :', (e as Error).message);
-    throw new ConnexionImpossible(
-      (e as { authenticationFailed?: boolean }).authenticationFailed
-        ? 'Connexion à la messagerie refusée : vérifiez l’adresse et le mot de passe'
-        : 'Messagerie injoignable pour le moment'
-    );
+    const err = e as { message?: string; authenticationFailed?: boolean; response?: unknown; responseText?: unknown };
+    const reponse = String(err.response ?? err.responseText ?? '');
+    console.error('[assistant] Connexion impossible :', err.message, reponse);
+    throw new ConnexionImpossible(messageDeRefus(!!err.authenticationFailed, reponse));
   }
 }
+
+/** Traduit la réponse du serveur de messagerie en consigne claire, sans nommer la messagerie. */
+export function messageDeRefus(refusIdentifiants: boolean, reponse: string): string {
+  if (/application.?specific password|app password|mot de passe d.application/i.test(reponse)) {
+    return 'Connexion refusée : la messagerie exige un mot de passe d’application (et non le mot de passe habituel du compte). Activez la validation en deux étapes sur le compte, créez un mot de passe d’application et saisissez-le dans « état et réglages ».';
+  }
+  if (/web ?login required|webalert|please log in via your web browser|continue/i.test(reponse)) {
+    return 'Connexion bloquée par une vérification de sécurité : ouvrez une fois la messagerie de l’assistant dans un navigateur, validez l’alerte de sécurité, puis réessayez.';
+  }
+  if (/too many|rate|limit|throttl|try again later/i.test(reponse)) {
+    return 'Trop de tentatives de connexion : patientez une quinzaine de minutes avant de réessayer.';
+  }
+  if (/imap.*(disabled|désactivé)|not enabled for imap/i.test(reponse)) {
+    return 'L’accès IMAP est désactivé sur la messagerie de l’assistant : activez-le dans ses paramètres, puis réessayez.';
+  }
+  if (refusIdentifiants) return 'Connexion refusée : adresse ou mot de passe incorrect.';
+  return 'Messagerie injoignable pour le moment';
+}
+
+/** Empreinte des identifiants : sert à ne pas réessayer en boucle des identifiants déjà refusés. */
+export const empreinteIdentifiants = (c: Pick<ConfigMessagerie, 'adresse' | 'motDePasse' | 'origine'>) =>
+  createHash('sha256').update(`${c.origine}|${c.adresse}|${c.motDePasse}`).digest('hex');
 
 /** Essaie de se connecter avec des réglages donnés (avant de les enregistrer). */
 export async function testerConnexion(c: Pick<ConfigMessagerie, 'adresse' | 'motDePasse'>): Promise<void> {

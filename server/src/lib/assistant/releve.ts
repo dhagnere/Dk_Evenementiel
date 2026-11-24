@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import { executer, insererUn, pool, requete, requeteUne, transaction } from '../../db.js';
 import { enregistrerFichier, stockageActif } from '../stockage.js';
-import { connecter, ConnexionImpossible, estConfiguree, lireConfiguration, masquer } from './configuration.js';
+import { connecter, ConnexionImpossible, empreinteIdentifiants, estConfiguree, lireConfiguration, masquer } from './configuration.js';
 import { analyseActive, analyser, type DossierPourAnalyse, type ResultatAnalyse } from './analyse.js';
 import { classer, contactsDe, lireConsigne, type Classement, type ContexteClassement } from './classement.js';
 import { detecterEcheances } from './echeances.js';
@@ -337,6 +337,8 @@ export async function traiterMessage(source: Buffer | string, lien = '', bilan?:
 }
 
 let enCours = false;
+/** Identifiants refusés au dernier essai (empreinte), tant qu'ils n'ont pas changé. */
+let identifiantsRefuses: string | null = null;
 
 /** Lit les nouveaux messages de la boîte Gmail. Un seul relevé à la fois, même avec plusieurs conteneurs. */
 export async function relever(par: string): Promise<BilanReleve> {
@@ -360,7 +362,11 @@ export async function relever(par: string): Promise<BilanReleve> {
     let imap;
     try {
       imap = await connecter(c);
+      identifiantsRefuses = null;
     } catch (e) {
+      // Identifiants refusés : la mise à jour automatique se suspend jusqu'à leur modification, pour ne pas
+      // faire bloquer le compte par des tentatives répétées. Le bouton de l'onglet réessaie quand même.
+      if (/refusée|exige|bloquée/.test((e as Error).message)) identifiantsRefuses = empreinteIdentifiants(c);
       throw new ReleveImpossible((e as ConnexionImpossible).message);
     }
     try {
@@ -434,6 +440,7 @@ export function demarrerReleveAutomatique(): void {
     try {
       const c = await lireConfiguration();
       if (!estConfiguree(c) || c.illisible || c.minutes === 0 || enCours) return;
+      if (identifiantsRefuses && identifiantsRefuses === empreinteIdentifiants(c)) return;
       const d = await requeteUne<{ debut: Date | null }>('SELECT max(debut) AS debut FROM assistant_releves');
       if (d?.debut && Date.now() - new Date(d.debut).getTime() < c.minutes * 60_000 - 5_000) return;
       await relever('mise à jour automatique');
@@ -454,6 +461,7 @@ export async function etatReleve() {
   return {
     configure,
     origine: c.origine,
+    suspendue: !!identifiantsRefuses && identifiantsRefuses === empreinteIdentifiants(c),
     illisible: c.illisible,
     adresseMasquee: masquer(c.adresse),
     minutes: c.minutes,
