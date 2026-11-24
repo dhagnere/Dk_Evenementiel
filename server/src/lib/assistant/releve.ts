@@ -1,52 +1,27 @@
-import { ImapFlow } from 'imapflow';
 import type pg from 'pg';
 import { executer, insererUn, pool, requete, requeteUne, transaction } from '../../db.js';
+import { enregistrerFichier, stockageActif } from '../stockage.js';
+import { connecter, ConnexionImpossible, estConfiguree, lireConfiguration, masquer } from './configuration.js';
 import { analyseActive, analyser, type DossierPourAnalyse, type ResultatAnalyse } from './analyse.js';
 import { classer, contactsDe, lireConsigne, type Classement, type ContexteClassement } from './classement.js';
 import { detecterEcheances } from './echeances.js';
 import { formatParis, objetDeFil } from './texte.js';
-import { decoderTransfert, empreinteDe, type MailOrigine, type Transfert } from './transferts.js';
+import { decoderTransfert, empreinteDe, type MailOrigine, type PieceJointe, type Transfert } from './transferts.js';
 
 /**
- * Relevé de la boîte Gmail du service par le serveur : toutes les ASSISTANT_RELEVE_MINUTES minutes
- * (15 par défaut) et à la demande depuis l'onglet. La boîte est lue en lecture seule : rien n'y est
- * marqué, déplacé ni supprimé ; le serveur retient le dernier message lu (UID IMAP).
- *
- * Variables d'environnement :
- * - GMAIL_ADRESSE, GMAIL_MOT_DE_PASSE_APPLI : adresse de la boîte et mot de passe d'application Google
- *   (compte Google → Sécurité → Validation en deux étapes → Mots de passe des applications) ;
- * - ASSISTANT_ADRESSES_SERVICE : adresses du service et du chef de service, séparées par des virgules ;
- *   un mail d'origine qui en part est classé « envoyé » ;
- * - ASSISTANT_RELEVE_MINUTES : intervalle (0 = relevé à la demande seulement) ;
- * - GMAIL_IMAP_HOTE, GMAIL_IMAP_PORT, GMAIL_IMAP_TLS, GMAIL_DOSSIER : réglages avancés (tests).
+ * Mise à jour automatique des dossiers : lecture des nouveaux mails de la messagerie de l'assistant, toutes
+ * les N minutes (réglage à l'écran ou ASSISTANT_RELEVE_MINUTES, 15 par défaut) et à la demande depuis
+ * l'onglet. La messagerie est lue sans rien y modifier ; le serveur retient le dernier message lu (UID).
+ * Réglages : voir configuration.ts. Les pièces jointes sont copiées dans le stockage de l'application
+ * quand il est configuré (S3), pour être téléchargées depuis la fiche du dossier.
  */
-
-export function configReleve() {
-  const adresse = (process.env.GMAIL_ADRESSE ?? '').trim().toLowerCase();
-  const minutes = Number.parseInt(process.env.ASSISTANT_RELEVE_MINUTES ?? '15', 10);
-  return {
-    adresse,
-    motDePasse: process.env.GMAIL_MOT_DE_PASSE_APPLI ?? '',
-    hote: process.env.GMAIL_IMAP_HOTE || 'imap.gmail.com',
-    port: Number.parseInt(process.env.GMAIL_IMAP_PORT ?? '993', 10),
-    tls: process.env.GMAIL_IMAP_TLS !== 'non',
-    dossier: process.env.GMAIL_DOSSIER || 'INBOX',
-    minutes: Number.isFinite(minutes) && minutes >= 0 ? minutes : 15,
-    adressesService: (process.env.ASSISTANT_ADRESSES_SERVICE ?? '')
-      .split(/[,;\s]+/)
-      .map((a) => a.trim().toLowerCase())
-      .filter(Boolean),
-  };
-}
-export const releveConfigure = () => {
-  const c = configReleve();
-  return !!(c.adresse && c.motDePasse);
-};
 
 /** Au plus autant de messages par relevé : le reste attend le relevé suivant. */
 const MESSAGES_PAR_RELEVE = 200;
 /** Les numéros des mails relevés commencent ici, pour ne jamais croiser ceux d'un index importé. */
 const PREMIER_NUMERO = 100_000;
+/** Au-delà, une pièce jointe n'est pas copiée (elle reste citée dans la fiche). */
+const TAILLE_MAX_PIECE = 25 * 1024 * 1024;
 
 export class ReleveImpossible extends Error {}
 
@@ -100,15 +75,40 @@ function classerTransfert(t: Transfert, nouveaux: MailOrigine[], ctx: ContexteCl
 const taille = (o: number) => (o >= 1_048_576 ? `${(o / 1_048_576).toFixed(1).replace('.', ',')} Mo` : `${Math.max(1, Math.round(o / 1024))} Ko`);
 const sansDoublons = (liste: string[]) => [...new Set(liste.map((s) => s.trim()).filter(Boolean))];
 
-/** Retire l'adresse de la boîte relevée des destinataires : elle n'a pas à apparaître à l'écran. */
-function masquerBoite(destinataires: string): string {
-  const boite = configReleve().adresse;
+/** Retire l'adresse de la messagerie de l'assistant des destinataires : elle n'a pas à apparaître à l'écran. */
+function masquerBoite(destinataires: string, boite: string): string {
   if (!boite) return destinataires;
   return destinataires
     .split(/\s*[;,]\s*/)
     .filter((d) => d && !d.toLowerCase().includes(boite))
     .join(', ');
 }
+
+/** Copie les pièces jointes dans le stockage de l'application (si configuré). Une erreur n'arrête pas la mise à jour. */
+async function copierPieces(pieces: PieceJointe[], bilan: BilanReleve): Promise<string[]> {
+  const ids: string[] = [];
+  if (!stockageActif()) return ids;
+  for (const p of pieces) {
+    if (!p.contenu || p.contenu.length === 0 || p.contenu.length > TAILLE_MAX_PIECE) continue;
+    try {
+      const f = await enregistrerFichier({
+        contenu: p.contenu,
+        nomOrigine: p.nom,
+        typeMime: p.type || 'application/octet-stream',
+        module: 'assistant',
+        rattachement: '',
+        deposePar: null,
+      });
+      p.fichierId = f._id;
+      ids.push(f._id);
+    } catch (e) {
+      console.error('[assistant] Pièce jointe non copiée :', (e as Error).message);
+      bilan.erreur = bilan.erreur || "Une pièce jointe n'a pas pu être copiée";
+    }
+  }
+  return ids;
+}
+const sansContenu = (p: PieceJointe) => ({ nom: p.nom, type: p.type, taille: p.taille, ...(p.fichierId ? { fichierId: p.fichierId } : {}) });
 
 /** Prochain code de dossier ouvert par le relevé : M001, M002… */
 async function prochainCode(client: pg.PoolClient): Promise<string> {
@@ -126,7 +126,8 @@ async function enregistrer(
   lien: string,
   ctx: ContexteClassement,
   dossiers: DossierEnBase[],
-  bilan: BilanReleve
+  bilan: BilanReleve,
+  boite = ''
 ): Promise<void> {
   // Mails déjà au registre (transférés deux fois) : ignorés.
   const vus = new Set<string>();
@@ -182,8 +183,15 @@ async function enregistrer(
       .filter((m) => m.sens === 'reçu')
       .map((m) => (m.expediteurAdresse && m.expediteurNom !== m.expediteurAdresse ? `${m.expediteurNom} – ${m.expediteurAdresse}` : m.expediteurNom || m.expediteurAdresse))
   );
+  const fichiers = await copierPieces(recents.flatMap((m) => m.piecesJointes), bilan);
   const pieces = recents.flatMap((m) =>
-    m.piecesJointes.map((p) => ({ nom: p.nom, taille: taille(p.taille), type: p.type, emplacement: "Messagerie de l'assistant" }))
+    m.piecesJointes.map((p) => ({
+      nom: p.nom,
+      taille: taille(p.taille),
+      type: p.type,
+      emplacement: p.fichierId ? 'Téléchargeable' : "Messagerie de l'assistant",
+      ...(p.fichierId ? { fichierId: p.fichierId } : {}),
+    }))
   );
 
   await transaction(async (client) => {
@@ -255,11 +263,11 @@ async function enregistrer(
           source: 'releve',
           empreinte,
           sens: m.sens,
-          destinataires: masquerBoite(m.destinataires).slice(0, 2000),
+          destinataires: masquerBoite(m.destinataires, boite).slice(0, 2000),
           dateEnvoi: m.date,
           corps: m.corps,
           consigne: t.consigne,
-          piecesJointes: m.piecesJointes,
+          piecesJointes: m.piecesJointes.map(sansContenu),
           lien,
           classement: classement.motif,
         },
@@ -308,6 +316,7 @@ async function enregistrer(
       enMemoire.donnees = donnees;
       if (rouvrir) enMemoire.statut = 'À traiter';
     }
+    if (fichiers.length) await executer('UPDATE fichiers SET rattachement = $2 WHERE id = ANY($1)', [fichiers, code], client);
     const ctxD = ctx.dossiers.find((x) => x.code === code);
     if (ctxD) {
       ctxD.contacts = contactsDe(donnees);
@@ -316,14 +325,14 @@ async function enregistrer(
   });
 }
 
-/** Décode et enregistre un message brut (utilisé par le relevé, et par les tests). */
+/** Décode et enregistre un message brut (utilisé par la mise à jour, et par les tests). */
 export async function traiterMessage(source: Buffer | string, lien = '', bilan?: BilanReleve): Promise<BilanReleve> {
   const b = bilan ?? { lus: 0, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, erreur: '' };
-  const c = configReleve();
+  const c = await lireConfiguration();
   const service = [...c.adressesService, c.adresse].filter(Boolean);
   const { ctx, dossiers } = await chargerContexte(service);
   const t = await decoderTransfert(source, service);
-  await enregistrer(t, lien, ctx, dossiers, b);
+  await enregistrer(t, lien, ctx, dossiers, b, c.adresse);
   return b;
 }
 
@@ -331,10 +340,9 @@ let enCours = false;
 
 /** Lit les nouveaux messages de la boîte Gmail. Un seul relevé à la fois, même avec plusieurs conteneurs. */
 export async function relever(par: string): Promise<BilanReleve> {
-  const c = configReleve();
-  if (!c.adresse || !c.motDePasse) {
-    throw new ReleveImpossible("La mise à jour automatique n'est pas configurée sur le serveur");
-  }
+  const c = await lireConfiguration();
+  if (c.illisible) throw new ReleveImpossible('Réglages de la messagerie à ressaisir (état et réglages)');
+  if (!estConfiguree(c)) throw new ReleveImpossible("La messagerie de l'assistant n'est pas encore configurée (état et réglages)");
   if (enCours) throw new ReleveImpossible('Une mise à jour est déjà en cours');
   enCours = true;
   const verrou = await pool.connect();
@@ -349,26 +357,11 @@ export async function relever(par: string): Promise<BilanReleve> {
     const { ctx, dossiers } = await chargerContexte(service);
     const etat = await requeteUne<{ uidValidity: string; dernierUid: number }>("SELECT * FROM assistant_releve_etat WHERE cle = 'gmail'");
 
-    const imap = new ImapFlow({
-      host: c.hote,
-      port: c.port,
-      secure: c.tls,
-      auth: { user: c.adresse, pass: c.motDePasse },
-      logger: false,
-      connectionTimeout: 30_000,
-      greetingTimeout: 15_000,
-      socketTimeout: 120_000,
-    });
-    imap.on('error', () => undefined);
+    let imap;
     try {
-      await imap.connect();
+      imap = await connecter(c);
     } catch (e) {
-      // Le détail technique reste dans le journal du serveur : rien sur la messagerie utilisée n'apparaît à l'écran.
-      console.error('[assistant] Connexion impossible :', (e as Error).message);
-      const texte = (e as { authenticationFailed?: boolean }).authenticationFailed
-        ? 'Connexion à la messagerie refusée : identifiants à vérifier dans la configuration du serveur'
-        : 'Messagerie injoignable pour le moment, nouvel essai à la prochaine mise à jour';
-      throw new ReleveImpossible(texte);
+      throw new ReleveImpossible((e as ConnexionImpossible).message);
     }
     try {
       const boite = await imap.getMailboxLock(c.dossier);
@@ -385,7 +378,7 @@ export async function relever(par: string): Promise<BilanReleve> {
             const lien = '';
             try {
               const t = await decoderTransfert(msg.source, service);
-              await enregistrer(t, lien, ctx, dossiers, bilan);
+              await enregistrer(t, lien, ctx, dossiers, bilan, c.adresse);
             } catch (e) {
               console.error(`[assistant] Message ${uid} illisible :`, (e as Error).message);
               bilan.erreur = bilan.erreur || "Un message n'a pas pu être lu";
@@ -431,28 +424,42 @@ export async function relever(par: string): Promise<BilanReleve> {
 
 let minuteur: NodeJS.Timeout | null = null;
 
-/** Relevé automatique, si la boîte est configurée et l'intervalle non nul. */
+/**
+ * Mise à jour automatique : chaque minute, le serveur regarde si l'intervalle réglé est écoulé depuis la
+ * dernière mise à jour. Un réglage modifié à l'écran est donc pris en compte sans redémarrage.
+ */
 export function demarrerReleveAutomatique(): void {
-  const c = configReleve();
-  if (!releveConfigure() || c.minutes === 0 || minuteur) return;
-  const tour = () => void relever('mise à jour automatique').catch(() => undefined);
-  setTimeout(tour, 30_000);
-  minuteur = setInterval(tour, c.minutes * 60_000);
-  console.log(`[assistant] Relevé de ${c.adresse} toutes les ${c.minutes} min`);
+  if (minuteur) return;
+  const tour = async () => {
+    try {
+      const c = await lireConfiguration();
+      if (!estConfiguree(c) || c.illisible || c.minutes === 0 || enCours) return;
+      const d = await requeteUne<{ debut: Date | null }>('SELECT max(debut) AS debut FROM assistant_releves');
+      if (d?.debut && Date.now() - new Date(d.debut).getTime() < c.minutes * 60_000 - 5_000) return;
+      await relever('mise à jour automatique');
+    } catch {
+      // déjà noté dans l'historique
+    }
+  };
+  minuteur = setInterval(() => void tour(), 60_000);
 }
 
-/** Pour l'onglet : configuration (sans secret) et derniers relevés. */
+/** Pour l'onglet : réglages (sans secret, adresse masquée) et dernières mises à jour. */
 export async function etatReleve() {
-  const c = configReleve();
+  const c = await lireConfiguration();
   const derniers = await requete('SELECT * FROM assistant_releves ORDER BY debut DESC LIMIT 10');
   const dernier = derniers[0] as { debut?: Date } | undefined;
-  const prochain =
-    releveConfigure() && c.minutes > 0 && dernier?.debut ? new Date(new Date(dernier.debut).getTime() + c.minutes * 60_000) : null;
+  const configure = estConfiguree(c) && !c.illisible;
+  const prochain = configure && c.minutes > 0 && dernier?.debut ? new Date(new Date(dernier.debut).getTime() + c.minutes * 60_000) : null;
   return {
-    configure: releveConfigure(),
+    configure,
+    origine: c.origine,
+    illisible: c.illisible,
+    adresseMasquee: masquer(c.adresse),
     minutes: c.minutes,
     adressesService: c.adressesService,
     analyse: analyseActive(),
+    stockage: stockageActif(),
     derniers,
     prochain,
   };

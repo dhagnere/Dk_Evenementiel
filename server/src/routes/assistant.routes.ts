@@ -8,6 +8,16 @@ import { creerProjet, ErreurMetier, jalonDuDecalage, schemaInfos } from './proje
 import { mots } from '../lib/assistant/texte.js';
 import { BRANCHES } from '../lib/assistant/classement.js';
 import { etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
+import {
+  ConnexionImpossible,
+  enregistrerConfiguration,
+  listeAdresses,
+  lireConfiguration,
+  motDePasseEnregistre,
+  supprimerConfiguration,
+  testerConnexion,
+} from '../lib/assistant/configuration.js';
+import { lireObjet, stockageActif } from '../lib/stockage.js';
 
 /**
  * Onglet Assistant, réservé aux super-administrateurs.
@@ -653,5 +663,69 @@ assistantRouter.put(
     );
     await consigner(identiteDeRequete(req), 'assistant_reclassement', d.code, parsed.data);
     res.json({ ok: true, message: 'Dossier reclassé' });
+  })
+);
+
+// --- Réglages de la messagerie de l'assistant -------------------------------------------------------
+
+const schemaConfiguration = z.object({
+  adresse: z.string().trim().email().max(200),
+  motDePasse: z.string().max(200).optional(),
+  minutes: z.number().int().min(0).max(1440),
+  adressesService: z.string().max(2000).optional().default(''),
+});
+
+/**
+ * Enregistre les réglages saisis à l'écran, après un essai de connexion. Le mot de passe n'est jamais
+ * renvoyé ; laissé vide, l'ancien est conservé.
+ */
+assistantRouter.put(
+  '/configuration',
+  traiter(async (req, res) => {
+    const parsed = schemaConfiguration.safeParse(req.body);
+    if (!parsed.success) return invalide(res, 'Adresse ou fréquence invalide');
+    const { adresse, minutes } = parsed.data;
+    const motDePasse = (parsed.data.motDePasse ?? '').replace(/\s+/g, '');
+    const actuelle = await lireConfiguration();
+    const memeAdresse = actuelle.origine === 'ecran' && actuelle.adresse === adresse.toLowerCase();
+    const pourEssai = motDePasse || (memeAdresse ? await motDePasseEnregistre() : '');
+    if (!pourEssai) return invalide(res, 'Indiquez le mot de passe');
+    try {
+      await testerConnexion({ adresse, motDePasse: pourEssai });
+    } catch (e) {
+      if (e instanceof ConnexionImpossible) return void res.json({ ok: false, message: e.message });
+      throw e;
+    }
+    const adressesService = listeAdresses(parsed.data.adressesService);
+    await enregistrerConfiguration({ adresse, motDePasse: motDePasse || undefined, minutes, adressesService }, req.session!.nom);
+    await consigner(identiteDeRequete(req), 'assistant_configuration', 'messagerie', { minutes, adressesService: adressesService.length });
+    res.json({ ok: true, message: 'Connexion réussie, réglages enregistrés' });
+  })
+);
+
+assistantRouter.delete(
+  '/configuration',
+  traiter(async (req, res) => {
+    await supprimerConfiguration();
+    await consigner(identiteDeRequete(req), 'assistant_configuration', 'messagerie', { supprimee: true });
+    res.json({ ok: true, message: 'Réglages supprimés' });
+  })
+);
+
+/** Pièce jointe copiée par la mise à jour automatique. */
+assistantRouter.get(
+  '/fichiers/:id',
+  traiter(async (req, res) => {
+    const f = await requeteUne<{ cleStockage: string; typeMime: string; nomOrigine: string }>(
+      "SELECT * FROM fichiers WHERE id = $1 AND module = 'assistant'",
+      [req.params.id]
+    );
+    if (!f) return void res.status(404).json({ ok: false, message: 'Fichier introuvable' });
+    if (!stockageActif()) return void res.status(503).json({ ok: false, message: 'Stockage des fichiers non configuré' });
+    const flux = await lireObjet(f.cleStockage);
+    res.setHeader('Content-Type', f.typeMime);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(f.nomOrigine)}`);
+    await new Promise<void>((ok, ko) => flux.on('error', ko).on('end', () => ok()).pipe(res));
   })
 );

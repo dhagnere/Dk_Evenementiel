@@ -261,6 +261,10 @@ const TABLES = {
     colonnes: ['cle', 'uidValidity', 'dernierUid', 'createdAt', 'updatedAt'],
     json: [],
   },
+  assistant_config: {
+    colonnes: ['cle', 'valeur', 'par', 'createdAt', 'updatedAt'],
+    json: ['valeur'],
+  },
   assistant_releves: {
     colonnes: ['_id', 'debut', 'fin', 'lus', 'nouveaux', 'doublons', 'dossiersCrees', 'analyses', 'erreur', 'par', 'createdAt', 'updatedAt'],
     json: [],

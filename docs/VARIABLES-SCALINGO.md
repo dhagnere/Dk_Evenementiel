@@ -29,21 +29,23 @@ courriel ni une messagerie.
 | `S3_ACCESS_KEY_ID` | `<clé d'accès Scaleway>` | Clé limitée au stockage objet |
 | `S3_SECRET_ACCESS_KEY` | `<clé secrète Scaleway>` | |
 
-### Onglet Assistant : boîte Gmail du service
+### Onglet Assistant : messagerie de l'assistant
 
-Relevé automatique des mails transférés (voir [`ASSISTANT.md`](ASSISTANT.md)). Sans ces variables, l'onglet fonctionne
-mais n'affiche que les index importés à la main.
+Inutile si les réglages sont saisis dans l'onglet Assistant (« état et réglages »), ce qui est la voie conseillée : rien
+ne s'écrit alors dans Scalingo. Variante serveur, si on préfère :
 
 | Variable | Valeur | Remarque |
 |---|---|---|
-| `GMAIL_ADRESSE` | `<adresse Gmail du service>` | Boîte dédiée à l'application |
-| `GMAIL_MOT_DE_PASSE_APPLI` | `<mot de passe d'application Google>` | 16 caractères ; compte Google → Sécurité → Validation en deux étapes → Mots de passe des applications |
+| `MESSAGERIE_ADRESSE` | `<adresse de la messagerie de l'assistant>` | |
+| `MESSAGERIE_MOT_DE_PASSE` | `<mot de passe d'application>` | |
 | `ASSISTANT_ADRESSES_SERVICE` | `<adresse pro du chef de service>,<adresse de la boîte du service>` | Les mails qui en partent sont classés « envoyés » |
-| `ASSISTANT_RELEVE_MINUTES` | `15` | Facultative ; `0` = relevé à la demande seulement |
+| `ASSISTANT_RELEVE_MINUTES` | `15` | Facultative ; `0` = mise à jour à la demande seulement |
+| `MESSAGERIE_SERVEUR` | | Facultative ; serveur IMAP si ce n'est pas le réglage par défaut |
 | `ANALYSE_API_CLE` | `<clé du service d'analyse>` | Facultative, payante : résumés, actions et vigilance rédigés. Accord DSI et registre RGPD avant activation |
 | `ANALYSE_MODELE` | | Facultative : modèle du service d'analyse |
 
-En recette, utiliser une boîte Gmail de test plutôt que la boîte réelle du service.
+Les pièces jointes des mails sont copiées dans le bucket S3 déjà configuré ci-dessus. En recette, utiliser une
+messagerie de test plutôt que celle du service.
 
 ## Production — `dk-evenementiel`
 

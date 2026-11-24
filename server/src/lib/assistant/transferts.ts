@@ -18,6 +18,10 @@ export interface PieceJointe {
   nom: string;
   type: string;
   taille: number;
+  /** Contenu, pour la copie dans le stockage de l'application ; jamais écrit en base. */
+  contenu?: Buffer;
+  /** Fichier copié dans le stockage de l'application. */
+  fichierId?: string;
 }
 
 export interface MailOrigine {
@@ -159,7 +163,7 @@ const premiereAdresse = (a: AddressObject | AddressObject[] | undefined) => {
 const estMailJoint = (p: Attachment) => p.contentType === 'message/rfc822' || /\.eml$/i.test(p.filename ?? '');
 // Logos de signature et images collées dans le corps : pas des pièces jointes utiles.
 const estDecor = (p: Attachment) => p.related || (p.contentDisposition === 'inline' && p.contentType.startsWith('image/'));
-const versPieceJointe = (p: Attachment): PieceJointe => ({ nom: p.filename || 'sans nom', type: p.contentType, taille: p.size });
+const versPieceJointe = (p: Attachment): PieceJointe => ({ nom: p.filename || 'sans nom', type: p.contentType, taille: p.size, contenu: p.content });
 
 /**
  * Décode un message de la boîte Gmail. `adressesService` : adresses du service et du chef de service ;

@@ -19,6 +19,7 @@ interface PieceJointe {
   type?: string;
   taille?: string;
   emplacement?: string;
+  fichierId?: string;
 }
 interface LigneBudget {
   type?: string;
@@ -83,7 +84,7 @@ interface Mail {
   sens: string;
   destinataires: string;
   consigne: string;
-  piecesJointes: { nom: string; type: string; taille: number }[];
+  piecesJointes: { nom: string; type: string; taille: number; fichierId?: string }[];
   classement: string;
 }
 interface Releve {
@@ -100,6 +101,12 @@ interface Releve {
 }
 interface EtatReleve {
   configure: boolean;
+  /** Réglages saisis à l'écran ou posés sur le serveur. */
+  origine: 'ecran' | 'serveur' | null;
+  illisible: boolean;
+  adresseMasquee: string;
+  /** Pièces jointes copiées dans l'application. */
+  stockage: boolean;
   minutes: number;
   adressesService: string[];
   analyse: boolean;
@@ -1009,11 +1016,19 @@ function FicheDossier({
         {(f.pieces_jointes ?? []).length ? (
           (f.pieces_jointes ?? []).map((p, i) => (
             <div className="pj" key={i}>
-              <div>{p.nom}</div>
+              <div>
+                {p.fichierId ? (
+                  <a href={`/api/assistant/fichiers/${p.fichierId}`} target="_blank" rel="noreferrer">
+                    {p.nom}
+                  </a>
+                ) : (
+                  p.nom
+                )}
+              </div>
               <span>
                 {p.type} · {p.taille}
                 <br />
-                {p.emplacement || 'à récupérer'}
+                {p.fichierId ? 'cliquez pour ouvrir' : p.emplacement || 'à récupérer'}
               </span>
             </div>
           ))
@@ -1091,7 +1106,24 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
           </div>
           {m.source === 'releve' && (
             <div className="details">
-              {m.piecesJointes.length > 0 && <span>📎 {m.piecesJointes.map((p) => `${p.nom} (${ko(p.taille)})`).join(', ')}</span>}
+              {m.piecesJointes.length > 0 && (
+                <span>
+                  📎{' '}
+                  {m.piecesJointes.map((p, i) => (
+                    <span key={i}>
+                      {i > 0 && ', '}
+                      {p.fichierId ? (
+                        <a href={`/api/assistant/fichiers/${p.fichierId}`} target="_blank" rel="noreferrer">
+                          {p.nom}
+                        </a>
+                      ) : (
+                        p.nom
+                      )}{' '}
+                      ({ko(p.taille)})
+                    </span>
+                  ))}
+                </span>
+              )}
               <span className="muted">{MOTIFS[m.classement] ?? m.classement}</span>
               <select
                 value=""
@@ -1125,6 +1157,73 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
 
 // --- Mise à jour ---------------------------------------------------------------------------------
 
+function Reglages({ releve, annuler, apres }: { releve: EtatReleve; annuler?: () => void; apres: () => void }) {
+  const [adresse, setAdresse] = useState('');
+  const [motDePasse, setMotDePasse] = useState('');
+  const [service, setService] = useState(releve.adressesService.join(', '));
+  const [minutes, setMinutes] = useState(releve.minutes || 15);
+  const [envoi, setEnvoi] = useState(false);
+  const enregistrer = async () => {
+    setEnvoi(true);
+    try {
+      const r = await api.put<{ ok: boolean; message: string }>('/assistant/configuration', {
+        adresse: adresse.trim(),
+        motDePasse: motDePasse || undefined,
+        minutes,
+        adressesService: service,
+      });
+      if (r.ok) {
+        message.success(r.message);
+        setMotDePasse('');
+        apres();
+      } else message.error(r.message, 8);
+    } finally {
+      setEnvoi(false);
+    }
+  };
+  return (
+    <div className="reglages">
+      <Text strong>{releve.configure ? 'Modifier les réglages' : 'Configurer la messagerie de l’assistant'}</Text>
+      {releve.illisible && <div className="stale err" style={{ margin: '8px 0' }}>Les réglages enregistrés ne sont plus lisibles : ressaisissez-les.</div>}
+      {!releve.configure && !releve.illisible && (
+        <Paragraph type="secondary" style={{ margin: '4px 0 10px' }}>
+          Saisissez l'adresse et le mot de passe de la messagerie de l'assistant. La connexion est essayée avant l'enregistrement ; le mot de
+          passe est chiffré et ne s'affiche plus ensuite.
+        </Paragraph>
+      )}
+      <label>
+        Adresse de la messagerie
+        <input type="email" autoComplete="off" value={adresse} onChange={(e) => setAdresse(e.target.value)} placeholder={releve.adresseMasquee || 'adresse@…'} />
+      </label>
+      <label>
+        Mot de passe {releve.configure && releve.origine === 'ecran' ? '(laisser vide pour garder l’actuel)' : ''}
+        <input type="password" autoComplete="new-password" value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)} />
+      </label>
+      <label>
+        Vos adresses d'envoi (séparées par des virgules)
+        <input type="text" value={service} onChange={(e) => setService(e.target.value)} placeholder="prenom.nom@cud.fr, evenementiel@…" />
+      </label>
+      <label>
+        Fréquence
+        <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
+          {[5, 15, 30, 60, 120].map((m) => (
+            <option key={m} value={m}>
+              toutes les {m} minutes
+            </option>
+          ))}
+          <option value={0}>à la demande seulement</option>
+        </select>
+      </label>
+      <Space style={{ marginTop: 10 }}>
+        <Button type="primary" loading={envoi} disabled={!adresse.trim()} onClick={enregistrer}>
+          Tester et enregistrer
+        </Button>
+        {annuler && <Button onClick={annuler}>Annuler</Button>}
+      </Space>
+    </div>
+  );
+}
+
 function PanneauMiseAJour({
   ouvert,
   fermer,
@@ -1148,6 +1247,7 @@ function PanneauMiseAJour({
 }) {
   const [envoi, setEnvoi] = useState(false);
   const [ancien, setAncien] = useState(false);
+  const [edition, setEdition] = useState(false);
 
   const importer = async (fichier: File) => {
     setEnvoi(true);
@@ -1168,7 +1268,17 @@ function PanneauMiseAJour({
       <div className="asst panneau">
       <style>{CSS}</style>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        {releve.configure ? (
+        {(!releve.configure || edition) && (
+          <Reglages
+            releve={releve}
+            annuler={releve.configure ? () => setEdition(false) : undefined}
+            apres={() => {
+              setEdition(false);
+              apres();
+            }}
+          />
+        )}
+        {releve.configure && !edition ? (
           <div>
             <Paragraph style={{ marginBottom: 8 }}>
               L'application met à jour les dossiers {releve.minutes ? `toutes les ${releve.minutes} minutes` : 'à la demande'} et range
@@ -1183,15 +1293,17 @@ function PanneauMiseAJour({
             <div className="muted petit" style={{ marginTop: 8 }}>
               Analyse complète (résumés, actions, points de vigilance) : {releve.analyse ? 'activée' : 'non activée, classement par règles'}.
               {releve.adressesService.length > 0 && ` Mails partis de ${releve.adressesService.join(', ')} : classés « envoyés ».`}
+              {releve.stockage ? ' Pièces jointes conservées dans l’application.' : ' Pièces jointes : stockage de fichiers non configuré, seuls les noms sont notés.'}
+            </div>
+            <div className="petit" style={{ marginTop: 8 }}>
+              Messagerie {releve.adresseMasquee}
+              {releve.origine === 'serveur' ? ' (réglée sur le serveur)' : ''} ·{' '}
+              <button className="lien" onClick={() => setEdition(true)}>
+                modifier les réglages
+              </button>
             </div>
           </div>
-        ) : (
-          <div>
-            <Paragraph>
-              La mise à jour automatique n'est pas configurée sur le serveur : voir la documentation de déploiement de l'application.
-            </Paragraph>
-          </div>
-        )}
+        ) : null}
 
         <div>
           <Text strong>Consignes de classement</Text>
@@ -1369,6 +1481,9 @@ const CSS = `
 .asst pre.draft{white-space:pre-wrap;background:#f6f7f4;border:1px solid var(--line);border-radius:5px;padding:10px;font-size:13px;line-height:1.5;margin:0;font-family:inherit}
 .asst textarea{width:100%;min-height:70px}
 .asst.panneau{background:none;overflow:visible}
+.asst .reglages{background:#f6f7f4;border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.asst .reglages label{display:block;margin-top:8px;font-size:13px;color:var(--muted)}
+.asst .reglages input,.asst .reglages select{display:block;width:100%;margin-top:3px;font:inherit;border:1px solid var(--line);border-radius:5px;padding:7px 9px;background:#fff;color:var(--ink)}
 .asst ul.aide{margin:6px 0 0;padding-left:18px}
 .asst ul.aide li{margin-bottom:4px}
 .asst ul.aide code{background:var(--sand);border-radius:3px;padding:0 4px}

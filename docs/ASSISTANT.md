@@ -5,29 +5,34 @@ chaque mail utile devient une ligne du registre et rejoint un dossier, que l'on 
 
 ## Principe
 
-Le chef de service **transfère à la main** les mails utiles de sa messagerie professionnelle vers une **adresse Gmail
-dédiée** au service (la redirection automatique vers l'extérieur est bloquée par Microsoft 365). Cette adresse ne sert
-qu'à l'application ; les réponses partent toujours de la messagerie professionnelle.
+Le chef de service **transfère à la main** les mails utiles de sa messagerie professionnelle vers une **messagerie
+dédiée à l'assistant**. Cette adresse ne sert qu'à l'application ; les réponses partent toujours de la messagerie
+professionnelle.
 
-**L'application lit elle-même cette boîte** : toutes les 15 minutes, et à la demande avec le bouton **Mettre à jour
-l'assistant**. Aucun fichier à déposer, aucun poste à laisser allumé. La boîte est lue sans rien y modifier (ni marquer, ni
-déplacer, ni supprimer) ; le serveur retient seulement le dernier message lu.
+**L'application lit elle-même cette messagerie** : toutes les 15 minutes (réglable), et à la demande avec le bouton
+**Mettre à jour l'assistant**. Aucun fichier à déposer, aucun poste à laisser allumé. La messagerie est lue sans rien y
+modifier ; le serveur retient seulement le dernier message lu.
+
+Les écrans ne nomment jamais la messagerie utilisée ni la façon dont les mails arrivent : on y parle de « mise à jour
+automatique ». L'adresse configurée n'apparaît que masquée (« se•••@••• »).
 
 ## Mise en place (une fois)
 
-1. Créer l'adresse Gmail du service et activer la **validation en deux étapes** sur ce compte Google.
-2. Créer un **mot de passe d'application** : compte Google → Sécurité → Validation en deux étapes → Mots de passe des
-   applications. Google affiche 16 caractères, à coller directement dans Scalingo.
-3. Dans Scalingo, onglet Environnement de l'application, ajouter :
+1. Activer la validation en deux étapes sur le compte de la messagerie de l'assistant et y créer un **mot de passe
+   d'application** (accès par protocole IMAP).
+2. Dans l'onglet Assistant, cliquer sur **état et réglages** et remplir : adresse de la messagerie, mot de passe, vos
+   adresses d'envoi (pour reconnaître vos propres messages), fréquence. **Tester et enregistrer** essaie la connexion
+   avant d'enregistrer ; en cas de refus, rien n'est enregistré.
+3. Le mot de passe est chiffré en base (AES-256-GCM, clé dérivée de `JWT_SECRET`) et ne s'affiche plus. Pour modifier
+   les autres réglages, laisser le champ vide : l'ancien mot de passe est conservé. Si `JWT_SECRET` change, l'onglet
+   demande de ressaisir les réglages.
 
-   | Variable | Valeur |
-   |---|---|
-   | `GMAIL_ADRESSE` | adresse Gmail du service |
-   | `GMAIL_MOT_DE_PASSE_APPLI` | mot de passe d'application (jamais ailleurs que dans Scalingo) |
-   | `ASSISTANT_ADRESSES_SERVICE` | adresse professionnelle du chef de service et de la boîte du service, séparées par des virgules |
-   | `ASSISTANT_RELEVE_MINUTES` | facultatif : intervalle du relevé automatique (15 par défaut, 0 = à la demande seulement) |
+Variante sans écran : les variables `MESSAGERIE_ADRESSE`, `MESSAGERIE_MOT_DE_PASSE`, `ASSISTANT_ADRESSES_SERVICE` et
+`ASSISTANT_RELEVE_MINUTES` sur le serveur (voir `VARIABLES-SCALINGO.md`). Les réglages saisis à l'écran l'emportent.
 
-4. Redémarrer l'application. L'onglet affiche alors « Boîte … · automatique toutes les 15 min ».
+Réglages techniques, sur le serveur seulement : `MESSAGERIE_SERVEUR` (serveur IMAP, valeur par défaut dans configuration.ts),
+`MESSAGERIE_PORT` (993), `MESSAGERIE_TLS` (`non` pour désactiver le chiffrement, tests uniquement), `MESSAGERIE_DOSSIER`
+(`INBOX`).
 
 ## Transférer un mail
 
@@ -41,8 +46,9 @@ déplacer, ni supprimer) ; le serveur retient seulement le dernier message lu.
 - **Vos propres envois** : un mail d'origine parti d'une adresse de `ASSISTANT_ADRESSES_SERVICE` est classé « envoyé ».
 - **Doublons** : un mail déjà au registre (même expéditeur, même date à la minute, même objet) n'est pas ajouté une
   seconde fois.
-- **Pièces jointes** : leur nom et leur taille sont notés dans la fiche ; le fichier reste dans Gmail (lien « ouvrir dans
-  Gmail » sur chaque mail).
+- **Pièces jointes** : quand le stockage de fichiers de l'application est configuré (variables `S3_*`), chaque pièce
+  jointe (25 Mo au plus) y est copiée et s'ouvre d'un clic depuis la fiche du dossier ou depuis le mail. Le
+  téléchargement est réservé aux super-administrateurs. Sans stockage, seuls le nom et la taille sont notés.
 
 ### La consigne au-dessus du transfert
 
@@ -93,20 +99,20 @@ Avant de l'activer : accord de la DSI, et inscription au registre RGPD (le texte
 ## Ce que montre l'onglet
 
 - **Bandeau** : dossiers ouverts, à traiter, échéances à 7 jours, points de vigilance (chaque chiffre filtre la liste),
-  boîte relevée, date du dernier relevé et lien « état et réglages ». Un avertissement signale un relevé en erreur ou
+  date de la dernière mise à jour et lien « état et réglages ». Un avertissement signale un relevé en erreur ou
   aucun relevé réussi depuis plus de 7 jours.
 - **Dossiers** : cartes groupées par événement, dossiers à classer en tête, puis du plus proche au plus lointain.
-- **Échéances**, **Suivi budgétaire**, **Registre des mails** (↘ reçu, ↗ envoyé, ✉ relevé dans Gmail), **Annuaire
+- **Échéances**, **Suivi budgétaire**, **Registre des mails** (↘ reçu, ↗ envoyé, ✉ arrivé par la mise à jour automatique), **Annuaire
   prestataires**, **Rattachement aux projets**.
-- **État et réglages** : boîte relevée, relevé immédiat, aide au transfert, dix derniers relevés (messages lus, mails
-  ajoutés, dossiers ouverts, doublons, erreurs).
+- **État et réglages** : réglages de la messagerie, mise à jour immédiate, consignes de classement, dix dernières mises à
+  jour (messages lus, mails ajoutés, dossiers ouverts, doublons, erreurs).
 
 ## Ancien mode : import d'un index de l'assistant
 
 L'import d'un `donnees.json` produit par l'assistant de messagerie reste possible (« état et réglages » → « Importer un
 index de l'assistant »). Il remplace les fiches de l'assistant (D01…) et leurs mails, mais conserve :
 
-- les dossiers et mails du relevé Gmail (les mails relevés sont raccrochés aux fiches réécrites) ;
+- les dossiers et mails de la mise à jour automatique (raccrochés aux fiches réécrites) ;
 - le projet rattaché à chaque événement ;
 - les échéances et actions déjà transformées en tâches ;
 - les notes, et les statuts corrigés tant que l'assistant ne les a pas repris.
@@ -158,6 +164,6 @@ sans modification de l'application.
 ## Données personnelles
 
 Le registre contient des noms, des adresses électroniques et le texte de mails de tiers (préfecture, prestataires,
-associations). C'est pourquoi l'onglet est réservé aux super-administrateurs. La boîte Gmail dédiée est hébergée par
-Google, hors du système d'information de la collectivité : n'y transférer que le courrier utile au suivi des dossiers. Ce traitement est à inscrire au registre
+associations). C'est pourquoi l'onglet est réservé aux super-administrateurs. La messagerie de l'assistant est hébergée
+hors du système d'information de la collectivité : n'y transférer que le courrier utile au suivi des dossiers. Ce traitement est à inscrire au registre
 RGPD de la collectivité, avec le délégué à la protection des données.
