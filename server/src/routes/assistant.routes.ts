@@ -9,7 +9,7 @@ import { creerProjet, ErreurMetier, jalonDuDecalage, schemaInfos } from './proje
 /**
  * Onglet Assistant, réservé aux super-administrateurs.
  *
- * L'assistant de messagerie du service lit la boîte Outlook et produit un index complet (`donnees.json`) :
+ * L'assistant de messagerie du service lit la boîte Gmail dédiée (alimentée par la boîte Outlook du service) et produit un index complet (`donnees.json`) :
  * événements, dossiers, mails, prestataires. L'application le reçoit tel quel, le rend consultable et le
  * relie aux projets : rattachement d'un événement à un projet (ou création du projet), transformation
  * d'une échéance ou d'une action en tâche du rétroplanning.

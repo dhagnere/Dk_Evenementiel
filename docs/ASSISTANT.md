@@ -5,14 +5,25 @@ messagerie du service événementiel.
 
 ## Ce que fait l'assistant, et ce que fait l'application
 
-L'assistant n'est pas un programme de l'application. C'est une conversation Claude qui lit la boîte Outlook du service
-dans Chrome, sur le poste du chef de service, à la demande (« mets à jour l'assistant ») :
+L'assistant n'est pas un programme de l'application. C'est une conversation qui lit, à la demande (« mets à jour
+l'assistant »), une **adresse Gmail dédiée** au service. Cette adresse ne sert qu'à l'assistant : elle reçoit, par une
+règle de redirection, les mails de la boîte Outlook du service. Les réponses se font toujours depuis la messagerie
+professionnelle, à la main. Aucun poste n'a besoin d'être allumé : la mise à jour se lance depuis n'importe quel appareil.
 
-1. Il lit les conversations reçues et les mails envoyés depuis la dernière mise à jour.
+1. Il lit les mails arrivés dans la boîte Gmail depuis la dernière mise à jour.
 2. Il les regroupe en dossiers, par événement et par branche : résumé, actions, échéances, points de vigilance, contacts,
    pièces jointes, budget, historique, brouillon de réponse.
-3. Il range les pièces jointes utiles dans OneDrive > Assistant > [événement].
-4. Il produit un index complet, `donnees.json`, dans `Documents\Evenementiel_Assistant\99_Index`.
+3. Il renvoie un index complet, `donnees.json`, à déposer dans l'onglet.
+
+### Mise en place de la boîte Gmail
+
+- Créer l'adresse Gmail du service, puis la connecter à l'assistant (paramètres, rubrique Connecteurs, Gmail).
+- Dans Outlook Web, boîte du service : Paramètres → Courrier → Règles → nouvelle règle « Rediriger vers » l'adresse
+  Gmail. « Rediriger » garde l'expéditeur et la date d'origine ; « Transférer » les remplace par la boîte du service.
+- Si Microsoft 365 refuse la redirection externe (message d'erreur 550 5.7.520), la politique de la collectivité la
+  bloque : il faut une dérogation de la DSI, ou transférer à la main les mails utiles.
+- Les mails **envoyés** ne passent pas par une règle de réception. Pour que l'assistant les voie, mettre l'adresse Gmail
+  en copie cachée des envois importants.
 
 L'application reçoit cet index et l'affiche comme l'index d'origine de l'assistant :
 
@@ -36,9 +47,8 @@ Le bouton **Mettre à jour l'assistant** ouvre un panneau en deux étapes.
 1. **Lancer la lecture des mails.** Le panneau donne le message à envoyer à l'assistant (bouton copier), avec la date du
    dernier import. Si des statuts ont été corrigés ou des notes saisies, le message le signale et le panneau propose de
    télécharger le fichier de corrections à transmettre à l'assistant.
-2. **Déposer le nouvel index.** Glisser `donnees.json` (ou `donnees.js`) dans la zone de dépôt. L'assistant peut le faire
-   lui-même : il pilote déjà Chrome et peut ouvrir l'application, aller dans Administration → Assistant et déposer le
-   fichier.
+2. **Déposer le nouvel index.** Glisser le `donnees.json` (ou `donnees.js`) renvoyé par l'assistant dans la zone de
+   dépôt.
 
 Chaque import **remplace** l'index. Restent acquis d'un import à l'autre :
 

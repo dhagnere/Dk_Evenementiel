@@ -951,7 +951,7 @@ function PanneauMiseAJour({
   const consigne =
     `Mets à jour l'assistant${depuis ? ` depuis le ${depuis}` : ''}` +
     (nbCorrections ? ', en tenant compte de mes corrections (fichier corrections_dossiers joint)' : '') +
-    ", puis dépose le nouveau donnees.json dans Dk Événementiel : Administration → Assistant → Mettre à jour l'assistant.";
+    ' : lis la boîte Gmail du service et envoie-moi le nouveau donnees.json.';
 
   const importer = async (fichier: File) => {
     setEnvoi(true);
@@ -973,7 +973,8 @@ function PanneauMiseAJour({
         <div>
           <Text strong>1. Lancer la lecture des mails</Text>
           <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-            L'assistant lit la boîte Outlook du service dans votre Chrome. Ouvrez votre conversation avec lui et envoyez-lui ce message :
+            L'assistant lit la boîte Gmail dédiée, où arrivent les mails du service. Envoyez-lui ce message, depuis n'importe quel
+            appareil :
           </Paragraph>
           <Paragraph copyable={{ text: consigne, tooltips: ['Copier le message', 'Copié'] }} style={{ background: '#f6f7f4', padding: 12, borderRadius: 6 }}>
             {consigne}
@@ -987,7 +988,7 @@ function PanneauMiseAJour({
         <div>
           <Text strong>2. Déposer le nouvel index</Text>
           <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-            L'assistant le dépose lui-même ici. À défaut, prenez le fichier dans Documents\Evenementiel_Assistant\99_Index.
+            Déposez ici le donnees.json que l'assistant vous a renvoyé.
           </Paragraph>
           <Upload.Dragger
             accept=".json,.js"
