@@ -23,6 +23,7 @@ import { projetsRouter } from './routes/projets.routes.js';
 import { fichiersRouter } from './routes/fichiers.routes.js';
 import { liaisonsRouter } from './routes/liaisons.routes.js';
 import { assistantRouter } from './routes/assistant.routes.js';
+import { demarrerReleveAutomatique } from './lib/assistant/releve.js';
 import { demarrerSauvegardeQuotidienne } from './lib/backup.js';
 import { demarrerPurgeQuotidienne } from './lib/rgpd.js';
 
@@ -64,6 +65,7 @@ async function main() {
 
   demarrerSauvegardeQuotidienne();
   demarrerPurgeQuotidienne();
+  demarrerReleveAutomatique();
 
   // En production, le build du client (client/dist) est servi directement par ce serveur.
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');

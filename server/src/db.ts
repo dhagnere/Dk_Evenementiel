@@ -244,11 +244,25 @@ const TABLES = {
     json: [],
   },
   assistant_dossiers: {
-    colonnes: ['code', 'evenementCode', 'branche', 'titre', 'statut', 'priorite', 'donnees', 'converties', 'corrections', 'createdAt', 'updatedAt'],
+    colonnes: [
+      'code', 'evenementCode', 'branche', 'titre', 'statut', 'priorite', 'donnees', 'converties', 'corrections', 'source', 'createdAt',
+      'updatedAt',
+    ],
     json: ['donnees', 'converties', 'corrections'],
   },
   assistant_mails: {
-    colonnes: ['_id', 'numero', 'date', 'expediteur', 'objet', 'dossierCode', 'createdAt', 'updatedAt'],
+    colonnes: [
+      '_id', 'numero', 'date', 'expediteur', 'objet', 'dossierCode', 'source', 'empreinte', 'sens', 'destinataires', 'dateEnvoi', 'corps',
+      'consigne', 'piecesJointes', 'lien', 'classement', 'createdAt', 'updatedAt',
+    ],
+    json: ['piecesJointes'],
+  },
+  assistant_releve_etat: {
+    colonnes: ['cle', 'uidValidity', 'dernierUid', 'createdAt', 'updatedAt'],
+    json: [],
+  },
+  assistant_releves: {
+    colonnes: ['_id', 'debut', 'fin', 'lus', 'nouveaux', 'doublons', 'dossiersCrees', 'analyses', 'erreur', 'par', 'createdAt', 'updatedAt'],
     json: [],
   },
   assistant_prestataires: {

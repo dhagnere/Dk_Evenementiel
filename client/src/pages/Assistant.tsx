@@ -44,6 +44,10 @@ interface Fiche {
   budget?: LigneBudget[];
   mails?: number[];
   brouillon?: string | null;
+  /** Consignes écrites au-dessus des transferts (relevé Gmail). */
+  remarques?: string[];
+  origine?: string;
+  dernier_mail?: string;
 }
 interface Corrections {
   statut?: string;
@@ -53,6 +57,8 @@ interface Corrections {
 }
 interface Dossier {
   code: string;
+  /** 'index' : fiche de l'assistant ; 'releve' : dossier ouvert par le relevé Gmail (M001…). */
+  source: string;
   donnees: Fiche;
   converties: Record<string, { tacheId: string; projetId: string }>;
   corrections: Corrections;
@@ -67,11 +73,40 @@ interface Evenement {
   proposition: { projetId: string; titre: string } | null;
 }
 interface Mail {
+  _id: string;
   numero: number;
   date: string;
   expediteur: string;
   objet: string;
   dossierCode: string;
+  source: 'index' | 'gmail';
+  sens: string;
+  destinataires: string;
+  consigne: string;
+  piecesJointes: { nom: string; type: string; taille: number }[];
+  lien: string;
+  classement: string;
+}
+interface Releve {
+  _id: string;
+  debut: string;
+  fin: string | null;
+  lus: number;
+  nouveaux: number;
+  doublons: number;
+  dossiersCrees: number;
+  analyses: number;
+  erreur: string;
+  par: string;
+}
+interface EtatReleve {
+  configure: boolean;
+  adresse: string;
+  minutes: number;
+  adressesService: string[];
+  analyse: boolean;
+  derniers: Releve[];
+  prochain: string | null;
 }
 interface Prestataire {
   nom: string;
@@ -80,6 +115,8 @@ interface Prestataire {
 }
 interface Index {
   dernierImport: { genereLe: string; periode: string; par: string; createdAt: string; compte: Record<string, number> } | null;
+  releve: EtatReleve;
+  branches: string[];
   joursAvantAlerte: number;
   evenements: Evenement[];
   dossiers: Dossier[];
@@ -113,6 +150,18 @@ const classeStatut = (s: string) =>
 const statutOuvert = (s: string) => !/Clos|information/.test(s);
 const euros = (v?: number | null) => (v === null || v === undefined ? '—' : v.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }).replace(/\u202f/g, '\u00a0'));
 const statutDe = (d: Dossier) => d.corrections.statut ?? d.donnees.statut;
+const SANS_EVENEMENT = '';
+const MOTIFS: Record<string, string> = {
+  consigne: 'classé par votre consigne',
+  fil: 'même conversation',
+  expediteur: 'expéditeur connu du dossier',
+  evenement: "événement cité dans le mail",
+  nouveau: 'nouveau dossier, à classer',
+  analyse: "classé par l'analyse",
+  manuel: 'déplacé à la main',
+};
+const recent = (f: Fiche) => !!f.dernier_mail && dayjs().diff(dayjs(f.dernier_mail.replace(' ', 'T')), 'hour') < 48;
+const ko = (o: number) => (o >= 1_048_576 ? `${(o / 1_048_576).toFixed(1).replace('.', ',')} Mo` : `${Math.max(1, Math.round(o / 1024))} Ko`);
 const prochaineEcheance = (f: Fiche) =>
   (f.echeances ?? []).filter((e) => e.date && jours(e.date) >= 0).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))[0];
 const delai = (date: string) => {
@@ -147,6 +196,7 @@ export default function Assistant() {
   const [fVig, setFVig] = useState(false);
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [miseAJour, setMiseAJour] = useState(false);
+  const [releveEnCours, setReleveEnCours] = useState(false);
 
   const charger = () => api.get<Index>('/assistant/index').then(setIndex);
   useEffect(() => {
@@ -154,7 +204,10 @@ export default function Assistant() {
   }, []);
 
   const mailParNumero = useMemo(() => new Map((index?.mails ?? []).map((m) => [m.numero, m])), [index]);
-  const branches = useMemo(() => [...new Set((index?.dossiers ?? []).map((d) => d.donnees.branche).filter(Boolean))], [index]);
+  const branches = useMemo(
+    () => [...new Set([...(index?.branches ?? []), ...(index?.dossiers ?? []).map((d) => d.donnees.branche)].filter(Boolean))],
+    [index]
+  );
   const mois = useMemo(
     () => [...new Set((index?.mails ?? []).map((m) => m.date.slice(0, 7)).filter((k) => /^\d{4}-\d{2}$/.test(k)))].sort().reverse(),
     [index]
@@ -180,7 +233,24 @@ export default function Assistant() {
 
   const ev = (code: string) => index.evenements.find((e) => e.code === code);
   const dernier = index.dernierImport;
-  const age = dernier ? aujourdhui().diff(dayjs(dernier.createdAt).startOf('day'), 'day') : null;
+  const releve = index.releve;
+  const dernierReleve = releve.derniers[0];
+  const dernierReussi = releve.derniers.find((r) => !r.erreur || r.lus > 0);
+  // Fraîcheur : dernier relevé réussi si la boîte Gmail est branchée, sinon dernier import d'index.
+  const reference = releve.configure ? dernierReussi?.debut : dernier?.createdAt;
+  const age = reference ? aujourdhui().diff(dayjs(reference).startOf('day'), 'day') : null;
+  const releverMaintenant = async () => {
+    if (!releve.configure) return setMiseAJour(true);
+    setReleveEnCours(true);
+    try {
+      const r = await api.post<{ ok: boolean; message: string; bilan?: { nouveaux: number } }>('/assistant/releve', {});
+      if (r.ok) message.success(r.message, 6);
+      else message.error(r.message, 8);
+      await charger();
+    } finally {
+      setReleveEnCours(false);
+    }
+  };
   const ouverts = index.dossiers.filter((d) => statutOuvert(statutDe(d)));
   const aTraiter = index.dossiers.filter((d) => /traiter/.test(statutDe(d)));
   const semaine = index.dossiers.flatMap((d) => (d.donnees.echeances ?? []).filter((e) => e.date && jours(e.date) >= 0 && jours(e.date) <= 7));
@@ -205,9 +275,14 @@ export default function Assistant() {
         <div>
           <h1>Service événementiel – Gestion des dossiers</h1>
           <div className="sub">
-            {dernier
-              ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')}`
-              : 'Aucun index importé'}
+            {releve.configure
+              ? `Boîte ${releve.adresse} · ${
+                  dernierReleve ? `dernier relevé le ${dayjs(dernierReleve.debut).format('DD/MM/YYYY à HH:mm')}` : 'jamais relevée'
+                }${releve.minutes ? ` · automatique toutes les ${releve.minutes} min` : ''}`
+              : dernier
+                ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')}`
+                : 'Aucun index importé'}{' '}
+            · <button className="lien clair" onClick={() => setMiseAJour(true)}>état et réglages</button>
           </div>
         </div>
         <div className="kpis">
@@ -227,15 +302,23 @@ export default function Assistant() {
             <b>{vigilance.length}</b>
             <span>points de vigilance</span>
           </div>
-          <button className="maj" onClick={() => setMiseAJour(true)}>
-            <SyncOutlined /> Mettre à jour l'assistant
+          <button className="maj" onClick={releverMaintenant} disabled={releveEnCours}>
+            <SyncOutlined spin={releveEnCours} /> {releveEnCours ? 'Relevé en cours…' : "Mettre à jour l'assistant"}
           </button>
         </div>
       </header>
-      {(age === null || age > index.joursAvantAlerte) && (
+      {releve.configure && dernierReleve?.erreur && (
+        <div className="stale err">Dernier relevé : {dernierReleve.erreur}</div>
+      )}
+      {!releve.configure && !dernier && (
+        <div className="stale">
+          La boîte Gmail du service n'est pas encore branchée : voir « état et réglages ».
+        </div>
+      )}
+      {(releve.configure || dernier) && (age === null || age > index.joursAvantAlerte) && (
         <div className="stale">
           {age === null
-            ? "Aucun index : cliquez sur « Mettre à jour l'assistant » pour déposer le premier."
+            ? "Aucun relevé réussi pour l'instant : cliquez sur « Mettre à jour l'assistant »."
             : `Dernière mise à jour il y a ${age} jours : les dossiers ne sont peut-être plus à jour. Cliquez sur « Mettre à jour l'assistant ».`}
         </div>
       )}
@@ -296,13 +379,15 @@ export default function Assistant() {
         {vue === 'projets' && <VueProjets index={index} recharger={charger} ouvrirProjet={(id) => navigate(`/projets/${id}`)} />}
       </main>
       <footer>
-        {index.dossiers.length} dossiers issus de {index.mails.length} mails. Statuts corrigés et notes enregistrés dans l'application ;
-        « Exporter mes corrections » produit le fichier à transmettre à l'assistant pour sa mise à jour suivante.
+        {index.dossiers.length} dossiers, {index.mails.length} mails au registre. Mails transférés à la boîte Gmail du service : une consigne
+        au-dessus du transfert (« #feerique #logistique », « #D12 », « #urgent ») force le classement. Statuts et notes sont enregistrés
+        dans l'application.
       </footer>
       <FicheDossier
         dossier={dossierOuvert}
         evenement={dossierOuvert ? ev(dossierOuvert.donnees.evenement) : undefined}
         mails={(dossierOuvert?.donnees.mails ?? []).map((n) => mailParNumero.get(n)).filter((m): m is Mail => !!m)}
+        index={index}
         fermer={() => setOuvert(null)}
         recharger={charger}
         ouvrirProjet={(id) => navigate(`/projets/${id}`)}
@@ -310,6 +395,9 @@ export default function Assistant() {
       <PanneauMiseAJour
         ouvert={miseAJour}
         fermer={() => setMiseAJour(false)}
+        releve={releve}
+        relever={releverMaintenant}
+        releveEnCours={releveEnCours}
         dernier={dernier}
         nbCorrections={nbCorrections}
         exporter={exporterCorrections}
@@ -333,12 +421,13 @@ function Carte({ d, ouvrir }: { d: Dossier; ouvrir: (c: string) => void }) {
   return (
     <div className={`card p-${f.priorite}`} onClick={() => ouvrir(d.code)}>
       <div className="meta">
-        <span className="tag">{f.branche}</span>
+        <span className="tag">{f.branche || 'Branche à préciser'}</span>
         <span className={`tag st ${classeStatut(s)}`}>{s}</span>
         <span>
           {d.code} · {nbMails} mail{nbMails > 1 ? 's' : ''}
         </span>
         {nbTaches > 0 && <span className="tag st-done">{nbTaches} au rétroplanning</span>}
+        {recent(f) && <span className="tag neuf">nouveau mail</span>}
       </div>
       <h3>{f.titre}</h3>
       <div className="meta">{f.demandeur}</div>
@@ -349,6 +438,7 @@ function Carte({ d, ouvrir }: { d: Dossier; ouvrir: (c: string) => void }) {
       )}
       {(f.vigilance ?? []).length > 0 && <div className="warn">⚠ {f.vigilance![0]}</div>}
       {d.corrections.note && <div className="note-carte">✎ {d.corrections.note}</div>}
+      {!d.corrections.note && (f.remarques ?? []).length > 0 && <div className="note-carte">✎ {f.remarques![f.remarques!.length - 1]}</div>}
     </div>
   );
 }
@@ -360,7 +450,11 @@ function VueDossiers({ dossiers, index, ouvrir }: { dossiers: Dossier[]; index: 
   // Événements à venir d'abord (du plus proche au plus lointain), puis sans date, puis passés.
   const rang = (e: Evenement) => (!e.dateJour ? 1 : jours(e.dateJour) >= 0 ? 0 : 2);
   const tries = [...index.evenements].sort((a, b) => rang(a) - rang(b) || (rang(a) === 2 ? -1 : 1) * (a.dateJour ?? '').localeCompare(b.dateJour ?? ''));
-  const ordre = [...tries.map((e) => e.code), ...[...parEv.keys()].filter((k) => !index.evenements.some((e) => e.code === k))];
+  const ordre = [
+    SANS_EVENEMENT,
+    ...tries.map((e) => e.code),
+    ...[...parEv.keys()].filter((k) => k !== SANS_EVENEMENT && !index.evenements.some((e) => e.code === k)),
+  ];
   return (
     <>
       {ordre
@@ -370,8 +464,8 @@ function VueDossiers({ dossiers, index, ouvrir }: { dossiers: Dossier[]; index: 
           const items = parEv.get(code)!.sort((a, b) => (a.donnees.priorite === 'Haute' ? 0 : 1) - (b.donnees.priorite === 'Haute' ? 0 : 1));
           return (
             <div key={code}>
-              <div className="group">
-                <h2>{e?.nom ?? code}</h2>
+              <div className={`group${code === SANS_EVENEMENT ? ' a-classer' : ''}`}>
+                <h2>{code === SANS_EVENEMENT ? 'À classer – sans événement' : (e?.nom ?? code)}</h2>
                 <small>
                   {e?.dateJour ? fdate(e.dateJour) : ''}
                   {e?.lieu ? ` · ${e.lieu}` : ''} · {items.length} dossier{items.length > 1 ? 's' : ''}
@@ -538,7 +632,8 @@ function VueMails({
       <thead>
         <tr>
           <th>N°</th>
-          <th>Reçu le</th>
+          <th>Date</th>
+          <th></th>
           <th>Expéditeur</th>
           <th>Objet</th>
           <th>Dossier</th>
@@ -549,10 +644,13 @@ function VueMails({
         {lignes.map((m) => {
           const d = parCode.get(m.dossierCode)!;
           return (
-            <tr key={m.numero} className="click" onClick={() => ouvrir(d.code)}>
-              <td>{m.numero}</td>
+            <tr key={m._id ?? m.numero} className="click" onClick={() => ouvrir(d.code)}>
+              <td>{m.source === 'gmail' ? <span title="Relevé dans la boîte Gmail">✉</span> : m.numero}</td>
               <td>
                 {fdate(m.date)} {m.date.slice(11, 16)}
+              </td>
+              <td title={m.sens === 'envoyé' ? 'Envoyé par le service' : m.sens === 'reçu' ? 'Reçu' : ''}>
+                {m.sens === 'envoyé' ? '↗' : m.sens === 'reçu' ? '↘' : ''}
               </td>
               <td>{m.expediteur}</td>
               <td>{m.objet}</td>
@@ -750,6 +848,7 @@ function FicheDossier({
   dossier,
   evenement,
   mails,
+  index,
   fermer,
   recharger,
   ouvrirProjet,
@@ -757,6 +856,7 @@ function FicheDossier({
   dossier: Dossier | null;
   evenement?: Evenement;
   mails: Mail[];
+  index: Index;
   fermer: () => void;
   recharger: () => Promise<unknown>;
   ouvrirProjet: (id: string) => void;
@@ -771,6 +871,9 @@ function FicheDossier({
     const res = await api.put<{ ok: boolean; message: string }>(`/assistant/dossiers/${dossier.code}/correction`, corps);
     if (!res.ok) message.error(res.message);
     await recharger();
+  };
+  const reclasser = async (corps: { evenement?: string; branche?: string; priorite?: string }) => {
+    if (await lancer(api.put(`/assistant/dossiers/${dossier.code}/classement`, corps))) recharger();
   };
   const versTache = async (type: 'echeance' | 'action', i: number) => {
     if (await lancer(api.post(`/assistant/dossiers/${dossier.code}/tache`, { type, index: i }))) recharger();
@@ -804,15 +907,41 @@ function FicheDossier({
           ×
         </button>
         <div className="meta">
-          <span className="tag">{f.branche}</span>
+          <span className="tag">{f.branche || 'Branche à préciser'}</span>
           <span>{dossier.code}</span>
           <span>Priorité {f.priorite.toLowerCase()}</span>
+          {dossier.source === 'releve' && <span>· ouvert par le relevé Gmail</span>}
         </div>
         <h2>{f.titre}</h2>
         <div className="meta">
-          {evenement?.nom ?? f.evenement}
+          {evenement?.nom ?? (f.evenement || 'Sans événement')}
           {evenement?.dateJour ? ` · ${fdate(evenement.dateJour)}` : ''}
         </div>
+        <h4>Classement</h4>
+        <div className="row classement">
+          <select value={f.evenement} onChange={(e) => reclasser({ evenement: e.target.value })} aria-label="Événement">
+            <option value="">— sans événement —</option>
+            {index.evenements.map((e) => (
+              <option key={e.code} value={e.code}>
+                {e.nom}
+              </option>
+            ))}
+          </select>
+          <select value={f.branche} onChange={(e) => reclasser({ branche: e.target.value })} aria-label="Branche">
+            <option value="">— branche —</option>
+            {[...new Set([...index.branches, f.branche].filter(Boolean))].map((b) => (
+              <option key={b}>{b}</option>
+            ))}
+          </select>
+          <select value={f.priorite} onChange={(e) => reclasser({ priorite: e.target.value })} aria-label="Priorité">
+            {['Haute', 'Normale', 'Basse'].map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </div>
+        {dossier.source === 'index' && (
+          <div className="muted petit">Fiche de l'assistant : un nouvel import d'index réécrira ce classement.</div>
+        )}
         <h4>Projet</h4>
         {evenement?.projetId ? (
           <a
@@ -915,8 +1044,14 @@ function FicheDossier({
             </Paragraph>
           </>
         )}
+        {(f.remarques ?? []).length > 0 && (
+          <>
+            <h4>Vos consignes de transfert</h4>
+            {liste(f.remarques ?? [])}
+          </>
+        )}
         <h4>Mails du dossier</h4>
-        {liste(mails.map((m) => `${fdate(m.date)} ${m.date.slice(11, 16)} – ${m.expediteur} : ${m.objet}`))}
+        <MailsDuDossier mails={mails} dossier={dossier} index={index} recharger={recharger} />
         <h4>Mes notes</h4>
         <textarea
           placeholder="Notes personnelles, enregistrées dans l'application"
@@ -929,11 +1064,81 @@ function FicheDossier({
   );
 }
 
+function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; dossier: Dossier; index: Index; recharger: () => Promise<unknown> }) {
+  const [deplie, setDeplie] = useState<string | null>(null);
+  const [corps, setCorps] = useState<Record<string, string>>({});
+  if (!mails.length) return <span className="muted">—</span>;
+  const tries = [...mails].sort((a, b) => b.date.localeCompare(a.date));
+  const lire = async (m: Mail) => {
+    if (deplie === m._id) return setDeplie(null);
+    setDeplie(m._id);
+    if (corps[m._id] === undefined) {
+      const r = await api.get<{ mail: { corps: string } }>(`/assistant/mails/${m._id}`);
+      setCorps((c) => ({ ...c, [m._id]: r.mail.corps || '(texte vide)' }));
+    }
+  };
+  const deplacer = async (m: Mail, cible: string) => {
+    if (await lancer(api.put(`/assistant/mails/${m._id}/dossier`, { dossier: cible }))) recharger();
+  };
+  return (
+    <div className="mails">
+      {tries.map((m) => (
+        <div key={m._id ?? m.numero} className={`mail ${m.sens === 'envoyé' ? 'envoye' : ''}`}>
+          <div className="entete" onClick={() => m.source === 'gmail' && lire(m)} style={{ cursor: m.source === 'gmail' ? 'pointer' : 'default' }}>
+            <span className="sens">{m.sens === 'envoyé' ? '↗' : '↘'}</span>
+            <span className="quand">
+              {fdate(m.date)} {m.date.slice(11, 16)}
+            </span>
+            <b>{m.expediteur}</b>
+            <span className="objet">{m.objet}</span>
+          </div>
+          {m.source === 'gmail' && (
+            <div className="details">
+              {m.piecesJointes.length > 0 && <span>📎 {m.piecesJointes.map((p) => `${p.nom} (${ko(p.taille)})`).join(', ')}</span>}
+              <span className="muted">{MOTIFS[m.classement] ?? m.classement}</span>
+              {m.lien && (
+                <a href={m.lien} target="_blank" rel="noreferrer">
+                  ouvrir dans Gmail
+                </a>
+              )}
+              <select
+                value=""
+                onChange={(e) => e.target.value && deplacer(m, e.target.value)}
+                aria-label="Déplacer le mail"
+                className="deplacer"
+              >
+                <option value="">déplacer vers…</option>
+                <option value="nouveau">un nouveau dossier</option>
+                {index.dossiers
+                  .filter((d) => d.code !== dossier.code && statutOuvert(statutDe(d)))
+                  .map((d) => (
+                    <option key={d.code} value={d.code}>
+                      {d.code} – {d.donnees.titre.slice(0, 60)}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+          {deplie === m._id && (
+            <div className="corps">
+              {m.destinataires && <div className="muted">À : {m.destinataires}</div>}
+              <pre>{corps[m._id] ?? 'Chargement…'}</pre>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // --- Mise à jour ---------------------------------------------------------------------------------
 
 function PanneauMiseAJour({
   ouvert,
   fermer,
+  releve,
+  relever,
+  releveEnCours,
   dernier,
   nbCorrections,
   exporter,
@@ -941,24 +1146,23 @@ function PanneauMiseAJour({
 }: {
   ouvert: boolean;
   fermer: () => void;
+  releve: EtatReleve;
+  relever: () => void;
+  releveEnCours: boolean;
   dernier: Index['dernierImport'];
   nbCorrections: number;
   exporter: () => void;
   apres: () => void;
 }) {
   const [envoi, setEnvoi] = useState(false);
-  const depuis = dernier ? dayjs(dernier.genereLe || dernier.createdAt).format('DD/MM/YYYY') : null;
-  const consigne =
-    `Mets à jour l'assistant${depuis ? ` depuis le ${depuis}` : ''}` +
-    (nbCorrections ? ', en tenant compte de mes corrections (fichier corrections_dossiers joint)' : '') +
-    ' : lis la boîte Gmail du service et envoie-moi le nouveau donnees.json.';
+  const [ancien, setAncien] = useState(false);
 
   const importer = async (fichier: File) => {
     setEnvoi(true);
     try {
       const texte = await fichier.text();
       // donnees.js (« window.DONNEES = {…} ») est accepté comme donnees.json.
-      const json = JSON.parse(texte.replace(/^﻿/, '').replace(/^\s*window\.DONNEES\s*=\s*/, '').replace(/;\s*$/, ''));
+      const json = JSON.parse(texte.replace(/^\uFEFF/, '').replace(/^\s*window\.DONNEES\s*=\s*/, '').replace(/;\s*$/, ''));
       if (await lancer(api.post('/assistant/import', json))) apres();
     } catch {
       message.error("Fichier illisible : déposez le donnees.json produit par l'assistant");
@@ -968,54 +1172,127 @@ function PanneauMiseAJour({
   };
 
   return (
-    <Drawer open={ouvert} onClose={fermer} width={560} title="Mettre à jour l'assistant">
+    <Drawer open={ouvert} onClose={fermer} width={600} title="Relevé de la boîte Gmail du service">
+      <div className="asst panneau">
+      <style>{CSS}</style>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        {releve.configure ? (
+          <div>
+            <Paragraph style={{ marginBottom: 8 }}>
+              L'application lit elle-même <b>{releve.adresse}</b>
+              {releve.minutes ? `, toutes les ${releve.minutes} minutes` : ', à la demande'}, et range chaque mail transféré dans un dossier.
+              La boîte est lue sans rien y modifier.
+            </Paragraph>
+            <Space wrap>
+              <Button type="primary" icon={<SyncOutlined spin={releveEnCours} />} onClick={relever} disabled={releveEnCours}>
+                Relever maintenant
+              </Button>
+              {releve.prochain && <Text type="secondary">Prochain relevé automatique vers {dayjs(releve.prochain).format('HH:mm')}</Text>}
+            </Space>
+            <div className="muted petit" style={{ marginTop: 8 }}>
+              Analyse complète (résumés, actions, points de vigilance) : {releve.analyse ? 'activée' : 'non activée, classement par règles'}.
+              {releve.adressesService.length > 0 && ` Mails partis de ${releve.adressesService.join(', ')} : classés « envoyés ».`}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <Paragraph>
+              La boîte Gmail n'est pas encore branchée. Sur Scalingo (Environnement de l'application), ajoutez :
+            </Paragraph>
+            <pre className="vars">{`GMAIL_ADRESSE=adresse du service
+GMAIL_MOT_DE_PASSE_APPLI=mot de passe d'application Google
+ASSISTANT_ADRESSES_SERVICE=votre adresse pro, adresse de la boîte du service`}</pre>
+            <Paragraph type="secondary">
+              Le mot de passe d'application se crée dans le compte Google de la boîte : Sécurité → Validation en deux étapes → Mots de passe
+              des applications. Il ne s'écrit que dans Scalingo, jamais dans l'application.
+            </Paragraph>
+          </div>
+        )}
+
         <div>
-          <Text strong>1. Lancer la lecture des mails</Text>
-          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-            L'assistant lit la boîte Gmail dédiée, où arrivent les mails du service. Envoyez-lui ce message, depuis n'importe quel
-            appareil :
-          </Paragraph>
-          <Paragraph copyable={{ text: consigne, tooltips: ['Copier le message', 'Copié'] }} style={{ background: '#f6f7f4', padding: 12, borderRadius: 6 }}>
-            {consigne}
-          </Paragraph>
-          {nbCorrections > 0 && (
-            <Button onClick={exporter}>
-              Télécharger mes corrections ({nbCorrections} dossier{nbCorrections > 1 ? 's' : ''}) à lui joindre
-            </Button>
+          <Text strong>Transférer un mail</Text>
+          <ul className="aide">
+            <li>Transférez le mail à la boîte Gmail. L'expéditeur, la date et l'objet d'origine sont repris ; votre adresse est ignorée.</li>
+            <li>Plusieurs mails d'un coup : sélectionnez-les dans Outlook, puis « Transférer » (ils partent en pièces jointes).</li>
+            <li>
+              Pour forcer le classement, écrivez au-dessus du transfert : <code>#feerique #logistique</code> (événement, branche),{' '}
+              <code>#D12</code> (dossier), <code>#urgent</code> (priorité haute). Le reste du texte devient une remarque dans la fiche.
+            </li>
+            <li>Vos propres envois se transfèrent de la même façon : ils sont classés « envoyés ».</li>
+          </ul>
+        </div>
+
+        {releve.derniers.length > 0 && (
+          <div>
+            <Text strong>Derniers relevés</Text>
+            <table className="releves">
+              <thead>
+                <tr>
+                  <th>Quand</th>
+                  <th>Lus</th>
+                  <th>Ajoutés</th>
+                  <th>Dossiers</th>
+                  <th>Doublons</th>
+                  <th>Remarque</th>
+                </tr>
+              </thead>
+              <tbody>
+                {releve.derniers.map((r) => (
+                  <tr key={r._id} className={r.erreur ? 'late' : ''}>
+                    <td>{dayjs(r.debut).format('DD/MM HH:mm')}</td>
+                    <td>{r.lus}</td>
+                    <td>{r.nouveaux}</td>
+                    <td>{r.dossiersCrees}</td>
+                    <td>{r.doublons}</td>
+                    <td>{r.erreur || (r.par === 'relevé automatique' ? 'automatique' : r.par)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div>
+          <button className="lien-gris" onClick={() => setAncien(!ancien)}>
+            {ancien ? '▾' : '▸'} Importer un index de l'assistant (ancien mode)
+          </button>
+          {ancien && (
+            <div style={{ marginTop: 8 }}>
+              <Upload.Dragger
+                accept=".json,.js"
+                multiple={false}
+                showUploadList={false}
+                disabled={envoi}
+                beforeUpload={(f) => {
+                  importer(f);
+                  return false;
+                }}
+              >
+                <p className="ant-upload-drag-icon">
+                  <InboxOutlined />
+                </p>
+                <p className="ant-upload-text">Déposez ici donnees.json</p>
+                <p className="ant-upload-hint">
+                  Remplace les fiches de l'assistant (D01…). Les dossiers et mails du relevé Gmail, les rattachements, tâches, statuts
+                  corrigés et notes sont conservés.
+                </p>
+              </Upload.Dragger>
+              {nbCorrections > 0 && (
+                <Button style={{ marginTop: 8 }} onClick={exporter}>
+                  Télécharger mes corrections ({nbCorrections} dossier{nbCorrections > 1 ? 's' : ''})
+                </Button>
+              )}
+              {dernier && (
+                <div className="muted petit" style={{ marginTop: 8 }}>
+                  Dernier import le {dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')} par {dernier.par} : {dernier.compte.dossiers} dossiers,{' '}
+                  {dernier.compte.mails} mails.
+                </div>
+              )}
+            </div>
           )}
         </div>
-        <div>
-          <Text strong>2. Déposer le nouvel index</Text>
-          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-            Déposez ici le donnees.json que l'assistant vous a renvoyé.
-          </Paragraph>
-          <Upload.Dragger
-            accept=".json,.js"
-            multiple={false}
-            showUploadList={false}
-            disabled={envoi}
-            beforeUpload={(f) => {
-              importer(f);
-              return false;
-            }}
-          >
-            <p className="ant-upload-drag-icon">
-              <InboxOutlined />
-            </p>
-            <p className="ant-upload-text">Déposez ici donnees.json</p>
-            <p className="ant-upload-hint">
-              Le nouvel index remplace le précédent. Rattachements, tâches créées, statuts corrigés et notes sont conservés.
-            </p>
-          </Upload.Dragger>
-        </div>
-        {dernier && (
-          <Text type="secondary">
-            Dernier import le {dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')} par {dernier.par} : {dernier.compte.evenements} événements,{' '}
-            {dernier.compte.dossiers} dossiers, {dernier.compte.mails} mails, {dernier.compte.prestataires} prestataires.
-          </Text>
-        )}
       </Space>
+      </div>
     </Drawer>
   );
 }
@@ -1036,6 +1313,23 @@ const CSS = `
 .asst .kpi.alert b{color:#ffb4a8}
 .asst .maj{border:1px solid rgba(255,255,255,.6);background:#fff;color:var(--navy);border-radius:6px;padding:6px 14px;font:inherit;font-weight:600;cursor:pointer}
 .asst .maj:hover{background:#e9f2f6}
+.asst .stale.err{background:#fde8e5;color:#8a2a21;border-bottom-color:#f2c2bb}
+.asst .lien.clair{color:#cfe3ec;font-size:12px;padding:0;text-decoration:underline}
+.asst .lien-gris{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;padding:0}
+.asst .tag.neuf{background:#dff0e6;color:var(--green);font-weight:600}
+.asst .group.a-classer h2{color:var(--amber)}
+.asst .petit{font-size:12px}
+.asst .classement select{max-width:260px}
+.asst .mails{display:flex;flex-direction:column;gap:6px}
+.asst .mail{border:1px solid var(--line);border-radius:5px;padding:6px 8px;background:#fff}
+.asst .mail.envoye{background:#f5f8fa}
+.asst .mail .entete{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;font-size:13px}
+.asst .mail .sens{color:var(--sea);font-weight:700}
+.asst .mail .quand{color:var(--muted);font-size:12px}
+.asst .mail .objet{color:var(--ink)}
+.asst .mail .details{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:12px;margin-top:3px}
+.asst .mail .deplacer{font-size:12px;padding:2px 4px;max-width:220px}
+.asst .mail .corps pre{white-space:pre-wrap;font:inherit;font-size:13px;background:#fafaf8;border-radius:4px;padding:8px;margin:6px 0 0;max-height:320px;overflow:auto}
 .asst .stale{background:#fff1d6;color:#7a4b00;padding:8px 24px;font-size:13px;border-bottom:1px solid #efdca8}
 .asst nav{display:flex;gap:2px;padding:0 24px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
 .asst nav button{border:0;background:none;padding:12px 16px;font:inherit;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
@@ -1091,6 +1385,12 @@ const CSS = `
 .asst .close{position:absolute;top:14px;right:16px;border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted)}
 .asst pre.draft{white-space:pre-wrap;background:#f6f7f4;border:1px solid var(--line);border-radius:5px;padding:10px;font-size:13px;line-height:1.5;margin:0;font-family:inherit}
 .asst textarea{width:100%;min-height:70px}
+.asst.panneau{background:none;overflow:visible}
+.asst pre.vars{background:#f6f7f4;border:1px solid var(--line);border-radius:5px;padding:10px;font-size:12px;white-space:pre-wrap}
+.asst ul.aide{margin:6px 0 0;padding-left:18px}
+.asst ul.aide li{margin-bottom:4px}
+.asst ul.aide code{background:var(--sand);border-radius:3px;padding:0 4px}
+.asst table.releves{margin-top:6px;font-size:12px}
 .asst .pj{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px}
 .asst .pj span{color:var(--muted);text-align:right}
 `;

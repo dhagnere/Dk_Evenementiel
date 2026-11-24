@@ -5,14 +5,18 @@ import { requireSuperAdmin } from '../middleware/auth.js';
 import { consigner, identiteDeRequete } from '../lib/journal.js';
 import { aujourdhui } from '../lib/projets.js';
 import { creerProjet, ErreurMetier, jalonDuDecalage, schemaInfos } from './projets.routes.js';
+import { mots } from '../lib/assistant/texte.js';
+import { BRANCHES } from '../lib/assistant/classement.js';
+import { etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
 
 /**
  * Onglet Assistant, réservé aux super-administrateurs.
  *
- * L'assistant de messagerie du service lit la boîte Gmail dédiée (alimentée par la boîte Outlook du service) et produit un index complet (`donnees.json`) :
- * événements, dossiers, mails, prestataires. L'application le reçoit tel quel, le rend consultable et le
- * relie aux projets : rattachement d'un événement à un projet (ou création du projet), transformation
- * d'une échéance ou d'une action en tâche du rétroplanning.
+ * Le serveur relève lui-même la boîte Gmail du service, où le chef de service transfère les mails utiles
+ * (lib/assistant/releve.ts) : chaque mail rejoint le registre et un dossier, existant ou nouveau. L'ancien
+ * mode reste possible : import d'un index complet (`donnees.json`) produit par l'assistant de messagerie.
+ * L'onglet relie ensuite dossiers et projets : rattachement d'un événement à un projet (ou création du
+ * projet), transformation d'une échéance ou d'une action en tâche du rétroplanning.
  */
 export const assistantRouter = Router();
 assistantRouter.use(requireSuperAdmin);
@@ -124,13 +128,14 @@ export async function importerIndex(index: IndexAssistant, par: string) {
     for (const d of index.dossiers) {
       await executer(
         `INSERT INTO assistant_dossiers (code, evenement_code, branche, titre, statut, priorite, donnees) VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (code) DO UPDATE SET evenement_code = EXCLUDED.evenement_code, branche = EXCLUDED.branche, titre = EXCLUDED.titre,
+         ON CONFLICT (code) DO UPDATE SET source = 'index', evenement_code = EXCLUDED.evenement_code, branche = EXCLUDED.branche, titre = EXCLUDED.titre,
            statut = EXCLUDED.statut, priorite = EXCLUDED.priorite, donnees = EXCLUDED.donnees, updated_at = now()`,
         [d.id, d.evenement, d.branche, d.titre, d.statut, d.priorite, JSON.stringify(d)],
         client
       );
     }
-    const dossiersRetires = await executer('DELETE FROM assistant_dossiers WHERE NOT (code = ANY($1))', [[...codesDos]], client);
+    // Les dossiers ouverts par le relevé Gmail (M001…) ne viennent pas de l'index : ils restent.
+    const dossiersRetires = await executer("DELETE FROM assistant_dossiers WHERE source = 'index' AND NOT (code = ANY($1))", [[...codesDos]], client);
     // Un statut corrigé que l'assistant a repris dans son nouvel index n'est plus une correction.
     await executer(
       "UPDATE assistant_dossiers SET corrections = corrections - 'statut' WHERE corrections->>'statut' = statut",
@@ -138,7 +143,7 @@ export async function importerIndex(index: IndexAssistant, par: string) {
       client
     );
 
-    await executer('DELETE FROM assistant_mails', [], client);
+    await executer("DELETE FROM assistant_mails WHERE source = 'index'", [], client);
     for (let i = 0; i < index.mails.length; i += 500) {
       const lot = index.mails.slice(i, i + 500);
       const valeurs: unknown[] = [];
@@ -149,6 +154,22 @@ export async function importerIndex(index: IndexAssistant, par: string) {
       });
       await executer(`INSERT INTO assistant_mails (numero, date, expediteur, objet, dossier_code) VALUES ${lignes.join(', ')}`, valeurs, client);
     }
+
+    // Les mails relevés dans Gmail restent : on les raccroche aux fiches que l'index vient de réécrire.
+    await executer(
+      `UPDATE assistant_mails SET dossier_code = '' WHERE source = 'gmail' AND dossier_code <> ''
+          AND dossier_code NOT IN (SELECT code FROM assistant_dossiers)`,
+      [],
+      client
+    );
+    await executer(
+      `UPDATE assistant_dossiers d SET donnees = jsonb_set(d.donnees, '{mails}', coalesce(d.donnees->'mails', '[]'::jsonb) || r.numeros)
+         FROM (SELECT dossier_code, jsonb_agg(numero ORDER BY numero) AS numeros FROM assistant_mails
+                WHERE source = 'gmail' GROUP BY dossier_code) r
+        WHERE r.dossier_code = d.code AND d.source = 'index'`,
+      [],
+      client
+    );
 
     await executer('DELETE FROM assistant_prestataires', [], client);
     const vus = new Set<string>();
@@ -333,20 +354,6 @@ assistantRouter.post(
 
 // --- Événements et projets ------------------------------------------------------------------------
 
-const normaliser = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-// Mots trop courants pour rapprocher deux événements (« Dunkerque », « fête »…).
-const MOTS_VIDES = new Set([
-  'de', 'du', 'des', 'la', 'le', 'les', 'et', 'a', 'au', 'aux', 'en', 'd', 'l', 'pour', 'sur', 'dunkerque', 'fete', 'ville',
-  'cud', 'quartier', 'quartiers', 'edition', 'evenement',
-]);
-const mots = (s: string) => new Set(normaliser(s).split(' ').filter((m) => m.length > 1 && !MOTS_VIDES.has(m) && !/^\d+$/.test(m)));
-
 /** Projet le plus proche d'un événement de l'assistant : mots communs du titre, bonifiés par une date proche. */
 export function proposerProjet(
   ev: { nom: string; dateJour: string | null },
@@ -439,13 +446,18 @@ assistantRouter.get(
         `SELECT e.*, p.titre AS projet_titre FROM assistant_evenements e LEFT JOIN projets p ON p.id = e.projet_id
           ORDER BY e.date_jour NULLS LAST, e.nom`
       ),
-      requete<LigneDossier>('SELECT code, donnees, converties, corrections FROM assistant_dossiers ORDER BY code'),
-      requete('SELECT numero, date, expediteur, objet, dossier_code FROM assistant_mails ORDER BY numero'),
+      requete<LigneDossier>('SELECT code, source, donnees, converties, corrections FROM assistant_dossiers ORDER BY code'),
+      requete(
+        `SELECT id, numero, date, expediteur, objet, dossier_code, source, sens, destinataires, consigne, pieces_jointes, lien, classement
+           FROM assistant_mails ORDER BY date, numero`
+      ),
       requete('SELECT nom, domaine, donnees FROM assistant_prestataires ORDER BY nom'),
       requete<{ _id: string; titre: string; dateJour: string }>("SELECT id, titre, date_jour FROM projets WHERE statut <> 'annule' ORDER BY date_jour"),
     ]);
     res.json({
       dernierImport: dernier,
+      releve: await etatReleve(),
+      branches: BRANCHES,
       joursAvantAlerte: JOURS_AVANT_ALERTE,
       evenements: evenements.map((e) => ({ ...e, proposition: e.projetId ? null : proposerProjet(e, projets) })),
       dossiers,
@@ -505,5 +517,137 @@ assistantRouter.get(
   traiter(async (_req, res) => {
     const prestataires = await requete('SELECT * FROM assistant_prestataires ORDER BY nom');
     res.json({ prestataires });
+  })
+);
+
+// --- Relevé de la boîte Gmail ---------------------------------------------------------------------
+
+assistantRouter.get(
+  '/releve',
+  traiter(async (_req, res) => {
+    res.json(await etatReleve());
+  })
+);
+
+/** Relève la boîte tout de suite (bouton « Mettre à jour l'assistant »). */
+assistantRouter.post(
+  '/releve',
+  traiter(async (req, res) => {
+    try {
+      const bilan = await relever(req.session!.nom);
+      await consigner(identiteDeRequete(req), 'assistant_releve', `${bilan.nouveaux} mail(s)`, bilan);
+      if (bilan.erreur && bilan.lus === 0) return void res.json({ ok: false, message: bilan.erreur, bilan });
+      const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? 's' : ''}`;
+      const message =
+        bilan.lus === 0
+          ? 'Aucun nouveau message dans la boîte Gmail'
+          : `${pluriel(bilan.lus, 'message')} lu${bilan.lus > 1 ? 's' : ''} : ${pluriel(bilan.nouveaux, 'mail')} ajouté${bilan.nouveaux > 1 ? 's' : ''} au registre` +
+            (bilan.dossiersCrees ? `, ${pluriel(bilan.dossiersCrees, 'dossier')} ouvert${bilan.dossiersCrees > 1 ? 's' : ''}` : '') +
+            (bilan.doublons ? `, ${pluriel(bilan.doublons, 'doublon')} ignoré${bilan.doublons > 1 ? 's' : ''}` : '') +
+            (bilan.erreur ? `. Attention : ${bilan.erreur}` : '');
+      res.json({ ok: true, message, bilan });
+    } catch (e) {
+      if (e instanceof ReleveImpossible) return void res.json({ ok: false, message: e.message });
+      throw e;
+    }
+  })
+);
+
+/** Un mail relevé, avec son texte complet. */
+assistantRouter.get(
+  '/mails/:id',
+  traiter(async (req, res) => {
+    const mail = await requeteUne('SELECT * FROM assistant_mails WHERE id = $1', [req.params.id]);
+    if (!mail) return void res.status(404).json({ ok: false, message: 'Mail introuvable' });
+    res.json({ mail });
+  })
+);
+
+/** Déplace un mail vers un autre dossier, ou vers un nouveau dossier. */
+assistantRouter.put(
+  '/mails/:id/dossier',
+  traiter(async (req, res) => {
+    const parsed = z.object({ dossier: z.string().min(1).max(60) }).safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const resultat = await transaction(async (client) => {
+      const mail = await requeteUne<{ _id: string; numero: number; objet: string; dossierCode: string; expediteur: string; sens: string }>(
+        'SELECT * FROM assistant_mails WHERE id = $1 FOR UPDATE',
+        [req.params.id],
+        client
+      );
+      if (!mail) throw new ErreurMetier('Mail introuvable');
+      let cible = parsed.data.dossier;
+      if (cible === mail.dossierCode) throw new ErreurMetier('Le mail est déjà dans ce dossier');
+      if (cible === 'nouveau') {
+        const r = await requeteUne<{ n: number }>(
+          "SELECT coalesce(max(substring(code from 2)::int), 0) + 1 AS n FROM assistant_dossiers WHERE code ~ '^M[0-9]+$'",
+          [],
+          client
+        );
+        cible = `M${String(r!.n).padStart(3, '0')}`;
+        const titre = mail.objet.replace(/^\s*((re|tr|fw|fwd)\s*:\s*)+/i, '').slice(0, 300) || 'Sans objet';
+        const donnees = {
+          id: cible, evenement: '', branche: '', titre, demandeur: mail.sens === 'reçu' ? mail.expediteur : '', contacts: [],
+          statut: 'À traiter', priorite: 'Normale', echeances: [], resume: '', actions: [], vigilance: [], pieces_jointes: [],
+          mails: [], remarques: [], origine: 'releve', classement: 'manuel',
+        };
+        await insererUn('assistant_dossiers', { code: cible, titre, statut: 'À traiter', priorite: 'Normale', donnees, source: 'releve' }, client);
+      } else if (!(await requeteUne('SELECT 1 FROM assistant_dossiers WHERE code = $1', [cible], client))) {
+        throw new ErreurMetier('Dossier introuvable');
+      }
+      // Retire le numéro du dossier d'origine, l'ajoute au dossier cible.
+      await executer(
+        `UPDATE assistant_dossiers SET donnees = jsonb_set(donnees, '{mails}',
+           coalesce((SELECT jsonb_agg(x) FROM jsonb_array_elements(coalesce(donnees->'mails', '[]'::jsonb)) x WHERE x <> to_jsonb($2::int)), '[]'::jsonb)),
+           updated_at = now() WHERE code = $1`,
+        [mail.dossierCode, mail.numero],
+        client
+      );
+      await executer(
+        `UPDATE assistant_dossiers SET donnees = jsonb_set(donnees, '{mails}', coalesce(donnees->'mails', '[]'::jsonb) || to_jsonb($2::int)),
+           updated_at = now() WHERE code = $1`,
+        [cible, mail.numero],
+        client
+      );
+      await executer("UPDATE assistant_mails SET dossier_code = $2, classement = 'manuel', updated_at = now() WHERE id = $1", [mail._id, cible], client);
+      return { de: mail.dossierCode, vers: cible };
+    });
+    await consigner(identiteDeRequete(req), 'assistant_mail_deplace', req.params.id, resultat);
+    res.json({ ok: true, message: `Mail déplacé vers le dossier ${resultat.vers}`, dossier: resultat.vers });
+  })
+);
+
+/** Reclasse un dossier : événement, branche, titre (dossiers du relevé surtout ; un import d'index réécrit les siens). */
+assistantRouter.put(
+  '/dossiers/:code/classement',
+  traiter(async (req, res) => {
+    const parsed = z
+      .object({
+        evenement: z.string().max(60).optional(),
+        branche: z.string().max(60).optional(),
+        titre: z.string().trim().min(1).max(300).optional(),
+        priorite: z.enum(['Haute', 'Normale', 'Basse']).optional(),
+      })
+      .refine((v) => Object.keys(v).length > 0)
+      .safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const { evenement, branche, titre, priorite } = parsed.data;
+    if (evenement && !(await requeteUne('SELECT 1 FROM assistant_evenements WHERE code = $1', [evenement]))) throw new ErreurMetier('Événement inconnu');
+    if (branche && !BRANCHES.includes(branche)) throw new ErreurMetier('Branche inconnue');
+    const d = await requeteUne<LigneDossier>('SELECT * FROM assistant_dossiers WHERE code = $1', [req.params.code]);
+    if (!d) return void res.status(404).json({ ok: false, message: 'Dossier introuvable' });
+    const donnees = { ...d.donnees };
+    const maj: Record<string, string> = {};
+    if (evenement !== undefined) maj.evenement_code = donnees.evenement = evenement;
+    if (branche !== undefined) maj.branche = donnees.branche = branche;
+    if (titre !== undefined) maj.titre = donnees.titre = titre;
+    if (priorite !== undefined) maj.priorite = donnees.priorite = priorite;
+    const colonnes = Object.keys(maj);
+    await executer(
+      `UPDATE assistant_dossiers SET ${colonnes.map((c, i) => `${c} = $${i + 2}`).join(', ')}, donnees = $${colonnes.length + 2}, updated_at = now() WHERE code = $1`,
+      [d.code, ...colonnes.map((c) => maj[c]), JSON.stringify(donnees)]
+    );
+    await consigner(identiteDeRequete(req), 'assistant_reclassement', d.code, parsed.data);
+    res.json({ ok: true, message: 'Dossier reclassé' });
   })
 );
