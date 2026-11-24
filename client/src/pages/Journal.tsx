@@ -42,7 +42,7 @@ const LIBELLES_ACTION: Record<string, { libelle: string; couleur?: string }> = {
   assistant_import: { libelle: "Import de l'assistant", couleur: 'purple' },
   assistant_rattachement: { libelle: 'Assistant : rattachement à un projet', couleur: 'cyan' },
   assistant_tache: { libelle: 'Assistant : tâche créée', couleur: 'cyan' },
-  assistant_releve: { libelle: 'Assistant : relevé de la boîte Gmail', couleur: 'purple' },
+  assistant_releve: { libelle: 'Assistant : mise à jour', couleur: 'purple' },
   assistant_mail_deplace: { libelle: 'Assistant : mail déplacé', couleur: 'cyan' },
   assistant_reclassement: { libelle: 'Assistant : dossier reclassé', couleur: 'cyan' },
 };

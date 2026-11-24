@@ -44,7 +44,7 @@ interface Fiche {
   budget?: LigneBudget[];
   mails?: number[];
   brouillon?: string | null;
-  /** Consignes écrites au-dessus des transferts (relevé Gmail). */
+  /** Consignes écrites au-dessus des mails (mise à jour automatique). */
   remarques?: string[];
   origine?: string;
   dernier_mail?: string;
@@ -57,7 +57,7 @@ interface Corrections {
 }
 interface Dossier {
   code: string;
-  /** 'index' : fiche de l'assistant ; 'releve' : dossier ouvert par le relevé Gmail (M001…). */
+  /** 'index' : fiche de l'assistant ; 'releve' : dossier ouvert par la mise à jour automatique (M001…). */
   source: string;
   donnees: Fiche;
   converties: Record<string, { tacheId: string; projetId: string }>;
@@ -79,12 +79,11 @@ interface Mail {
   expediteur: string;
   objet: string;
   dossierCode: string;
-  source: 'index' | 'gmail';
+  source: 'index' | 'releve';
   sens: string;
   destinataires: string;
   consigne: string;
   piecesJointes: { nom: string; type: string; taille: number }[];
-  lien: string;
   classement: string;
 }
 interface Releve {
@@ -101,7 +100,6 @@ interface Releve {
 }
 interface EtatReleve {
   configure: boolean;
-  adresse: string;
   minutes: number;
   adressesService: string[];
   analyse: boolean;
@@ -236,7 +234,7 @@ export default function Assistant() {
   const releve = index.releve;
   const dernierReleve = releve.derniers[0];
   const dernierReussi = releve.derniers.find((r) => !r.erreur || r.lus > 0);
-  // Fraîcheur : dernier relevé réussi si la boîte Gmail est branchée, sinon dernier import d'index.
+  // Fraîcheur : dernière mise à jour automatique réussie si elle est configurée, sinon dernier import d'index.
   const reference = releve.configure ? dernierReussi?.debut : dernier?.createdAt;
   const age = reference ? aujourdhui().diff(dayjs(reference).startOf('day'), 'day') : null;
   const releverMaintenant = async () => {
@@ -276,8 +274,8 @@ export default function Assistant() {
           <h1>Service événementiel – Gestion des dossiers</h1>
           <div className="sub">
             {releve.configure
-              ? `Boîte ${releve.adresse} · ${
-                  dernierReleve ? `dernier relevé le ${dayjs(dernierReleve.debut).format('DD/MM/YYYY à HH:mm')}` : 'jamais relevée'
+              ? `${
+                  dernierReleve ? `Dernière mise à jour le ${dayjs(dernierReleve.debut).format('DD/MM/YYYY à HH:mm')}` : "Aucune mise à jour pour l'instant"
                 }${releve.minutes ? ` · automatique toutes les ${releve.minutes} min` : ''}`
               : dernier
                 ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')}`
@@ -303,22 +301,22 @@ export default function Assistant() {
             <span>points de vigilance</span>
           </div>
           <button className="maj" onClick={releverMaintenant} disabled={releveEnCours}>
-            <SyncOutlined spin={releveEnCours} /> {releveEnCours ? 'Relevé en cours…' : "Mettre à jour l'assistant"}
+            <SyncOutlined spin={releveEnCours} /> {releveEnCours ? 'Mise à jour…' : "Mettre à jour l'assistant"}
           </button>
         </div>
       </header>
       {releve.configure && dernierReleve?.erreur && (
-        <div className="stale err">Dernier relevé : {dernierReleve.erreur}</div>
+        <div className="stale err">Dernière mise à jour : {dernierReleve.erreur}</div>
       )}
       {!releve.configure && !dernier && (
         <div className="stale">
-          La boîte Gmail du service n'est pas encore branchée : voir « état et réglages ».
+          La mise à jour automatique n'est pas encore configurée : voir « état et réglages ».
         </div>
       )}
       {(releve.configure || dernier) && (age === null || age > index.joursAvantAlerte) && (
         <div className="stale">
           {age === null
-            ? "Aucun relevé réussi pour l'instant : cliquez sur « Mettre à jour l'assistant »."
+            ? "Aucune mise à jour réussie pour l'instant : cliquez sur « Mettre à jour l'assistant »."
             : `Dernière mise à jour il y a ${age} jours : les dossiers ne sont peut-être plus à jour. Cliquez sur « Mettre à jour l'assistant ».`}
         </div>
       )}
@@ -379,9 +377,8 @@ export default function Assistant() {
         {vue === 'projets' && <VueProjets index={index} recharger={charger} ouvrirProjet={(id) => navigate(`/projets/${id}`)} />}
       </main>
       <footer>
-        {index.dossiers.length} dossiers, {index.mails.length} mails au registre. Mails transférés à la boîte Gmail du service : une consigne
-        au-dessus du transfert (« #feerique #logistique », « #D12 », « #urgent ») force le classement. Statuts et notes sont enregistrés
-        dans l'application.
+        {index.dossiers.length} dossiers, {index.mails.length} mails au registre. Une consigne écrite au-dessus d'un mail (« #feerique
+        #logistique », « #D12 », « #urgent ») force son classement. Statuts et notes sont enregistrés dans l'application.
       </footer>
       <FicheDossier
         dossier={dossierOuvert}
@@ -645,7 +642,7 @@ function VueMails({
           const d = parCode.get(m.dossierCode)!;
           return (
             <tr key={m._id ?? m.numero} className="click" onClick={() => ouvrir(d.code)}>
-              <td>{m.source === 'gmail' ? <span title="Relevé dans la boîte Gmail">✉</span> : m.numero}</td>
+              <td>{m.source === 'releve' ? <span title="Arrivé par la mise à jour automatique">✉</span> : m.numero}</td>
               <td>
                 {fdate(m.date)} {m.date.slice(11, 16)}
               </td>
@@ -910,7 +907,7 @@ function FicheDossier({
           <span className="tag">{f.branche || 'Branche à préciser'}</span>
           <span>{dossier.code}</span>
           <span>Priorité {f.priorite.toLowerCase()}</span>
-          {dossier.source === 'releve' && <span>· ouvert par le relevé Gmail</span>}
+          {dossier.source === 'releve' && <span>· ouvert automatiquement</span>}
         </div>
         <h2>{f.titre}</h2>
         <div className="meta">
@@ -1046,7 +1043,7 @@ function FicheDossier({
         )}
         {(f.remarques ?? []).length > 0 && (
           <>
-            <h4>Vos consignes de transfert</h4>
+            <h4>Vos consignes</h4>
             {liste(f.remarques ?? [])}
           </>
         )}
@@ -1084,7 +1081,7 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
     <div className="mails">
       {tries.map((m) => (
         <div key={m._id ?? m.numero} className={`mail ${m.sens === 'envoyé' ? 'envoye' : ''}`}>
-          <div className="entete" onClick={() => m.source === 'gmail' && lire(m)} style={{ cursor: m.source === 'gmail' ? 'pointer' : 'default' }}>
+          <div className="entete" onClick={() => m.source === 'releve' && lire(m)} style={{ cursor: m.source === 'releve' ? 'pointer' : 'default' }}>
             <span className="sens">{m.sens === 'envoyé' ? '↗' : '↘'}</span>
             <span className="quand">
               {fdate(m.date)} {m.date.slice(11, 16)}
@@ -1092,15 +1089,10 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
             <b>{m.expediteur}</b>
             <span className="objet">{m.objet}</span>
           </div>
-          {m.source === 'gmail' && (
+          {m.source === 'releve' && (
             <div className="details">
               {m.piecesJointes.length > 0 && <span>📎 {m.piecesJointes.map((p) => `${p.nom} (${ko(p.taille)})`).join(', ')}</span>}
               <span className="muted">{MOTIFS[m.classement] ?? m.classement}</span>
-              {m.lien && (
-                <a href={m.lien} target="_blank" rel="noreferrer">
-                  ouvrir dans Gmail
-                </a>
-              )}
               <select
                 value=""
                 onChange={(e) => e.target.value && deplacer(m, e.target.value)}
@@ -1172,22 +1164,21 @@ function PanneauMiseAJour({
   };
 
   return (
-    <Drawer open={ouvert} onClose={fermer} width={600} title="Relevé de la boîte Gmail du service">
+    <Drawer open={ouvert} onClose={fermer} width={600} title="Mise à jour automatique des dossiers">
       <div className="asst panneau">
       <style>{CSS}</style>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {releve.configure ? (
           <div>
             <Paragraph style={{ marginBottom: 8 }}>
-              L'application lit elle-même <b>{releve.adresse}</b>
-              {releve.minutes ? `, toutes les ${releve.minutes} minutes` : ', à la demande'}, et range chaque mail transféré dans un dossier.
-              La boîte est lue sans rien y modifier.
+              L'application met à jour les dossiers {releve.minutes ? `toutes les ${releve.minutes} minutes` : 'à la demande'} et range
+              chaque nouveau mail dans un dossier.
             </Paragraph>
             <Space wrap>
               <Button type="primary" icon={<SyncOutlined spin={releveEnCours} />} onClick={relever} disabled={releveEnCours}>
-                Relever maintenant
+                Mettre à jour maintenant
               </Button>
-              {releve.prochain && <Text type="secondary">Prochain relevé automatique vers {dayjs(releve.prochain).format('HH:mm')}</Text>}
+              {releve.prochain && <Text type="secondary">Prochaine mise à jour vers {dayjs(releve.prochain).format('HH:mm')}</Text>}
             </Space>
             <div className="muted petit" style={{ marginTop: 8 }}>
               Analyse complète (résumés, actions, points de vigilance) : {releve.analyse ? 'activée' : 'non activée, classement par règles'}.
@@ -1197,34 +1188,26 @@ function PanneauMiseAJour({
         ) : (
           <div>
             <Paragraph>
-              La boîte Gmail n'est pas encore branchée. Sur Scalingo (Environnement de l'application), ajoutez :
-            </Paragraph>
-            <pre className="vars">{`GMAIL_ADRESSE=adresse du service
-GMAIL_MOT_DE_PASSE_APPLI=mot de passe d'application Google
-ASSISTANT_ADRESSES_SERVICE=votre adresse pro, adresse de la boîte du service`}</pre>
-            <Paragraph type="secondary">
-              Le mot de passe d'application se crée dans le compte Google de la boîte : Sécurité → Validation en deux étapes → Mots de passe
-              des applications. Il ne s'écrit que dans Scalingo, jamais dans l'application.
+              La mise à jour automatique n'est pas configurée sur le serveur : voir la documentation de déploiement de l'application.
             </Paragraph>
           </div>
         )}
 
         <div>
-          <Text strong>Transférer un mail</Text>
+          <Text strong>Consignes de classement</Text>
           <ul className="aide">
-            <li>Transférez le mail à la boîte Gmail. L'expéditeur, la date et l'objet d'origine sont repris ; votre adresse est ignorée.</li>
-            <li>Plusieurs mails d'un coup : sélectionnez-les dans Outlook, puis « Transférer » (ils partent en pièces jointes).</li>
             <li>
-              Pour forcer le classement, écrivez au-dessus du transfert : <code>#feerique #logistique</code> (événement, branche),{' '}
-              <code>#D12</code> (dossier), <code>#urgent</code> (priorité haute). Le reste du texte devient une remarque dans la fiche.
+              Au-dessus d'un mail, écrivez <code>#feerique #logistique</code> (événement, branche), <code>#D12</code> (dossier précis) ou{' '}
+              <code>#urgent</code> (priorité haute). Le reste du texte devient une remarque dans la fiche.
             </li>
-            <li>Vos propres envois se transfèrent de la même façon : ils sont classés « envoyés ».</li>
+            <li>Sans consigne, le mail rejoint sa conversation, le dossier de son expéditeur ou l'événement qu'il cite ; sinon il part « à classer ».</li>
+            <li>Vos propres messages sont reconnus et classés « envoyés ».</li>
           </ul>
         </div>
 
         {releve.derniers.length > 0 && (
           <div>
-            <Text strong>Derniers relevés</Text>
+            <Text strong>Dernières mises à jour</Text>
             <table className="releves">
               <thead>
                 <tr>
@@ -1244,7 +1227,7 @@ ASSISTANT_ADRESSES_SERVICE=votre adresse pro, adresse de la boîte du service`}<
                     <td>{r.nouveaux}</td>
                     <td>{r.dossiersCrees}</td>
                     <td>{r.doublons}</td>
-                    <td>{r.erreur || (r.par === 'relevé automatique' ? 'automatique' : r.par)}</td>
+                    <td>{r.erreur || (r.par === 'mise à jour automatique' ? 'automatique' : r.par)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1273,7 +1256,7 @@ ASSISTANT_ADRESSES_SERVICE=votre adresse pro, adresse de la boîte du service`}<
                 </p>
                 <p className="ant-upload-text">Déposez ici donnees.json</p>
                 <p className="ant-upload-hint">
-                  Remplace les fiches de l'assistant (D01…). Les dossiers et mails du relevé Gmail, les rattachements, tâches, statuts
+                  Remplace les fiches de l'assistant (D01…). Les dossiers et mails de la mise à jour automatique, les rattachements, tâches, statuts
                   corrigés et notes sont conservés.
                 </p>
               </Upload.Dragger>
@@ -1386,7 +1369,6 @@ const CSS = `
 .asst pre.draft{white-space:pre-wrap;background:#f6f7f4;border:1px solid var(--line);border-radius:5px;padding:10px;font-size:13px;line-height:1.5;margin:0;font-family:inherit}
 .asst textarea{width:100%;min-height:70px}
 .asst.panneau{background:none;overflow:visible}
-.asst pre.vars{background:#f6f7f4;border:1px solid var(--line);border-radius:5px;padding:10px;font-size:12px;white-space:pre-wrap}
 .asst ul.aide{margin:6px 0 0;padding-left:18px}
 .asst ul.aide li{margin-bottom:4px}
 .asst ul.aide code{background:var(--sand);border-radius:3px;padding:0 4px}

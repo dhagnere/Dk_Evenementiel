@@ -100,6 +100,16 @@ function classerTransfert(t: Transfert, nouveaux: MailOrigine[], ctx: ContexteCl
 const taille = (o: number) => (o >= 1_048_576 ? `${(o / 1_048_576).toFixed(1).replace('.', ',')} Mo` : `${Math.max(1, Math.round(o / 1024))} Ko`);
 const sansDoublons = (liste: string[]) => [...new Set(liste.map((s) => s.trim()).filter(Boolean))];
 
+/** Retire l'adresse de la boîte relevée des destinataires : elle n'a pas à apparaître à l'écran. */
+function masquerBoite(destinataires: string): string {
+  const boite = configReleve().adresse;
+  if (!boite) return destinataires;
+  return destinataires
+    .split(/\s*[;,]\s*/)
+    .filter((d) => d && !d.toLowerCase().includes(boite))
+    .join(', ');
+}
+
 /** Prochain code de dossier ouvert par le relevé : M001, M002… */
 async function prochainCode(client: pg.PoolClient): Promise<string> {
   const r = await requeteUne<{ n: number }>(
@@ -173,7 +183,7 @@ async function enregistrer(
       .map((m) => (m.expediteurAdresse && m.expediteurNom !== m.expediteurAdresse ? `${m.expediteurNom} – ${m.expediteurAdresse}` : m.expediteurNom || m.expediteurAdresse))
   );
   const pieces = recents.flatMap((m) =>
-    m.piecesJointes.map((p) => ({ nom: p.nom, taille: taille(p.taille), type: p.type, emplacement: 'Gmail (boîte du service)' }))
+    m.piecesJointes.map((p) => ({ nom: p.nom, taille: taille(p.taille), type: p.type, emplacement: "Messagerie de l'assistant" }))
   );
 
   await transaction(async (client) => {
@@ -242,10 +252,10 @@ async function enregistrer(
           expediteur: m.expediteurNom || m.expediteurAdresse,
           objet: m.objet.slice(0, 500),
           dossierCode: code,
-          source: 'gmail',
+          source: 'releve',
           empreinte,
           sens: m.sens,
-          destinataires: m.destinataires.slice(0, 2000),
+          destinataires: masquerBoite(m.destinataires).slice(0, 2000),
           dateEnvoi: m.date,
           corps: m.corps,
           consigne: t.consigne,
@@ -323,9 +333,9 @@ let enCours = false;
 export async function relever(par: string): Promise<BilanReleve> {
   const c = configReleve();
   if (!c.adresse || !c.motDePasse) {
-    throw new ReleveImpossible('Relevé non configuré : renseignez GMAIL_ADRESSE et GMAIL_MOT_DE_PASSE_APPLI sur le serveur');
+    throw new ReleveImpossible("La mise à jour automatique n'est pas configurée sur le serveur");
   }
-  if (enCours) throw new ReleveImpossible('Un relevé est déjà en cours');
+  if (enCours) throw new ReleveImpossible('Une mise à jour est déjà en cours');
   enCours = true;
   const verrou = await pool.connect();
   const bilan: BilanReleve = { lus: 0, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, erreur: '' };
@@ -333,7 +343,7 @@ export async function relever(par: string): Promise<BilanReleve> {
   let verrouPris = false;
   try {
     verrouPris = (await verrou.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', ['assistant-releve'])).rows[0].ok;
-    if (!verrouPris) throw new ReleveImpossible('Un relevé est déjà en cours');
+    if (!verrouPris) throw new ReleveImpossible('Une mise à jour est déjà en cours');
 
     const service = [...c.adressesService, c.adresse];
     const { ctx, dossiers } = await chargerContexte(service);
@@ -353,9 +363,11 @@ export async function relever(par: string): Promise<BilanReleve> {
     try {
       await imap.connect();
     } catch (e) {
+      // Le détail technique reste dans le journal du serveur : rien sur la messagerie utilisée n'apparaît à l'écran.
+      console.error('[assistant] Connexion impossible :', (e as Error).message);
       const texte = (e as { authenticationFailed?: boolean }).authenticationFailed
-        ? "Gmail refuse la connexion : vérifiez l'adresse et le mot de passe d'application"
-        : `Connexion à Gmail impossible (${(e as Error).message})`;
+        ? 'Connexion à la messagerie refusée : identifiants à vérifier dans la configuration du serveur'
+        : 'Messagerie injoignable pour le moment, nouvel essai à la prochaine mise à jour';
       throw new ReleveImpossible(texte);
     }
     try {
@@ -367,16 +379,16 @@ export async function relever(par: string): Promise<BilanReleve> {
         const trouves = await imap.search({ uid: `${depuis + 1}:*` }, { uid: true });
         const uids = (trouves || []).filter((u) => u > depuis).sort((a, b) => a - b).slice(0, MESSAGES_PAR_RELEVE);
         for (const uid of uids) {
-          const msg = await imap.fetchOne(String(uid), { source: true, threadId: true }, { uid: true });
+          const msg = await imap.fetchOne(String(uid), { source: true }, { uid: true });
           if (msg && msg.source) {
             bilan.lus++;
-            const fil = msg.threadId ? BigInt(msg.threadId).toString(16) : '';
-            const lien = fil ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(c.adresse)}#all/${fil}` : '';
+            const lien = '';
             try {
               const t = await decoderTransfert(msg.source, service);
               await enregistrer(t, lien, ctx, dossiers, bilan);
             } catch (e) {
-              bilan.erreur = bilan.erreur || `message ${uid} : ${(e as Error).message}`;
+              console.error(`[assistant] Message ${uid} illisible :`, (e as Error).message);
+              bilan.erreur = bilan.erreur || "Un message n'a pas pu être lu";
             }
           }
           await executer(
@@ -399,8 +411,13 @@ export async function relever(par: string): Promise<BilanReleve> {
       await imap.logout().catch(() => undefined);
     }
   } catch (e) {
-    bilan.erreur = (e as Error).message;
-    if (e instanceof ReleveImpossible && /déjà en cours/.test(e.message)) throw e;
+    if (e instanceof ReleveImpossible) {
+      bilan.erreur = e.message;
+      if (/déjà en cours/.test(e.message)) throw e;
+    } else {
+      console.error('[assistant] Mise à jour interrompue :', (e as Error).message);
+      bilan.erreur = 'Mise à jour interrompue, nouvel essai à la prochaine mise à jour';
+    }
   } finally {
     if (verrouPris) await verrou.query('SELECT pg_advisory_unlock(hashtext($1))', ['assistant-releve']).catch(() => undefined);
     verrou.release();
@@ -418,7 +435,7 @@ let minuteur: NodeJS.Timeout | null = null;
 export function demarrerReleveAutomatique(): void {
   const c = configReleve();
   if (!releveConfigure() || c.minutes === 0 || minuteur) return;
-  const tour = () => void relever('relevé automatique').catch(() => undefined);
+  const tour = () => void relever('mise à jour automatique').catch(() => undefined);
   setTimeout(tour, 30_000);
   minuteur = setInterval(tour, c.minutes * 60_000);
   console.log(`[assistant] Relevé de ${c.adresse} toutes les ${c.minutes} min`);
@@ -433,7 +450,6 @@ export async function etatReleve() {
     releveConfigure() && c.minutes > 0 && dernier?.debut ? new Date(new Date(dernier.debut).getTime() + c.minutes * 60_000) : null;
   return {
     configure: releveConfigure(),
-    adresse: c.adresse,
     minutes: c.minutes,
     adressesService: c.adressesService,
     analyse: analyseActive(),

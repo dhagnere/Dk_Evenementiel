@@ -155,9 +155,9 @@ export async function importerIndex(index: IndexAssistant, par: string) {
       await executer(`INSERT INTO assistant_mails (numero, date, expediteur, objet, dossier_code) VALUES ${lignes.join(', ')}`, valeurs, client);
     }
 
-    // Les mails relevés dans Gmail restent : on les raccroche aux fiches que l'index vient de réécrire.
+    // Les mails de la mise à jour automatique restent : on les raccroche aux fiches que l'index vient de réécrire.
     await executer(
-      `UPDATE assistant_mails SET dossier_code = '' WHERE source = 'gmail' AND dossier_code <> ''
+      `UPDATE assistant_mails SET dossier_code = '' WHERE source = 'releve' AND dossier_code <> ''
           AND dossier_code NOT IN (SELECT code FROM assistant_dossiers)`,
       [],
       client
@@ -165,7 +165,7 @@ export async function importerIndex(index: IndexAssistant, par: string) {
     await executer(
       `UPDATE assistant_dossiers d SET donnees = jsonb_set(d.donnees, '{mails}', coalesce(d.donnees->'mails', '[]'::jsonb) || r.numeros)
          FROM (SELECT dossier_code, jsonb_agg(numero ORDER BY numero) AS numeros FROM assistant_mails
-                WHERE source = 'gmail' GROUP BY dossier_code) r
+                WHERE source = 'releve' GROUP BY dossier_code) r
         WHERE r.dossier_code = d.code AND d.source = 'index'`,
       [],
       client
@@ -448,7 +448,7 @@ assistantRouter.get(
       ),
       requete<LigneDossier>('SELECT code, source, donnees, converties, corrections FROM assistant_dossiers ORDER BY code'),
       requete(
-        `SELECT id, numero, date, expediteur, objet, dossier_code, source, sens, destinataires, consigne, pieces_jointes, lien, classement
+        `SELECT id, numero, date, expediteur, objet, dossier_code, source, sens, destinataires, consigne, pieces_jointes, classement
            FROM assistant_mails ORDER BY date, numero`
       ),
       requete('SELECT nom, domaine, donnees FROM assistant_prestataires ORDER BY nom'),
@@ -540,8 +540,8 @@ assistantRouter.post(
       const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? 's' : ''}`;
       const message =
         bilan.lus === 0
-          ? 'Aucun nouveau message dans la boîte Gmail'
-          : `${pluriel(bilan.lus, 'message')} lu${bilan.lus > 1 ? 's' : ''} : ${pluriel(bilan.nouveaux, 'mail')} ajouté${bilan.nouveaux > 1 ? 's' : ''} au registre` +
+          ? 'Aucun nouveau mail'
+          : `${pluriel(bilan.nouveaux, 'mail')} ajouté${bilan.nouveaux > 1 ? 's' : ''} au registre` +
             (bilan.dossiersCrees ? `, ${pluriel(bilan.dossiersCrees, 'dossier')} ouvert${bilan.dossiersCrees > 1 ? 's' : ''}` : '') +
             (bilan.doublons ? `, ${pluriel(bilan.doublons, 'doublon')} ignoré${bilan.doublons > 1 ? 's' : ''}` : '') +
             (bilan.erreur ? `. Attention : ${bilan.erreur}` : '');
@@ -557,7 +557,11 @@ assistantRouter.post(
 assistantRouter.get(
   '/mails/:id',
   traiter(async (req, res) => {
-    const mail = await requeteUne('SELECT * FROM assistant_mails WHERE id = $1', [req.params.id]);
+    const mail = await requeteUne(
+      `SELECT id, numero, date, expediteur, objet, dossier_code, source, sens, destinataires, consigne, pieces_jointes, classement, corps
+         FROM assistant_mails WHERE id = $1`,
+      [req.params.id]
+    );
     if (!mail) return void res.status(404).json({ ok: false, message: 'Mail introuvable' });
     res.json({ mail });
   })
