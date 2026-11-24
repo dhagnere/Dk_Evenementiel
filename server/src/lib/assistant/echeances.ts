@@ -31,7 +31,14 @@ function phraseAutour(texte: string, debut: number, fin: number): string {
  * Dates citées dans un mail, à venir par rapport à la date du mail (au plus 13 mois plus tard).
  * Repérage simple et prudent : ce sont des échéances proposées, que le chef de service garde ou non.
  */
-export function detecterEcheances(texte: string, reference: Date, maximum = 5): EcheanceDetectee[] {
+// Lignes d'en-tête (« Envoyé : mardi 24 novembre… », « Le 23 nov. … a écrit : ») : leurs dates ne sont pas des échéances.
+const LIGNE_EN_TETE = /^\s*(>\s*)*(de|from|envoy[ée](\s+le)?|date|sent|[àa]|to|cc|objet|subject)\s*:|a [ée]crit\s*:\s*$|wrote\s*:\s*$/i;
+
+export function detecterEcheances(brut: string, reference: Date, maximum = 5): EcheanceDetectee[] {
+  const texte = brut
+    .split('\n')
+    .map((l) => (LIGNE_EN_TETE.test(l) ? '' : l))
+    .join('\n');
   const debutRef = jourParis(reference);
   const limite = jourParis(new Date(reference.getTime() + 400 * 86_400_000));
   const anneeRef = +debutRef.slice(0, 4);

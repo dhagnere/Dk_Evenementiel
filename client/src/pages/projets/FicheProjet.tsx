@@ -24,6 +24,7 @@ import { ArrowLeftOutlined, DeleteOutlined, FilePdfOutlined, MailOutlined } from
 import dayjs from 'dayjs';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
+import { CourrierProjet } from '../../components/CourrierAssistant';
 import type { ArticleMateriel, FicheProjetComplete, JalonPilotage, ReferentielRetroplanning, ReferentielsProjets, StatutProjet, TacheProjet } from '../../types';
 import {
   COULEURS_NIVEAU,
@@ -1123,7 +1124,7 @@ export default function FicheProjet() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { peut } = useAuth();
+  const { peut, estSuperAdmin } = useAuth();
   const ref = useReferentiels();
   const [fiche, setFiche] = useState<FicheProjetComplete | null>(null);
   const [introuvable, setIntrouvable] = useState(false);
@@ -1193,6 +1194,8 @@ export default function FicheProjet() {
     { key: 'prestataires', label: 'Prestataires', children: <Prestataires {...ops} /> },
     { key: 'budget', label: 'Budget et bilan', children: <BudgetBilan {...ops} /> },
     { key: 'infos', label: 'Informations', children: <Informations {...ops} /> },
+    // Courrier du service relié à ce projet (onglet Assistant, réservé aux super-administrateurs).
+    ...(estSuperAdmin ? [{ key: 'courrier', label: 'Courrier', children: <CourrierProjet projetId={fiche.projet._id} /> }] : []),
   ];
   if (fiche.demandesStock !== null) {
     onglets.splice(8, 0, {

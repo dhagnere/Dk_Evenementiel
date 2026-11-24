@@ -50,6 +50,13 @@ Réglages techniques, sur le serveur seulement : `MESSAGERIE_SERVEUR` (serveur I
   jointe (25 Mo au plus) y est copiée et s'ouvre d'un clic depuis la fiche du dossier ou depuis le mail. Le
   téléchargement est réservé aux super-administrateurs. Sans stockage, seuls le nom et la taille sont notés.
 
+- **Signatures** : la signature de celui qui transfère et celles des correspondants sont retirées (formule de politesse,
+  nom seul sur sa ligne, coordonnées, liens de signature, images intégrées, mentions de confidentialité). Les restes de
+  mise en forme d'Outlook (« site<https://…> », « [cid:…] ») sont effacés.
+- **Messages ignorés** : seuls comptent les messages transférés depuis une adresse d'envoi déclarée dans les réglages.
+  Alertes de sécurité du compte, lettres d'information ou courriers envoyés directement à la messagerie de l'assistant
+  sont ignorés (colonne « Ignorés » de l'historique).
+
 ### La consigne au-dessus du transfert
 
 Le texte écrit au-dessus du transfert n'est pas un mail : c'est une consigne. La signature (« Cordialement… ») est ignorée.
@@ -84,17 +91,45 @@ Dans la fiche d'un dossier :
 
 - **Classement** : événement, branche et priorité se changent par listes déroulantes ;
 - **Mails du dossier** : un clic sur un mail relevé affiche son texte ; « déplacer vers… » l'envoie dans un autre dossier
-  ou dans un nouveau dossier.
+  ou dans un nouveau dossier ; « supprimer » le retire du registre.
 
-### Analyse complète (facultative)
+### Supprimer des mails
 
-Le relevé peut confier chaque transfert à un service d'analyse de texte, qui rédige le résumé du dossier, les actions à
-mener, les points de vigilance et les échéances, et propose le classement. Il suffit d'ajouter dans Scalingo
-`ANALYSE_API_CLE` (clé du service, facturé à l'usage) et, au besoin, `ANALYSE_MODELE`. La consigne du chef de service
-l'emporte toujours sur l'analyse. Si le service ne répond pas ou répond mal, le mail est classé par les règles et l'erreur
-apparaît dans l'historique des relevés.
+Dans le **Registre des mails**, cochez les mails puis **Supprimer la sélection** (ou « supprimer » sur un mail de la
+fiche). Un mail supprimé ne revient pas, même transféré à nouveau : son empreinte est gardée. Ses pièces jointes copiées
+sont effacées, et un dossier ouvert automatiquement qui n'a plus aucun mail (ni tâche au rétroplanning) est retiré.
 
-Avant de l'activer : accord de la DSI, et inscription au registre RGPD (le texte des mails part chez un prestataire).
+### Analyse complète (facultative, payante)
+
+Le classement par règles repère des mots, des dates et des expéditeurs ; il ne comprend pas le texte. L'analyse complète
+confie chaque transfert à un service d'analyse de texte, qui **lit le mail et ses pièces jointes** (PDF, y compris
+scannés, et images : 4 au plus, 8 Mo chacune) et rédige :
+
+- le titre et le résumé du dossier, la priorité, le statut ;
+- les actions à mener, les points de vigilance, les échéances ;
+- le **suivi budgétaire** (devis, bons de commande, factures, montants TTC lus) ;
+- un **brouillon de réponse**, à copier depuis la fiche ;
+- et propose le classement (dossier, événement, branche). La consigne du chef de service l'emporte toujours.
+
+Activation : « état et réglages » → **Analyse complète** → clé du service → **Tester et enregistrer** (la clé est
+essayée, puis chiffrée en base comme le mot de passe). Variante serveur : `ANALYSE_API_CLE`, `ANALYSE_MODELE`.
+
+- Chaque nouveau transfert est analysé à la mise à jour.
+- **Analyser les dossiers en attente** traite, par lots de 20, les dossiers ouverts automatiquement avant l'activation.
+- Dans une fiche, **analyser ce dossier** / **analyser à nouveau** relit tous ses mails et ses pièces jointes copiées.
+- Si le service ne répond pas, refuse la clé ou n'a plus de crédit, les règles prennent le relais et le message apparaît
+  dans l'historique.
+
+Avant de l'activer : accord de la DSI, et inscription au registre RGPD (le texte des mails et les pièces jointes partent
+chez un prestataire).
+
+## Accueil et fiche projet
+
+- **Accueil** (super-administrateurs) : encart « Courrier du service » avec mails reçus en 24 h, dossiers à traiter, en
+  priorité haute, échéances à 7 jours, échéances de la semaine et derniers mails. Un clic ouvre la fiche du dossier.
+- **Fiche projet**, onglet **Courrier** (super-administrateurs) : dossiers de l'événement relié au projet, avec statut,
+  prochaine échéance, premier point de vigilance et nombre de mails, puis les derniers mails. Le lien se fait par
+  l'onglet « Rattachement aux projets ».
 
 ## Ce que montre l'onglet
 

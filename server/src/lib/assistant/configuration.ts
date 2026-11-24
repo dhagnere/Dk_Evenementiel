@@ -27,6 +27,10 @@ export interface ConfigMessagerie {
   origine: 'ecran' | 'serveur' | null;
   /** Réglages saisis à l'écran mais illisibles (secret du serveur changé) : à ressaisir. */
   illisible: boolean;
+  /** Clé du service d'analyse (écran, sinon ANALYSE_API_CLE) ; vide = classement par règles. */
+  cleAnalyse: string;
+  modeleAnalyse: string;
+  origineAnalyse: 'ecran' | 'serveur' | null;
 }
 
 const env = (...noms: string[]) => {
@@ -76,6 +80,10 @@ interface ValeurEnBase {
   minutes?: number;
   adressesService?: string[];
 }
+interface AnalyseEnBase {
+  cle?: string; // chiffrée
+  modele?: string;
+}
 
 let cache: { valeur: ConfigMessagerie; jusqua: number } | null = null;
 export const oublierConfiguration = () => {
@@ -86,6 +94,13 @@ export async function lireConfiguration(): Promise<ConfigMessagerie> {
   if (cache && cache.jusqua > Date.now()) return cache.valeur;
   const ligne = await requeteUne<{ valeur: ValeurEnBase }>("SELECT valeur FROM assistant_config WHERE cle = 'messagerie'").catch(() => null);
   const ecran = ligne?.valeur ?? null;
+  const ligneAnalyse = await requeteUne<{ valeur: AnalyseEnBase }>("SELECT valeur FROM assistant_config WHERE cle = 'analyse'").catch(() => null);
+  const cleEcran = ligneAnalyse?.valeur.cle ? dechiffrer(ligneAnalyse.valeur.cle) : null;
+  const analyse = cleEcran
+    ? { cleAnalyse: cleEcran, modeleAnalyse: ligneAnalyse?.valeur.modele || env('ANALYSE_MODELE') || '', origineAnalyse: 'ecran' as const }
+    : env('ANALYSE_API_CLE')
+      ? { cleAnalyse: env('ANALYSE_API_CLE')!, modeleAnalyse: env('ANALYSE_MODELE') ?? '', origineAnalyse: 'serveur' as const }
+      : { cleAnalyse: '', modeleAnalyse: '', origineAnalyse: null };
 
   const technique = {
     hote: env('MESSAGERIE_SERVEUR', 'GMAIL_IMAP_HOTE') ?? 'imap.gmail.com',
@@ -107,6 +122,7 @@ export async function lireConfiguration(): Promise<ConfigMessagerie> {
       adressesService: ecran.adressesService?.length ? ecran.adressesService : adressesServeur,
       origine: 'ecran',
       illisible: motDePasse === null,
+      ...analyse,
     };
   } else {
     const adresse = (env('MESSAGERIE_ADRESSE', 'GMAIL_ADRESSE') ?? '').trim().toLowerCase();
@@ -119,6 +135,7 @@ export async function lireConfiguration(): Promise<ConfigMessagerie> {
       adressesService: adressesServeur,
       origine: adresse ? 'serveur' : null,
       illisible: false,
+      ...analyse,
     };
   }
   cache = { valeur, jusqua: Date.now() + 30_000 };
@@ -220,3 +237,17 @@ export async function motDePasseEnregistre(): Promise<string> {
 }
 
 export { listeAdresses, minutesValides };
+
+/** Enregistre (chiffrée) ou retire la clé du service d'analyse saisie à l'écran. */
+export async function enregistrerCleAnalyse(cleAnalyse: string | null, modele: string, par: string): Promise<void> {
+  if (!cleAnalyse) {
+    await executer("DELETE FROM assistant_config WHERE cle = 'analyse'");
+  } else {
+    await executer(
+      `INSERT INTO assistant_config (cle, valeur, par) VALUES ('analyse', $1, $2)
+       ON CONFLICT (cle) DO UPDATE SET valeur = EXCLUDED.valeur, par = EXCLUDED.par, updated_at = now()`,
+      [JSON.stringify({ cle: chiffrer(cleAnalyse), modele }), par]
+    );
+  }
+  oublierConfiguration();
+}

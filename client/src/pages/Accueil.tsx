@@ -9,6 +9,7 @@ import { SettingOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import { ICONES_MODULES, ICONE_MODULE_PAR_DEFAUT, SECTIONS } from '../lib/navigation';
 import { LIBELLES_NIVEAUX } from '../lib/droits';
+import { EncartCourrierAccueil } from '../components/CourrierAssistant';
 
 const { Title, Text } = Typography;
 
@@ -130,6 +131,8 @@ export default function Accueil() {
           />
         )}
       </div>
+
+      {estSuperAdmin && <EncartCourrierAccueil />}
 
       {synthese && synthese.aTraiter.length > 0 && (
         <Card title="À traiter">

@@ -7,9 +7,11 @@ import { aujourdhui } from '../lib/projets.js';
 import { creerProjet, ErreurMetier, jalonDuDecalage, schemaInfos } from './projets.routes.js';
 import { mots } from '../lib/assistant/texte.js';
 import { BRANCHES } from '../lib/assistant/classement.js';
-import { etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
+import { analyserDossier, etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
+import { AnalyseImpossible, testerCleAnalyse } from '../lib/assistant/analyse.js';
 import {
   ConnexionImpossible,
+  enregistrerCleAnalyse,
   enregistrerConfiguration,
   listeAdresses,
   lireConfiguration,
@@ -17,7 +19,7 @@ import {
   supprimerConfiguration,
   testerConnexion,
 } from '../lib/assistant/configuration.js';
-import { lireObjet, stockageActif } from '../lib/stockage.js';
+import { lireObjet, stockageActif, supprimerFichier } from '../lib/stockage.js';
 
 /**
  * Onglet Assistant, réservé aux super-administrateurs.
@@ -727,5 +729,225 @@ assistantRouter.get(
     res.setHeader('Cache-Control', 'private, max-age=86400');
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(f.nomOrigine)}`);
     await new Promise<void>((ok, ko) => flux.on('error', ko).on('end', () => ok()).pipe(res));
+  })
+);
+
+// --- Suppression de mails du registre ---------------------------------------------------------------
+
+/**
+ * Supprime des mails du registre. Leur empreinte est gardée : transférés à nouveau, ils ne reviennent
+ * pas. Les pièces jointes copiées sont effacées ; un dossier ouvert automatiquement qui n'a plus aucun
+ * mail (et aucune tâche au rétroplanning) est supprimé avec eux.
+ */
+assistantRouter.post(
+  '/mails/supprimer',
+  traiter(async (req, res) => {
+    const parsed = z.object({ ids: z.array(z.string().min(1).max(60)).min(1).max(500) }).safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const fichiersAEffacer: string[] = [];
+    const bilan = await transaction(async (client) => {
+      const mails = await requete<{
+        _id: string;
+        numero: number;
+        objet: string;
+        dossierCode: string;
+        empreinte: string | null;
+        piecesJointes: { fichierId?: string }[];
+      }>('SELECT id, numero, objet, dossier_code, empreinte, pieces_jointes FROM assistant_mails WHERE id = ANY($1) FOR UPDATE', [parsed.data.ids], client);
+      const parDossier = new Map<string, { numeros: number[]; fichiers: string[] }>();
+      for (const m of mails) {
+        const f = (m.piecesJointes ?? []).map((p) => p.fichierId).filter((x): x is string => !!x);
+        fichiersAEffacer.push(...f);
+        const e = parDossier.get(m.dossierCode) ?? { numeros: [], fichiers: [] };
+        e.numeros.push(m.numero);
+        e.fichiers.push(...f);
+        parDossier.set(m.dossierCode, e);
+        if (m.empreinte) {
+          await executer(
+            'INSERT INTO assistant_mails_supprimes (empreinte, objet, par) VALUES ($1, $2, $3) ON CONFLICT (empreinte) DO NOTHING',
+            [m.empreinte, m.objet.slice(0, 300), req.session!.nom],
+            client
+          );
+        }
+      }
+      await executer('DELETE FROM assistant_mails WHERE id = ANY($1)', [mails.map((m) => m._id)], client);
+      const dossiersSupprimes: string[] = [];
+      for (const [code, { numeros, fichiers }] of parDossier) {
+        const d = await requeteUne<LigneDossier & { source: string }>('SELECT * FROM assistant_dossiers WHERE code = $1 FOR UPDATE', [code], client);
+        if (!d) continue;
+        const donnees = { ...d.donnees } as Record<string, unknown>;
+        const restants = (Array.isArray(donnees.mails) ? (donnees.mails as number[]) : []).filter((n) => !numeros.includes(n));
+        donnees.mails = restants;
+        if (Array.isArray(donnees.pieces_jointes)) {
+          donnees.pieces_jointes = (donnees.pieces_jointes as { fichierId?: string }[]).filter((p) => !p.fichierId || !fichiers.includes(p.fichierId));
+        }
+        if (d.source === 'releve' && restants.length === 0 && Object.keys(d.converties).length === 0) {
+          await executer('DELETE FROM assistant_dossiers WHERE code = $1', [code], client);
+          dossiersSupprimes.push(code);
+        } else {
+          await executer('UPDATE assistant_dossiers SET donnees = $2, updated_at = now() WHERE code = $1', [code, JSON.stringify(donnees)], client);
+        }
+      }
+      return { mails: mails.length, dossiersSupprimes };
+    });
+    for (const id of fichiersAEffacer) await supprimerFichier(id).catch(() => undefined);
+    await consigner(identiteDeRequete(req), 'assistant_mails_supprimes', `${bilan.mails} mail(s)`, bilan);
+    const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? 's' : ''}`;
+    res.json({
+      ok: true,
+      message:
+        `${pluriel(bilan.mails, 'mail')} supprimé${bilan.mails > 1 ? 's' : ''}` +
+        (bilan.dossiersSupprimes.length ? `, ${pluriel(bilan.dossiersSupprimes.length, 'dossier')} vide${bilan.dossiersSupprimes.length > 1 ? 's' : ''} retiré${bilan.dossiersSupprimes.length > 1 ? 's' : ''}` : ''),
+      ...bilan,
+    });
+  })
+);
+
+// --- Analyse complète ------------------------------------------------------------------------------
+
+/** Enregistre la clé du service d'analyse (essayée d'abord), ou la retire. */
+assistantRouter.put(
+  '/configuration/analyse',
+  traiter(async (req, res) => {
+    const parsed = z
+      .object({ cle: z.string().trim().max(300).nullable(), modele: z.string().trim().max(100).optional().default('') })
+      .safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const { cle, modele } = parsed.data;
+    if (cle) {
+      try {
+        await testerCleAnalyse(cle, modele);
+      } catch (e) {
+        if (e instanceof AnalyseImpossible) return void res.json({ ok: false, message: e.message });
+        throw e;
+      }
+    }
+    await enregistrerCleAnalyse(cle || null, modele, req.session!.nom);
+    await consigner(identiteDeRequete(req), 'assistant_configuration', 'analyse', { active: !!cle });
+    res.json({ ok: true, message: cle ? 'Clé acceptée : analyse complète activée' : 'Analyse complète désactivée' });
+  })
+);
+
+/** Analyse (ou réanalyse) un dossier. */
+assistantRouter.post(
+  '/dossiers/:code/analyser',
+  traiter(async (req, res) => {
+    try {
+      await analyserDossier(req.params.code);
+    } catch (e) {
+      if (e instanceof AnalyseImpossible) return void res.json({ ok: false, message: e.message });
+      throw e;
+    }
+    await consigner(identiteDeRequete(req), 'assistant_analyse', req.params.code);
+    res.json({ ok: true, message: 'Dossier analysé' });
+  })
+);
+
+/** Analyse les dossiers ouverts automatiquement qui ne l'ont pas encore été (20 au plus par appel). */
+assistantRouter.post(
+  '/analyser-dossiers',
+  traiter(async (req, res) => {
+    const codes = await requete<{ code: string }>(
+      "SELECT code FROM assistant_dossiers WHERE source = 'releve' AND NOT (donnees ? 'analyse') AND statut !~* '^clos' ORDER BY code LIMIT 20"
+    );
+    let faits = 0;
+    let erreur = '';
+    for (const { code } of codes) {
+      try {
+        await analyserDossier(code);
+        faits++;
+      } catch (e) {
+        erreur = (e as Error).message;
+        if (/refusée|non activée|saturé/.test(erreur)) break;
+      }
+    }
+    await consigner(identiteDeRequete(req), 'assistant_analyse', `${faits} dossier(s)`);
+    const reste = await requeteUne<{ n: number }>(
+      "SELECT count(*) AS n FROM assistant_dossiers WHERE source = 'releve' AND NOT (donnees ? 'analyse') AND statut !~* '^clos'"
+    );
+    res.json({
+      ok: faits > 0 || !erreur,
+      message: `${faits} dossier(s) analysé(s)${reste?.n ? `, ${reste.n} restant(s)` : ''}${erreur ? `. ${erreur}` : ''}`,
+    });
+  })
+);
+
+// --- Liens avec l'accueil et la fiche projet --------------------------------------------------------
+
+type DossierResume = { code: string; titre: string; statut: string; priorite: string; branche: string; evenementCode: string; donnees: Record<string, unknown>; corrections: { statut?: string } };
+const prochaineDe = (d: DossierResume, jour: string) =>
+  ((Array.isArray(d.donnees.echeances) ? d.donnees.echeances : []) as { date?: string; libelle?: string }[])
+    .filter((e) => e.date && e.date.slice(0, 10) >= jour)
+    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))[0] ?? null;
+
+/** Encart de l'accueil : courrier du service en un coup d'œil. */
+assistantRouter.get(
+  '/accueil',
+  traiter(async (_req, res) => {
+    const jour = aujourdhui();
+    const dans7 = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+    const [etat, dossiers, recents, nouveaux] = await Promise.all([
+      etatReleve(),
+      requete<DossierResume>('SELECT code, titre, statut, priorite, branche, evenement_code, donnees, corrections FROM assistant_dossiers'),
+      requete("SELECT date, sens, expediteur, objet, dossier_code FROM assistant_mails WHERE source = 'releve' ORDER BY date_envoi DESC NULLS LAST LIMIT 5"),
+      requeteUne<{ n: number }>("SELECT count(*) AS n FROM assistant_mails WHERE source = 'releve' AND created_at > now() - interval '24 hours'"),
+    ]);
+    const statut = (d: DossierResume) => d.corrections?.statut ?? d.statut;
+    const ouverts = dossiers.filter((d) => !/^clos|information/i.test(statut(d)));
+    const echeances = dossiers
+      .flatMap((d) =>
+        ((Array.isArray(d.donnees.echeances) ? d.donnees.echeances : []) as { date?: string; libelle?: string }[])
+          .filter((e) => e.date && e.date.slice(0, 10) >= jour && e.date.slice(0, 10) <= dans7)
+          .map((e) => ({ date: e.date!.slice(0, 10), libelle: e.libelle ?? '', code: d.code, titre: d.titre }))
+      )
+      .filter((e) => ouverts.some((d) => d.code === e.code))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const dernier = (etat.derniers[0] ?? null) as { debut?: Date; erreur?: string } | null;
+    res.json({
+      configure: etat.configure,
+      derniereMaj: dernier?.debut ?? null,
+      erreur: dernier?.erreur ?? '',
+      nouveauxMails: nouveaux?.n ?? 0,
+      ouverts: ouverts.length,
+      aTraiter: ouverts.filter((d) => /traiter/i.test(statut(d))).length,
+      haute: ouverts.filter((d) => d.priorite === 'Haute').length,
+      echeances: echeances.slice(0, 6),
+      nombreEcheances: echeances.length,
+      recents,
+    });
+  })
+);
+
+/** Dossiers et mails rattachés à un projet (par l'événement de l'assistant relié au projet). */
+assistantRouter.get(
+  '/projet/:id',
+  traiter(async (req, res) => {
+    const jour = aujourdhui();
+    const dossiers = await requete<DossierResume & { nombreMails: number }>(
+      `SELECT d.code, d.titre, d.statut, d.priorite, d.branche, d.evenement_code, d.donnees, d.corrections,
+              (SELECT count(*) FROM assistant_mails m WHERE m.dossier_code = d.code) AS nombre_mails
+         FROM assistant_dossiers d JOIN assistant_evenements e ON e.code = d.evenement_code
+        WHERE e.projet_id = $1 ORDER BY d.code`,
+      [req.params.id]
+    );
+    const mails = await requete(
+      `SELECT m.date, m.sens, m.expediteur, m.objet, m.dossier_code FROM assistant_mails m
+         JOIN assistant_dossiers d ON d.code = m.dossier_code JOIN assistant_evenements e ON e.code = d.evenement_code
+        WHERE e.projet_id = $1 ORDER BY m.date DESC LIMIT 20`,
+      [req.params.id]
+    );
+    res.json({
+      dossiers: dossiers.map((d) => ({
+        code: d.code,
+        titre: d.titre,
+        statut: d.corrections?.statut ?? d.statut,
+        priorite: d.priorite,
+        branche: d.branche,
+        nombreMails: d.nombreMails,
+        prochaine: prochaineDe(d, jour),
+        vigilance: ((Array.isArray(d.donnees.vigilance) ? d.donnees.vigilance : []) as string[])[0] ?? null,
+      })),
+      mails,
+    });
   })
 );

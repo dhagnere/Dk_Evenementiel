@@ -87,7 +87,8 @@ function reperesBlocs(lignes: string[]): Bloc[] {
       let j = i + 1;
       let fin = -1;
       let dernierChamp = i;
-      for (; j < Math.min(lignes.length, i + 14); j++) {
+      let dernierType: Champ = 'de';
+      for (; j < Math.min(lignes.length, i + 20); j++) {
         const lj = sansCitation(lignes[j]);
         if (!lj.trim()) {
           if (champs.objet !== undefined) break;
@@ -95,10 +96,9 @@ function reperesBlocs(lignes: string[]): Bloc[] {
         }
         const cj = lj.match(CHAMP);
         if (!cj) {
-          // Suite d'une longue liste de destinataires renvoyée à la ligne.
-          const dernier = champs.objet !== undefined ? null : champs.cc !== undefined ? 'cc' : champs.a !== undefined ? 'a' : null;
-          if (dernier && /[@;,]/.test(lj)) {
-            champs[dernier] += ' ' + lj.trim();
+          // Suite d'un champ renvoyée à la ligne : longue liste de destinataires, adresse coupée…
+          if (champs.objet === undefined && (dernierType === 'de' || dernierType === 'a' || dernierType === 'cc')) {
+            champs[dernierType] += ' ' + lj.trim();
             continue;
           }
           break;
@@ -106,6 +106,7 @@ function reperesBlocs(lignes: string[]): Bloc[] {
         const t = typeDeChamp(cj[1]);
         if (t === 'de') break;
         if (champs[t] === undefined) champs[t] = cj[2].trim();
+        dernierType = t;
         dernierChamp = j;
         if (t === 'objet') fin = j;
       }
@@ -130,23 +131,55 @@ function reperesBlocs(lignes: string[]): Bloc[] {
   return blocs;
 }
 
-/** Texte d'un segment, sans séparateurs ni lignes vides en bord. */
-function nettoyer(lignes: string[]): string {
-  const garde = lignes.map(sansCitation).filter((l) => !SEPARATEUR.test(l));
+// Restes de mise en forme d'Outlook en texte brut : « site<https://…> », images de signature « [cid:…] ».
+const LIEN_ENTRE_CHEVRONS = /<(?:https?:\/\/|mailto:)[^>\s]*>/gi;
+const IMAGE_INTEGREE = /\[cid:[^\]]*\]/gi;
+// Lignes qui ouvrent une signature ou un pied de message.
+const MARQUEUR_SIGNATURE =
+  /letsignit|t[ée]l[ée]chargez mes coordonn[ée]es|^\s*(t[ée]l|tel|mob|mobile|portable|fixe|standard|ligne directe)\s*[.:]|^\s*(www\.|https?:\/\/)\S+\s*(\/\s*(www\.|https?:\/\/)\S+\s*)*$|^\s*-- ?$|pensez [àa] l.environnement|ce (message|courriel|mail) (et (toutes )?ses pi[èe]ces jointes|est confidentiel)|^\s*(afin de contribuer|avertissement|disclaimer)\b/i;
+
+/** Retire les liens entre chevrons et les images intégrées, garde le texte lisible. */
+export function nettoyerLigne(l: string): string {
+  return l.replace(LIEN_ENTRE_CHEVRONS, '').replace(IMAGE_INTEGREE, '').replace(/[ \t]+$/g, '');
+}
+
+/** Ligne qui commence par un nom donné (dans un ordre ou l'autre : « David HAGNERE », « HAGNERE David »). */
+function ligneDeNom(ligne: string, noms: string[]): boolean {
+  const l = normaliser(ligne);
+  if (!l || l.length > 90) return false;
+  const motsLigne = new Set(l.split(' ').slice(0, 4));
+  return noms.some((n) => {
+    const m = normaliser(n).split(' ').filter((x) => x.length > 1 && !x.includes('@'));
+    // La ligne doit être surtout le nom (« David HAGNERE », « David HAGNERE | Chef de service »), pas une phrase.
+    return m.length >= 2 && m.every((x) => motsLigne.has(x)) && l.split(' ').length <= m.length + 4 && !/[.!?]\s*$/.test(ligne);
+  });
+}
+
+/**
+ * Coupe un texte à sa signature : formule de politesse, nom de l'auteur seul sur sa ligne, coordonnées,
+ * liens de signature ou mention de confidentialité. Tout ce qui suit est retiré.
+ */
+export function sansSignature(lignes: string[], noms: string[]): string[] {
+  const garde: string[] = [];
+  for (const brute of lignes) {
+    const l = nettoyerLigne(sansCitation(brute));
+    if (FIN_SIGNATURE.test(l) || MARQUEUR_SIGNATURE.test(l) || ligneDeNom(l, noms)) break;
+    garde.push(l);
+  }
+  return garde;
+}
+
+/** Texte d'un segment, sans séparateurs, signature ni lignes vides en bord. */
+function nettoyer(lignes: string[], noms: string[] = []): string {
+  const garde = sansSignature(lignes, noms).filter((l) => !SEPARATEUR.test(l));
   while (garde.length && !garde[0].trim()) garde.shift();
   while (garde.length && !garde[garde.length - 1].trim()) garde.pop();
   return garde.join('\n').replace(/\n{3,}/g, '\n\n').slice(0, LONGUEUR_CORPS);
 }
 
 /** Consigne : texte au-dessus du transfert, sans la signature de celui qui transfère. */
-function lireConsigne(lignes: string[]): string {
-  const garde: string[] = [];
-  for (const l of lignes) {
-    if (FIN_SIGNATURE.test(l)) break;
-    if (SEPARATEUR.test(l)) continue;
-    garde.push(l);
-  }
-  return nettoyer(garde).slice(0, 2000);
+function lireConsigne(lignes: string[], noms: string[]): string {
+  return nettoyer(lignes, noms).slice(0, 2000);
 }
 
 const texteAdresses = (a: AddressObject | AddressObject[] | undefined) =>
@@ -198,7 +231,7 @@ export async function decoderTransfert(source: Buffer | string, adressesService:
         destinataires: [texteAdresses(sous.to), texteAdresses(sous.cc)].filter(Boolean).join(' ; '),
         date: sous.date ?? null,
         objet: sous.subject ?? '',
-        corps: (sous.text ?? '').replace(/\r\n/g, '\n').trim().slice(0, LONGUEUR_CORPS),
+        corps: nettoyer((sous.text ?? '').replace(/\r\n/g, '\n').split('\n'), [de.nom]),
         piecesJointes: sous.attachments.filter((p) => !estDecor(p)).map(versPieceJointe),
         sens: sensDe(de.nom, de.adresse),
         mode: 'piece-jointe',
@@ -221,7 +254,7 @@ export async function decoderTransfert(source: Buffer | string, adressesService:
       destinataires: [b.champs.a, b.champs.cc].filter(Boolean).join(' ; '),
       date: lireDateEnTete(b.champs.date ?? ''),
       objet,
-      corps: nettoyer(lignes.slice(b.fin + 1, finSegment)),
+      corps: nettoyer(lignes.slice(b.fin + 1, finSegment), [de.nom]),
       piecesJointes: [],
       sens: sensDe(de.nom, de.adresse),
       mode: b.mode,
@@ -230,7 +263,9 @@ export async function decoderTransfert(source: Buffer | string, adressesService:
 
   const premierBloc = blocs.length ? blocs[0].debut : lignes.length;
   const decode = mails.length > 0;
-  const consigne = decode ? lireConsigne(lignes.slice(0, premierBloc)) : '';
+  // Noms de celui qui transfère : celui de l'expéditeur, et ceux tirés des adresses du service (« david.hagnere@… »).
+  const nomsService = [env.nom, ...adressesService.map((a) => a.split('@')[0].replace(/[._-]+/g, ' '))];
+  const consigne = decode ? lireConsigne(lignes.slice(0, premierBloc), nomsService) : '';
 
   // 3. Rien de recopié : le message lui-même (mail arrivé directement, ou transfert dont l'en-tête a été effacé).
   if (!decode) {
@@ -240,7 +275,7 @@ export async function decoderTransfert(source: Buffer | string, adressesService:
       destinataires: [texteAdresses(parsed.to), texteAdresses(parsed.cc)].filter(Boolean).join(' ; '),
       date: enveloppe.date,
       objet: enveloppe.objet,
-      corps: nettoyer(lignes),
+      corps: nettoyer(lignes, [env.nom]),
       piecesJointes: [],
       sens: adressesService.map((a) => a.toLowerCase()).includes(env.adresse) ? 'envoyé' : 'reçu',
       mode: 'direct',

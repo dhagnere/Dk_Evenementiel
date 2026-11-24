@@ -1,10 +1,11 @@
 import type pg from 'pg';
 import { executer, insererUn, pool, requete, requeteUne, transaction } from '../../db.js';
-import { enregistrerFichier, stockageActif } from '../stockage.js';
+import { enregistrerFichier, lireObjet, stockageActif } from '../stockage.js';
 import { connecter, ConnexionImpossible, empreinteIdentifiants, estConfiguree, lireConfiguration, masquer } from './configuration.js';
-import { analyseActive, analyser, type DossierPourAnalyse, type ResultatAnalyse } from './analyse.js';
+import { AnalyseImpossible, analyseActive, analyser, appliquerAnalyse, type DossierPourAnalyse, type ResultatAnalyse } from './analyse.js';
 import { classer, contactsDe, lireConsigne, type Classement, type ContexteClassement } from './classement.js';
 import { detecterEcheances } from './echeances.js';
+import { nettoyerAnciensMails } from './maintenance.js';
 import { formatParis, objetDeFil } from './texte.js';
 import { decoderTransfert, empreinteDe, type MailOrigine, type PieceJointe, type Transfert } from './transferts.js';
 
@@ -31,6 +32,8 @@ export interface BilanReleve {
   doublons: number;
   dossiersCrees: number;
   analyses: number;
+  /** Messages ignorés : envoyés directement à la messagerie de l'assistant, pas transférés par le service. */
+  ignores: number;
   erreur: string;
 }
 
@@ -134,7 +137,13 @@ async function enregistrer(
   const nouveaux: { m: MailOrigine; empreinte: string }[] = [];
   for (const m of t.mails) {
     const empreinte = empreinteDe(m);
-    if (vus.has(empreinte) || (await requeteUne('SELECT 1 FROM assistant_mails WHERE empreinte = $1', [empreinte]))) {
+    if (
+      vus.has(empreinte) ||
+      (await requeteUne(
+        'SELECT 1 FROM assistant_mails WHERE empreinte = $1 UNION ALL SELECT 1 FROM assistant_mails_supprimes WHERE empreinte = $1',
+        [empreinte]
+      ))
+    ) {
       bilan.doublons++;
       continue;
     }
@@ -147,7 +156,7 @@ async function enregistrer(
   let classement = classerTransfert(t, nouveaux.map((n) => n.m), ctx);
 
   let analyse: ResultatAnalyse | null = null;
-  if (analyseActive()) {
+  if (await analyseActive()) {
     try {
       const pourAnalyse: DossierPourAnalyse[] = dossiers.map((d) => ({
         code: d.code,
@@ -157,7 +166,7 @@ async function enregistrer(
         statut: d.statut,
         resume: typeof d.donnees.resume === 'string' ? d.donnees.resume : '',
       }));
-      analyse = await analyser({ ...t, mails: nouveaux.map((n) => n.m) }, classement, ctx, pourAnalyse);
+      analyse = await analyser({ mails: nouveaux.map((n) => n.m), consigne: t.consigne }, classement, ctx, pourAnalyse);
       if (analyse) {
         bilan.analyses++;
         // La consigne du chef de service l'emporte toujours sur l'analyse.
@@ -209,24 +218,29 @@ async function enregistrer(
         statut: 'À traiter',
         priorite: consigne.priorite ?? analyse?.priorite ?? 'Normale',
         echeances,
-        resume: analyse?.resume || dernier.corps.replace(/\s+/g, ' ').slice(0, 500),
-        actions: analyse?.actions ?? [],
-        vigilance: analyse?.vigilance ?? [],
+        resume: dernier.corps.replace(/\s+/g, ' ').slice(0, 500),
+        actions: [] as string[],
+        vigilance: [] as string[],
         pieces_jointes: pieces,
         mails: [] as number[],
         remarques: consigne.remarque ? [consigne.remarque] : [],
         origine: 'releve',
         classement: classement.motif,
-      };
+      } as Record<string, unknown>;
+      if (analyse) {
+        appliquerAnalyse(donnees, analyse, true);
+        if (consigne.priorite) donnees.priorite = consigne.priorite;
+        if (analyse.statut) donnees.statut = analyse.statut;
+      }
       await insererUn(
         'assistant_dossiers',
         {
           code,
           evenementCode: classement.evenement,
           branche: classement.branche,
-          titre,
-          statut: 'À traiter',
-          priorite: donnees.priorite,
+          titre: String(donnees.titre),
+          statut: String(donnees.statut),
+          priorite: String(donnees.priorite),
           donnees,
           source: 'releve',
         },
@@ -236,14 +250,14 @@ async function enregistrer(
         code,
         evenementCode: classement.evenement,
         branche: classement.branche,
-        titre,
-        statut: 'À traiter',
-        priorite: donnees.priorite,
+        titre: String(donnees.titre),
+        statut: String(donnees.statut),
+        priorite: String(donnees.priorite),
         source: 'releve',
         donnees,
       };
       dossiers.push(nouveau);
-      ctx.dossiers.push({ code, evenementCode: classement.evenement, branche: classement.branche, statut: 'À traiter', contacts: contactsDe(donnees) });
+      ctx.dossiers.push({ code, evenementCode: classement.evenement, branche: classement.branche, statut: String(donnees.statut), contacts: contactsDe(donnees) });
       bilan.dossiersCrees++;
     }
 
@@ -292,11 +306,7 @@ async function enregistrer(
       donnees.echeances = ech;
       donnees.contacts = sansDoublons([...liste<string>('contacts'), ...contacts]);
       donnees.pieces_jointes = [...liste<unknown>('pieces_jointes'), ...pieces];
-      if (analyse) {
-        donnees.actions = sansDoublons([...liste<string>('actions'), ...(analyse.actions ?? [])]);
-        donnees.vigilance = sansDoublons([...liste<string>('vigilance'), ...(analyse.vigilance ?? [])]);
-        if (analyse.resume) donnees.resume = analyse.resume;
-      }
+      if (analyse) appliquerAnalyse(donnees, analyse, false);
       if (consigne.remarque) donnees.remarques = sansDoublons([...liste<string>('remarques'), consigne.remarque]);
     }
     donnees.dernier_mail = dernier.date ? formatParis(dernier.date) : formatParis(new Date());
@@ -327,7 +337,7 @@ async function enregistrer(
 
 /** Décode et enregistre un message brut (utilisé par la mise à jour, et par les tests). */
 export async function traiterMessage(source: Buffer | string, lien = '', bilan?: BilanReleve): Promise<BilanReleve> {
-  const b = bilan ?? { lus: 0, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, erreur: '' };
+  const b = bilan ?? { lus: 0, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, ignores: 0, erreur: '' };
   const c = await lireConfiguration();
   const service = [...c.adressesService, c.adresse].filter(Boolean);
   const { ctx, dossiers } = await chargerContexte(service);
@@ -348,7 +358,7 @@ export async function relever(par: string): Promise<BilanReleve> {
   if (enCours) throw new ReleveImpossible('Une mise à jour est déjà en cours');
   enCours = true;
   const verrou = await pool.connect();
-  const bilan: BilanReleve = { lus: 0, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, erreur: '' };
+  const bilan: BilanReleve = { lus: 0, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, ignores: 0, erreur: '' };
   const debut = new Date();
   let verrouPris = false;
   try {
@@ -384,7 +394,10 @@ export async function relever(par: string): Promise<BilanReleve> {
             const lien = '';
             try {
               const t = await decoderTransfert(msg.source, service);
-              await enregistrer(t, lien, ctx, dossiers, bilan, c.adresse);
+              // Seuls les messages transférés par le service comptent : alertes de sécurité, lettres
+              // d'information ou courriers envoyés directement à la messagerie de l'assistant sont ignorés.
+              if (c.adressesService.length && !c.adressesService.includes(t.enveloppe.adresse)) bilan.ignores++;
+              else await enregistrer(t, lien, ctx, dossiers, bilan, c.adresse);
             } catch (e) {
               console.error(`[assistant] Message ${uid} illisible :`, (e as Error).message);
               bilan.erreur = bilan.erreur || "Un message n'a pas pu être lu";
@@ -436,6 +449,7 @@ let minuteur: NodeJS.Timeout | null = null;
  */
 export function demarrerReleveAutomatique(): void {
   if (minuteur) return;
+  void nettoyerAnciensMails().catch((e) => console.error('[assistant] Nettoyage des anciens mails :', (e as Error).message));
   const tour = async () => {
     try {
       const c = await lireConfiguration();
@@ -466,9 +480,74 @@ export async function etatReleve() {
     adresseMasquee: masquer(c.adresse),
     minutes: c.minutes,
     adressesService: c.adressesService,
-    analyse: analyseActive(),
+    analyse: !!c.cleAnalyse,
+    origineAnalyse: c.origineAnalyse,
     stockage: stockageActif(),
     derniers,
     prochain,
   };
+}
+
+// --- Analyse d'un dossier déjà enregistré ----------------------------------------------------------
+
+async function contenuFichier(id: string): Promise<Buffer | undefined> {
+  const f = await requeteUne<{ cleStockage: string; taille: number }>("SELECT cle_stockage, taille FROM fichiers WHERE id = $1 AND module = 'assistant'", [id]);
+  if (!f || f.taille > 8 * 1024 * 1024 || !stockageActif()) return undefined;
+  const morceaux: Buffer[] = [];
+  for await (const m of await lireObjet(f.cleStockage)) morceaux.push(Buffer.from(m));
+  return Buffer.concat(morceaux);
+}
+
+/**
+ * (Ré)analyse un dossier à partir de ses mails enregistrés et de ses pièces jointes copiées : résumé,
+ * actions, vigilance, échéances, budget, brouillon. Événement et branche ne sont remplis que s'ils manquent.
+ */
+export async function analyserDossier(code: string): Promise<void> {
+  const c = await lireConfiguration();
+  if (!c.cleAnalyse) throw new AnalyseImpossible("Analyse non activée : enregistrez la clé du service dans « état et réglages »");
+  const service = [...c.adressesService, c.adresse].filter(Boolean);
+  const { ctx, dossiers } = await chargerContexte(service);
+  const d = dossiers.find((x) => x.code === code);
+  if (!d) throw new AnalyseImpossible('Dossier introuvable');
+  const lignes = await requete<{
+    expediteur: string; destinataires: string; dateEnvoi: Date | null; date: string; objet: string; corps: string; sens: string;
+    piecesJointes: { nom: string; type: string; taille: number; fichierId?: string }[];
+  }>("SELECT * FROM assistant_mails WHERE dossier_code = $1 AND source = 'releve' ORDER BY date_envoi NULLS FIRST, numero", [code]);
+  if (!lignes.length) throw new AnalyseImpossible("Ce dossier n'a pas de mail arrivé par la mise à jour automatique à analyser");
+  const pieces: PieceJointe[] = [];
+  for (const l of lignes) for (const p of l.piecesJointes ?? []) {
+    if (p.fichierId && pieces.length < 4) pieces.push({ ...p, contenu: await contenuFichier(p.fichierId).catch(() => undefined) });
+  }
+  const mails: MailOrigine[] = lignes.slice(-12).map((l) => ({
+    expediteurNom: l.expediteur,
+    expediteurAdresse: '',
+    destinataires: l.destinataires,
+    date: l.dateEnvoi ? new Date(l.dateEnvoi) : null,
+    objet: l.objet,
+    corps: l.corps,
+    piecesJointes: (l.piecesJointes ?? []).map((p) => ({ nom: p.nom, type: p.type, taille: p.taille })),
+    sens: l.sens === 'envoyé' ? 'envoyé' : 'reçu',
+    mode: 'en-tete',
+  }));
+  const pourAnalyse: DossierPourAnalyse[] = dossiers.map((x) => ({
+    code: x.code, titre: x.titre, evenementCode: x.evenementCode, branche: x.branche, statut: x.statut,
+    resume: typeof x.donnees.resume === 'string' ? x.donnees.resume : '',
+  }));
+  const a = await analyser({ mails, consigne: '', pieces }, { dossier: code, evenement: d.evenementCode, branche: d.branche, motif: 'analyse' }, ctx, pourAnalyse);
+  if (!a) return;
+  await transaction(async (client) => {
+    const actuel = await requeteUne<DossierEnBase>('SELECT code, evenement_code, branche, donnees, source FROM assistant_dossiers WHERE code = $1 FOR UPDATE', [code], client);
+    if (!actuel) return;
+    const donnees = { ...actuel.donnees };
+    appliquerAnalyse(donnees, a, actuel.source === 'releve' && !donnees.analyse);
+    const evenement = actuel.evenementCode || a.evenement || '';
+    const branche = actuel.branche || a.branche || '';
+    donnees.evenement = evenement;
+    donnees.branche = branche;
+    await executer(
+      'UPDATE assistant_dossiers SET donnees = $2, evenement_code = $3, branche = $4, titre = $5, priorite = $6, updated_at = now() WHERE code = $1',
+      [code, JSON.stringify(donnees), evenement, branche, String(donnees.titre ?? ''), String(donnees.priorite ?? 'Normale')],
+      client
+    );
+  });
 }

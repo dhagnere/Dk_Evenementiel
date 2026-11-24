@@ -261,12 +261,16 @@ const TABLES = {
     colonnes: ['cle', 'uidValidity', 'dernierUid', 'createdAt', 'updatedAt'],
     json: [],
   },
+  assistant_mails_supprimes: {
+    colonnes: ['empreinte', 'objet', 'par', 'createdAt', 'updatedAt'],
+    json: [],
+  },
   assistant_config: {
     colonnes: ['cle', 'valeur', 'par', 'createdAt', 'updatedAt'],
     json: ['valeur'],
   },
   assistant_releves: {
-    colonnes: ['_id', 'debut', 'fin', 'lus', 'nouveaux', 'doublons', 'dossiersCrees', 'analyses', 'erreur', 'par', 'createdAt', 'updatedAt'],
+    colonnes: ['_id', 'debut', 'fin', 'lus', 'nouveaux', 'doublons', 'dossiersCrees', 'analyses', 'ignores', 'erreur', 'par', 'createdAt', 'updatedAt'],
     json: [],
   },
   assistant_prestataires: {

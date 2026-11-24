@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button, DatePicker, Drawer, InputNumber, Popover, Select, Space, Typography, Upload, message } from 'antd';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Button, DatePicker, Drawer, InputNumber, Popconfirm, Popover, Select, Space, Typography, Upload, message } from 'antd';
 import { CheckOutlined, InboxOutlined, PlusOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { api } from '../api';
@@ -45,6 +45,8 @@ interface Fiche {
   budget?: LigneBudget[];
   mails?: number[];
   brouillon?: string | null;
+  /** Date de la dernière analyse complète. */
+  analyse?: string;
   /** Consignes écrites au-dessus des mails (mise à jour automatique). */
   remarques?: string[];
   origine?: string;
@@ -95,6 +97,7 @@ interface Releve {
   nouveaux: number;
   doublons: number;
   dossiersCrees: number;
+  ignores: number;
   analyses: number;
   erreur: string;
   par: string;
@@ -112,6 +115,7 @@ interface EtatReleve {
   minutes: number;
   adressesService: string[];
   analyse: boolean;
+  origineAnalyse: 'ecran' | 'serveur' | null;
   derniers: Releve[];
   prochain: string | null;
 }
@@ -207,7 +211,15 @@ export default function Assistant() {
   const [releveEnCours, setReleveEnCours] = useState(false);
 
   const charger = () => api.get<Index>('/assistant/index').then(setIndex);
+  const [parametres, setParametres] = useSearchParams();
   useEffect(() => {
+    // Lien depuis l'accueil ou une fiche projet : /admin/assistant?dossier=D12
+    const d = parametres.get('dossier');
+    if (d) {
+      setOuvert(d);
+      parametres.delete('dossier');
+      setParametres(parametres, { replace: true });
+    }
     charger();
   }, []);
 
@@ -395,7 +407,7 @@ export default function Assistant() {
         {vue === 'dossiers' && <VueDossiers dossiers={filtres} index={index} ouvrir={setOuvert} />}
         {vue === 'echeances' && <VueEcheances dossiers={filtres} ev={ev} ouvrir={setOuvert} />}
         {vue === 'budget' && <VueBudget dossiers={filtres} ev={ev} ouvrir={setOuvert} />}
-        {vue === 'mails' && <VueMails dossiers={filtres} mails={index.mails} ev={ev} ouvrir={setOuvert} />}
+        {vue === 'mails' && <VueMails dossiers={filtres} mails={index.mails} ev={ev} ouvrir={setOuvert} recharger={charger} />}
         {vue === 'annuaire' && <VueAnnuaire dossiers={filtres} prestataires={index.prestataires} q={q} ev={ev} ouvrir={setOuvert} />}
         {vue === 'projets' && <VueProjets index={index} recharger={charger} ouvrirProjet={(id) => navigate(`/projets/${id}`)} />}
       </main>
@@ -642,49 +654,101 @@ function VueMails({
   mails,
   ev,
   ouvrir,
+  recharger,
 }: {
   dossiers: Dossier[];
   mails: Mail[];
   ev: (c: string) => Evenement | undefined;
   ouvrir: (c: string) => void;
+  recharger: () => Promise<unknown>;
 }) {
+  const [choisis, setChoisis] = useState<Set<string>>(new Set());
   const parCode = new Map(dossiers.map((d) => [d.code, d]));
-  const lignes = mails.filter((m) => parCode.has(m.dossierCode));
+  const lignes = mails.filter((m) => parCode.has(m.dossierCode)).sort((a, b) => b.date.localeCompare(a.date));
   if (!lignes.length) return <div className="empty">Aucun mail.</div>;
+  const basculer = (id: string) =>
+    setChoisis((c) => {
+      const n = new Set(c);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const tous = lignes.every((m) => choisis.has(m._id));
+  const supprimer = async () => {
+    if (await lancer(api.post('/assistant/mails/supprimer', { ids: [...choisis] }))) {
+      setChoisis(new Set());
+      recharger();
+    }
+  };
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>N°</th>
-          <th>Date</th>
-          <th></th>
-          <th>Expéditeur</th>
-          <th>Objet</th>
-          <th>Dossier</th>
-          <th>Événement</th>
-        </tr>
-      </thead>
-      <tbody>
-        {lignes.map((m) => {
-          const d = parCode.get(m.dossierCode)!;
-          return (
-            <tr key={m._id ?? m.numero} className="click" onClick={() => ouvrir(d.code)}>
-              <td>{m.source === 'releve' ? <span title="Arrivé par la mise à jour automatique">✉</span> : m.numero}</td>
-              <td>
-                {fdate(m.date)} {m.date.slice(11, 16)}
-              </td>
-              <td title={m.sens === 'envoyé' ? 'Envoyé par le service' : m.sens === 'reçu' ? 'Reçu' : ''}>
-                {m.sens === 'envoyé' ? '↗' : m.sens === 'reçu' ? '↘' : ''}
-              </td>
-              <td>{m.expediteur}</td>
-              <td>{m.objet}</td>
-              <td>{d.code}</td>
-              <td>{ev(d.donnees.evenement)?.nom ?? d.donnees.evenement}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <>
+      <div className="row" style={{ margin: '4px 0 10px', minHeight: 32 }}>
+        {choisis.size > 0 ? (
+          <>
+            <span>{choisis.size} mail{choisis.size > 1 ? 's' : ''} sélectionné{choisis.size > 1 ? 's' : ''}</span>
+            <Popconfirm
+              title="Supprimer ces mails du registre ?"
+              description="Ils ne reviendront pas, même transférés à nouveau. Un dossier ouvert automatiquement qui n'a plus de mail est retiré."
+              okText="Supprimer"
+              cancelText="Annuler"
+              okButtonProps={{ danger: true }}
+              onConfirm={supprimer}
+            >
+              <Button danger size="small">
+                Supprimer la sélection
+              </Button>
+            </Popconfirm>
+            <button className="lien" onClick={() => setChoisis(new Set())}>
+              annuler la sélection
+            </button>
+          </>
+        ) : (
+          <span className="muted petit">Cochez des mails pour les supprimer du registre.</span>
+        )}
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style={{ width: 28 }}>
+              <input
+                type="checkbox"
+                aria-label="Tout sélectionner"
+                checked={tous}
+                onChange={() => setChoisis(tous ? new Set() : new Set(lignes.map((m) => m._id)))}
+              />
+            </th>
+            <th>Date</th>
+            <th></th>
+            <th>Expéditeur</th>
+            <th>Objet</th>
+            <th>Dossier</th>
+            <th>Événement</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lignes.map((m) => {
+            const d = parCode.get(m.dossierCode)!;
+            return (
+              <tr key={m._id ?? m.numero} className={`click${choisis.has(m._id) ? ' choisi' : ''}`} onClick={() => ouvrir(d.code)}>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" aria-label="Sélectionner" checked={choisis.has(m._id)} onChange={() => basculer(m._id)} />
+                </td>
+                <td>
+                  {fdate(m.date)} {m.date.slice(11, 16)}
+                </td>
+                <td title={m.sens === 'envoyé' ? 'Envoyé par le service' : m.sens === 'reçu' ? 'Reçu' : ''}>
+                  {m.sens === 'envoyé' ? '↗' : m.sens === 'reçu' ? '↘' : ''}
+                </td>
+                <td>{m.expediteur}</td>
+                <td>{m.objet}</td>
+                <td>{d.code}</td>
+                <td>{ev(d.donnees.evenement)?.nom ?? d.donnees.evenement}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
   );
 }
 
@@ -886,6 +950,7 @@ function FicheDossier({
   ouvrirProjet: (id: string) => void;
 }) {
   const [note, setNote] = useState('');
+  const [analyseEnCours, setAnalyseEnCours] = useState(false);
   useEffect(() => setNote(dossier?.corrections.note ?? ''), [dossier?.code]);
   if (!dossier) return null;
   const f = dossier.donnees;
@@ -895,6 +960,14 @@ function FicheDossier({
     const res = await api.put<{ ok: boolean; message: string }>(`/assistant/dossiers/${dossier.code}/correction`, corps);
     if (!res.ok) message.error(res.message);
     await recharger();
+  };
+  const analyser = async () => {
+    setAnalyseEnCours(true);
+    try {
+      if (await lancer(api.post(`/assistant/dossiers/${dossier.code}/analyser`, {}))) await recharger();
+    } finally {
+      setAnalyseEnCours(false);
+    }
   };
   const reclasser = async (corps: { evenement?: string; branche?: string; priorite?: string }) => {
     if (await lancer(api.put(`/assistant/dossiers/${dossier.code}/classement`, corps))) recharger();
@@ -1000,8 +1073,16 @@ function FicheDossier({
         <div>{f.demandeur || '—'}</div>
         <h4>Contacts</h4>
         {liste(f.contacts ?? [])}
-        <h4>Résumé</h4>
+        <h4>
+          Résumé
+          {index.releve.analyse && mails.some((m) => m.source === 'releve') && (
+            <button className="lien" onClick={analyser} disabled={analyseEnCours} style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
+              {analyseEnCours ? 'analyse en cours…' : f.analyse ? 'analyser à nouveau' : 'analyser ce dossier'}
+            </button>
+          )}
+        </h4>
         <div>{f.resume || '—'}</div>
+        {f.analyse && <div className="muted petit">Analysé le {dayjs(f.analyse).format('DD/MM/YYYY à HH:mm')}</div>}
         <h4>Échéances</h4>
         {(f.echeances ?? []).length ? (
           <ul>
@@ -1145,6 +1226,18 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
                 </span>
               )}
               <span className="muted">{MOTIFS[m.classement] ?? m.classement}</span>
+              <Popconfirm
+                title="Supprimer ce mail du registre ?"
+                description="Il ne reviendra pas, même transféré à nouveau."
+                okText="Supprimer"
+                cancelText="Annuler"
+                okButtonProps={{ danger: true }}
+                onConfirm={async () => {
+                  if (await lancer(api.post('/assistant/mails/supprimer', { ids: [m._id] }))) recharger();
+                }}
+              >
+                <button className="lien danger">supprimer</button>
+              </Popconfirm>
               <select
                 value=""
                 onChange={(e) => e.target.value && deplacer(m, e.target.value)}
@@ -1244,6 +1337,83 @@ function Reglages({ releve, annuler, apres }: { releve: EtatReleve; annuler?: ()
   );
 }
 
+function ReglagesAnalyse({ releve, apres }: { releve: EtatReleve; apres: () => void }) {
+  const [edition, setEdition] = useState(false);
+  const [cle, setCle] = useState('');
+  const [modele, setModele] = useState('');
+  const [envoi, setEnvoi] = useState(false);
+  const [lot, setLot] = useState(false);
+  const enregistrer = async (valeur: string | null) => {
+    setEnvoi(true);
+    try {
+      const r = await api.put<{ ok: boolean; message: string }>('/assistant/configuration/analyse', { cle: valeur, modele });
+      if (r.ok) {
+        message.success(r.message);
+        setCle('');
+        setEdition(false);
+        apres();
+      } else message.error(r.message, 8);
+    } finally {
+      setEnvoi(false);
+    }
+  };
+  const analyserEnAttente = async () => {
+    setLot(true);
+    try {
+      const r = await api.post<{ ok: boolean; message: string }>('/assistant/analyser-dossiers', {});
+      if (r.ok) message.success(r.message, 8);
+      else message.error(r.message, 8);
+      apres();
+    } finally {
+      setLot(false);
+    }
+  };
+  return (
+    <div>
+      <Text strong>Analyse complète</Text>
+      <Paragraph type="secondary" style={{ margin: '4px 0 8px' }}>
+        Lecture de chaque mail et de ses pièces jointes (PDF, scans, images) : résumé, actions, points de vigilance, échéances, suivi
+        budgétaire, brouillon de réponse et classement. Service facturé à l'usage.
+      </Paragraph>
+      {releve.analyse && !edition ? (
+        <Space wrap>
+          <span className="tag st-done">activée{releve.origineAnalyse === 'serveur' ? ' (réglée sur le serveur)' : ''}</span>
+          <Button size="small" loading={lot} onClick={analyserEnAttente}>
+            Analyser les dossiers en attente
+          </Button>
+          {releve.origineAnalyse === 'ecran' && (
+            <>
+              <button className="lien" onClick={() => setEdition(true)}>
+                changer la clé
+              </button>
+              <Popconfirm title="Désactiver l'analyse complète ?" okText="Désactiver" cancelText="Annuler" onConfirm={() => enregistrer(null)}>
+                <button className="lien danger">désactiver</button>
+              </Popconfirm>
+            </>
+          )}
+        </Space>
+      ) : (
+        <div className="reglages">
+          <label>
+            Clé du service d'analyse
+            <input type="password" autoComplete="new-password" value={cle} onChange={(e) => setCle(e.target.value)} />
+          </label>
+          <label>
+            Modèle (facultatif, laisser vide)
+            <input type="text" value={modele} onChange={(e) => setModele(e.target.value)} />
+          </label>
+          <Space style={{ marginTop: 10 }}>
+            <Button type="primary" loading={envoi} disabled={!cle.trim()} onClick={() => enregistrer(cle.trim())}>
+              Tester et enregistrer
+            </Button>
+            {edition && <Button onClick={() => setEdition(false)}>Annuler</Button>}
+          </Space>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PanneauMiseAJour({
   ouvert,
   corriger,
@@ -1330,6 +1500,8 @@ function PanneauMiseAJour({
           </div>
         ) : null}
 
+        {releve.configure && <ReglagesAnalyse releve={releve} apres={apres} />}
+
         <div>
           <Text strong>Consignes de classement</Text>
           <ul className="aide">
@@ -1353,6 +1525,7 @@ function PanneauMiseAJour({
                   <th>Ajoutés</th>
                   <th>Dossiers</th>
                   <th>Doublons</th>
+                  <th>Ignorés</th>
                   <th>Remarque</th>
                 </tr>
               </thead>
@@ -1364,6 +1537,7 @@ function PanneauMiseAJour({
                     <td>{r.nouveaux}</td>
                     <td>{r.dossiersCrees}</td>
                     <td>{r.doublons}</td>
+                    <td>{r.ignores ?? 0}</td>
                     <td>{r.erreur || (r.par === 'mise à jour automatique' ? 'automatique' : r.par)}</td>
                   </tr>
                 ))}
@@ -1510,6 +1684,8 @@ const CSS = `
 .asst .reglages{background:#f6f7f4;border:1px solid var(--line);border-radius:6px;padding:12px 14px}
 .asst .reglages label{display:block;margin-top:8px;font-size:13px;color:var(--muted)}
 .asst .reglages input,.asst .reglages select{display:block;width:100%;margin-top:3px;font:inherit;border:1px solid var(--line);border-radius:5px;padding:7px 9px;background:#fff;color:var(--ink)}
+.asst .lien.danger{color:var(--red)}
+.asst tr.choisi td{background:#eef5f8}
 .asst ul.aide{margin:6px 0 0;padding-left:18px}
 .asst ul.aide li{margin-bottom:4px}
 .asst ul.aide code{background:var(--sand);border-radius:3px;padding:0 4px}
