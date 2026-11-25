@@ -669,7 +669,9 @@ export async function contexteDepot() {
     racineOneDrive: 'Mes fichiers/Assistant',
     dossierSansEvenement: sansEvenement,
     evenements: evenements.map((e) => {
-      const dossierOnedrive = e.dossierOnedrive || e.nom.split(/\s+[–—-]\s+/)[0].trim();
+      // « Fonctionnement du service (hors événement) » de l'index rejoint le dossier commun sans événement.
+      const court = e.nom.split(/\s+[–—-]\s+/)[0].trim();
+      const dossierOnedrive = e.dossierOnedrive || (/^fonctionnement du service/i.test(court) ? sansEvenement : court);
       return { ...e, dossierOnedrive, dossierOutlook: versOutlook(dossierOnedrive) };
     }),
     dossiers: dossiers.map((d) => ({

@@ -961,7 +961,11 @@ assistantRouter.get(
 
 const DOSSIER_SANS_EVENEMENT = 'Fonctionnement du service';
 /** « La Féerique 2026 – Marché de Noël et château du Père Noël » → « La Féerique 2026 ». */
-const nomCourt = (nom: string) => nom.split(/\s+[–—-]\s+/)[0].replace(/[\\/:*?"<>|#%]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+const nomCourt = (nom: string) => {
+  const court = nom.split(/\s+[–—-]\s+/)[0].replace(/[\\/:*?"<>|#%]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  // « Fonctionnement du service (hors événement) » rejoint le dossier commun sans événement.
+  return /^fonctionnement du service/i.test(court) ? DOSSIER_SANS_EVENEMENT : court;
+};
 
 interface PieceEnBase {
   nom: string;

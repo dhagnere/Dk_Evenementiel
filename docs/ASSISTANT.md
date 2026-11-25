@@ -259,3 +259,13 @@ Le registre contient des noms, des adresses électroniques et le texte de mails 
 associations). C'est pourquoi l'onglet est réservé aux super-administrateurs. La messagerie de l'assistant est hébergée
 hors du système d'information de la collectivité : n'y transférer que le courrier utile au suivi des dossiers. Ce traitement est à inscrire au registre
 RGPD de la collectivité, avec le délégué à la protection des données.
+
+## Idées retenues pour la suite
+
+- **Bilan d'événement** (retenue le 25 novembre 2026) : à la clôture d'un événement, tirer de son sous-dossier
+  DKEVENTS et de ses dossiers un bilan prêt pour le retour d'expérience : nombre d'échanges par prestataire, délais de
+  réponse (mail reçu → réponse envoyée), montants engagés par fournisseur et par branche, échéances tenues ou
+  dépassées, points de vigilance restés ouverts. À construire une fois l'année 2026 reprise, pour disposer de données
+  complètes (La Féerique 2026 comme premier cas).
+- **Répondre dans ma messagerie** : bouton dans la fiche dossier qui ouvre le brouillon de réponse dans Outlook,
+  prêt à relire et envoyer depuis la messagerie professionnelle.
