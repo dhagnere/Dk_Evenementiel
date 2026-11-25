@@ -988,7 +988,7 @@ assistantRouter.get(
     );
     const pieces = lignes.flatMap((l) =>
       (l.piecesJointes ?? [])
-        .filter((p) => !p.onedrive)
+        .filter((p) => !p.onedrive && !/\.(vcf|p7s)$|^winmail\.dat$/i.test(p.nom))
         .map((p) => ({
           mailId: l._id,
           date: l.date,

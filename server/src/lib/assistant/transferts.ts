@@ -195,7 +195,12 @@ const premiereAdresse = (a: AddressObject | AddressObject[] | undefined) => {
 
 const estMailJoint = (p: Attachment) => p.contentType === 'message/rfc822' || /\.eml$/i.test(p.filename ?? '');
 // Logos de signature et images collées dans le corps : pas des pièces jointes utiles.
-const estDecor = (p: Attachment) => p.related || (p.contentDisposition === 'inline' && p.contentType.startsWith('image/'));
+// Cartes de visite (.vcf), signatures électroniques et enveloppes Outlook (winmail.dat) : pas des pièces utiles non plus.
+const estDecor = (p: Attachment) =>
+  p.related ||
+  (p.contentDisposition === 'inline' && p.contentType.startsWith('image/')) ||
+  /^text\/(x-)?vcard$|pkcs7-signature|ms-tnef/i.test(p.contentType) ||
+  /\.(vcf|p7s)$|^winmail\.dat$/i.test(p.filename ?? '');
 const versPieceJointe = (p: Attachment): PieceJointe => ({ nom: p.filename || 'sans nom', type: p.contentType, taille: p.size, contenu: p.content });
 
 /**
