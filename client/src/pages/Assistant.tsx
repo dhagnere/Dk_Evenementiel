@@ -799,7 +799,7 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
             <th>Date</th>
             <th>Dossiers</th>
             <th>Projet</th>
-            <th title="Mes fichiers → Assistant → …">Dossier OneDrive</th>
+            <th title="OneDrive : Mes fichiers → Assistant → … ; Outlook : sous-dossier du dossier de rangement">Dossier OneDrive et Outlook</th>
           </tr>
         </thead>
         <tbody>
@@ -1248,6 +1248,7 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
 
 interface ReglagesOutlook {
   deplacerVers: string;
+  sousDossiers: boolean;
   rattrapageDepuis: string;
   rattrapageAtteint: string | null;
   rattrapageTermine: boolean;
@@ -1268,13 +1269,14 @@ function avancementRattrapage(o: ReglagesOutlook): number | null {
 function ReglagesLecture({ o, apres }: { o: ReglagesOutlook; apres: () => void }) {
   const [dossier, setDossier] = useState(o.deplacerVers);
   const [deplacer, setDeplacer] = useState(!!o.deplacerVers);
+  const [parEvenement, setParEvenement] = useState(o.sousDossiers);
   const [depuis, setDepuis] = useState(o.rattrapageDepuis);
   const [envoi, setEnvoi] = useState(false);
-  const modifie = (deplacer ? dossier.trim() : '') !== o.deplacerVers || depuis !== o.rattrapageDepuis;
+  const modifie = (deplacer ? dossier.trim() : '') !== o.deplacerVers || parEvenement !== o.sousDossiers || depuis !== o.rattrapageDepuis;
   const enregistrer = async () => {
     setEnvoi(true);
     try {
-      if (await lancer(api.put('/assistant/outlook/reglages', { deplacerVers: deplacer ? dossier.trim() : '', rattrapageDepuis: depuis }))) apres();
+      if (await lancer(api.put('/assistant/outlook/reglages', { deplacerVers: deplacer ? dossier.trim() : '', sousDossiers: parEvenement, rattrapageDepuis: depuis }))) apres();
     } finally {
       setEnvoi(false);
     }
@@ -1287,6 +1289,11 @@ function ReglagesLecture({ o, apres }: { o: ReglagesOutlook; apres: () => void }
         réception vers le dossier Outlook :
       </label>
       <input type="text" value={dossier} disabled={!deplacer} onChange={(e) => setDossier(e.target.value)} placeholder="DKEVENTS" />
+      <label className="case">
+        <input type="checkbox" checked={parEvenement} disabled={!deplacer} onChange={(e) => setParEvenement(e.target.checked)} /> Dans un sous-dossier par
+        événement, aux mêmes noms que dans OneDrive ({dossier.trim() || 'DKEVENTS'} → La Féerique 2026…). Les mails sans événement vont dans « Fonctionnement
+        du service ».
+      </label>
       <label>
         Reprendre aussi les mails reçus depuis le
         <input type="date" value={depuis} onChange={(e) => setDepuis(e.target.value)} />
@@ -1357,7 +1364,9 @@ function PanneauMiseAJour({
           <Paragraph style={{ marginBottom: 8 }}>
             Les mails du service sont lus dans Outlook toutes les heures, de 7 h à 19 h : chaque conversation rejoint son dossier, ses pièces
             jointes sont rangées dans OneDrive et les montants alimentent le suivi budgétaire.
-            {o.deplacerVers ? ` Les mails traités sont ensuite déplacés vers le dossier Outlook « ${o.deplacerVers} ».` : ''}
+            {o.deplacerVers
+              ? ` Les mails traités sont ensuite déplacés vers le dossier Outlook « ${o.deplacerVers} »${o.sousDossiers ? ', dans le sous-dossier de leur événement' : ''}.`
+              : ''}
           </Paragraph>
           <Space wrap>
             <Button type="primary" icon={<SyncOutlined spin={releveEnCours} />} onClick={relever} disabled={releveEnCours || !!o.demandeLe}>
@@ -1393,7 +1402,7 @@ function PanneauMiseAJour({
           </div>
         )}
 
-        <ReglagesLecture key={`${o.deplacerVers}|${o.rattrapageDepuis}`} o={o} apres={apres} />
+        <ReglagesLecture key={`${o.deplacerVers}|${o.sousDossiers}|${o.rattrapageDepuis}`} o={o} apres={apres} />
 
         {aRanger && (
           <div>

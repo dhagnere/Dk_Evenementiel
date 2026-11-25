@@ -21,6 +21,7 @@ https://dkevenenementieltest.osc-fr1.scalingo.io — Outlook : https://outlook.c
 2. Heure de Paris : si on est du lundi au vendredi entre 8 h 00 et 18 h 59, continue. Sinon, continue seulement si
    `reglages.demandeLe` est renseigné ; dans le cas contraire, ferme l'onglet et termine sans rien faire d'autre.
 3. Garde en mémoire : `reglages.deplacerVers` (dossier Outlook de rangement, vide = ne rien déplacer),
+   `dossierOutlook` de chaque événement et `dossierOutlookSansEvenement` (dossier Outlook exact de destination),
    `reglages.rattrapageDepuis`, `reglages.rattrapageAtteint`, `reglages.rattrapageTermine`, `adressesService`,
    `evenements` (avec `dossierOnedrive`), `dossiers` ouverts, `branches`, `racineOneDrive`,
    `dossierSansEvenement`. Note l'heure de début.
@@ -89,8 +90,12 @@ nouvelles conversations 40 minutes après le début.
 5. Dans Outlook, catégorie « DK traité » : ruban « Catégoriser », tape « DK trait » dans la recherche du menu et
    clique l'entrée « DK traité » (ne clique jamais une catégorie par sa position : les catégories déjà posées
    apparaissent en tête).
-6. Si la conversation a été déposée et que `deplacerVers` est renseigné : ruban « Déplacer » → tape le nom du dossier
-   → clique l'entrée dont le texte est exactement ce nom (DKEVENTS). Vérifie qu'elle a quitté la boîte de réception.
+6. Si la conversation a été déposée et que `deplacerVers` est renseigné : destination = `dossierOutlook` de son
+   événement, sinon `dossierOutlookSansEvenement` (par exemple « DKEVENTS/La Féerique 2026 »). Si ce sous-dossier
+   n'existe pas encore dans le volet des dossiers, crée-le : clic droit sur le dossier parent (DKEVENTS) →
+   « Créer un sous-dossier » → saisis le nom exact → Entrée. Puis ruban « Déplacer » → tape le nom du sous-dossier →
+   clique l'entrée dont le texte est exactement ce nom et dont le parent est le bon. Vérifie que la conversation a
+   quitté la boîte de réception.
 
 ## 3. Bilan
 

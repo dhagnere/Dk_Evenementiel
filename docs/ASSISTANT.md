@@ -19,7 +19,8 @@ elle ne lit que si un lancement a été demandé. À chaque passage :
    emplacement OneDrive des pièces. Rien n'est remplacé ; un mail déjà présent (y compris par l'ancien index, même
    minute et même objet) est ignoré ;
 4. catégorie Outlook « DK traité » sur chaque mail lu ; les mails déposés sont **déplacés de la boîte de réception vers
-   le dossier Outlook réglé à l'écran (DKEVENTS par défaut)**. Les mails sans rapport avec le service restent dans la
+   le dossier Outlook réglé à l'écran (DKEVENTS par défaut)**, dans le sous-dossier de leur événement (mêmes noms que
+   dans OneDrive : DKEVENTS → La Féerique 2026, DKEVENTS → Fonctionnement du service…), créé au besoin. Les mails sans rapport avec le service restent dans la
    boîte de réception, marqués « DK traité » ;
 5. bilan du passage (`POST /api/assistant/outlook/passage`) : mails examinés, déposés, dossiers créés, pièces rangées,
    mails déplacés, avancement du rattrapage. La demande de lancement en cours est soldée.
@@ -28,7 +29,9 @@ elle ne lit que si un lancement a été demandé. À chaque passage :
 
 - **Lancer maintenant** (et le bouton « Mettre à jour l'assistant » de l'en-tête) : enregistre une demande
   (`POST /api/assistant/outlook/demande`), prise en charge au passage suivant, dans l'heure, y compris le week-end ;
-- **Déplacer vers le dossier Outlook** : case à cocher et nom du dossier (vide = les mails restent dans la boîte) ;
+- **Déplacer vers le dossier Outlook** : case à cocher et nom du dossier (vide = les mails restent dans la boîte),
+  option « un sous-dossier par événement » (cochée par défaut). Le nom du sous-dossier est celui de la colonne
+  « Dossier OneDrive et Outlook » du rattachement aux projets ;
 - **Reprendre les mails reçus depuis le** : date de départ du rattrapage, avec une jauge d'avancement ;
 - **Derniers passages** : tableau des douze derniers bilans.
 

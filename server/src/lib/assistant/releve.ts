@@ -656,14 +656,22 @@ export async function contexteDepot() {
     "SELECT code, titre, evenement_code, branche, statut, donnees FROM assistant_dossiers WHERE statut !~* '^clos' ORDER BY code"
   );
   const dernier = await requeteUne<{ d: Date | null }>("SELECT max(date_envoi) AS d FROM assistant_mails WHERE source = 'releve'");
+  const reglages = await lireReglagesOutlook();
+  const sansEvenement = 'Fonctionnement du service';
+  // Dossier Outlook de rangement : sous-dossier par événement (mêmes noms que dans OneDrive), si demandé.
+  const versOutlook = (nom: string) => (!reglages.deplacerVers ? '' : reglages.sousDossiers ? `${reglages.deplacerVers}/${nom}` : reglages.deplacerVers);
   return {
-    reglages: await lireReglagesOutlook(),
+    reglages,
+    dossierOutlookSansEvenement: versOutlook(sansEvenement),
     adressesService: conf.adressesService,
     dernierMail: dernier?.d ?? null,
     branches: ['Protocole', 'Animation', 'Logistique', 'Affichage', 'KIOSC', 'VSL', 'Pilotage du service'],
     racineOneDrive: 'Mes fichiers/Assistant',
-    dossierSansEvenement: 'Fonctionnement du service',
-    evenements: evenements.map((e) => ({ ...e, dossierOnedrive: e.dossierOnedrive || e.nom.split(/\s+[–—-]\s+/)[0].trim() })),
+    dossierSansEvenement: sansEvenement,
+    evenements: evenements.map((e) => {
+      const dossierOnedrive = e.dossierOnedrive || e.nom.split(/\s+[–—-]\s+/)[0].trim();
+      return { ...e, dossierOnedrive, dossierOutlook: versOutlook(dossierOnedrive) };
+    }),
     dossiers: dossiers.map((d) => ({
       code: d.code,
       titre: d.titre,
