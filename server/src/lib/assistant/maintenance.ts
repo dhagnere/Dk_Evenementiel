@@ -7,7 +7,7 @@ import { sansSignature } from './transferts.js';
  * corps et consignes sans signature ni liens de mise en forme, remarques nettoyées, échéances tirées
  * d'une ligne d'en-tête (« Envoyé : … ») retirées.
  */
-const CLE = 'nettoyage-signatures-1';
+const CLE = 'nettoyage-signatures-2';
 const EN_TETE = /^\s*(envoy[ée]|date|sent|de|from|objet|subject)\s*:/i;
 
 const nomsDesAdresses = (adresses: string[]) =>

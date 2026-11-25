@@ -163,9 +163,15 @@ function ligneDeNom(ligne: string, noms: string[]): boolean {
  */
 export function sansSignature(lignes: string[], noms: string[]): string[] {
   const garde: string[] = [];
-  for (const brute of lignes) {
-    const l = nettoyerLigne(sansCitation(brute));
+  const propres = lignes.map((b) => nettoyerLigne(sansCitation(b)));
+  for (let i = 0; i < propres.length; i++) {
+    const l = propres[i];
     if (FIN_SIGNATURE.test(l) || MARQUEUR_SIGNATURE.test(l) || ligneDeNom(l, noms)) break;
+    // Signatures en tableau d'Outlook : prénom et nom sur deux lignes (« David » puis « HAGNERE »).
+    if (l.trim() && l.trim().split(/\s+/).length === 1) {
+      const suivante = propres.slice(i + 1, i + 4).find((x) => x.trim());
+      if (suivante && ligneDeNom(`${l.trim()} ${suivante.trim()}`, noms)) break;
+    }
     garde.push(l);
   }
   return garde;
