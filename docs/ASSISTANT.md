@@ -29,6 +29,8 @@ elle ne lit que si un lancement a été demandé. À chaque passage :
 
 - **Lancer maintenant** (et le bouton « Mettre à jour l'assistant » de l'en-tête) : enregistre une demande
   (`POST /api/assistant/outlook/demande`), prise en charge au passage suivant, dans l'heure, y compris le week-end ;
+- **Passages** : automatiques (toutes les heures en semaine de 8 h à 18 h, plus les demandes) ou à la demande
+  seulement ;
 - **Déplacer vers le dossier Outlook** : case à cocher et nom du dossier (vide = les mails restent dans la boîte),
   option « un sous-dossier par événement » (cochée par défaut). Le nom du sous-dossier est celui de la colonne
   « Dossier OneDrive et Outlook » du rattachement aux projets ;

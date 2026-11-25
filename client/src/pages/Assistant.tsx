@@ -1248,6 +1248,7 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
 
 interface ReglagesOutlook {
   deplacerVers: string;
+  automatique: boolean;
   sousDossiers: boolean;
   rattrapageDepuis: string;
   rattrapageAtteint: string | null;
@@ -1270,13 +1271,14 @@ function ReglagesLecture({ o, apres }: { o: ReglagesOutlook; apres: () => void }
   const [dossier, setDossier] = useState(o.deplacerVers);
   const [deplacer, setDeplacer] = useState(!!o.deplacerVers);
   const [parEvenement, setParEvenement] = useState(o.sousDossiers);
+  const [auto, setAuto] = useState(o.automatique);
   const [depuis, setDepuis] = useState(o.rattrapageDepuis);
   const [envoi, setEnvoi] = useState(false);
-  const modifie = (deplacer ? dossier.trim() : '') !== o.deplacerVers || parEvenement !== o.sousDossiers || depuis !== o.rattrapageDepuis;
+  const modifie = (deplacer ? dossier.trim() : '') !== o.deplacerVers || parEvenement !== o.sousDossiers || auto !== o.automatique || depuis !== o.rattrapageDepuis;
   const enregistrer = async () => {
     setEnvoi(true);
     try {
-      if (await lancer(api.put('/assistant/outlook/reglages', { deplacerVers: deplacer ? dossier.trim() : '', sousDossiers: parEvenement, rattrapageDepuis: depuis }))) apres();
+      if (await lancer(api.put('/assistant/outlook/reglages', { deplacerVers: deplacer ? dossier.trim() : '', sousDossiers: parEvenement, automatique: auto, rattrapageDepuis: depuis }))) apres();
     } finally {
       setEnvoi(false);
     }
@@ -1284,6 +1286,13 @@ function ReglagesLecture({ o, apres }: { o: ReglagesOutlook; apres: () => void }
   return (
     <div className="reglages">
       <Text strong>Réglages de la lecture</Text>
+      <label>
+        Passages
+        <select value={auto ? 'auto' : 'demande'} onChange={(e) => setAuto(e.target.value === 'auto')}>
+          <option value="auto">automatiques, toutes les heures en semaine de 8 h à 18 h, et à la demande</option>
+          <option value="demande">à la demande seulement (bouton « Lancer maintenant »)</option>
+        </select>
+      </label>
       <label className="case">
         <input type="checkbox" checked={deplacer} onChange={(e) => setDeplacer(e.target.checked)} /> Une fois traité, déplacer le mail de la boîte de
         réception vers le dossier Outlook :
@@ -1362,7 +1371,7 @@ function PanneauMiseAJour({
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <div>
           <Paragraph style={{ marginBottom: 8 }}>
-            Les mails du service sont lus dans Outlook toutes les heures, de 7 h à 19 h : chaque conversation rejoint son dossier, ses pièces
+            {o.automatique ? 'Les mails du service sont lus dans Outlook toutes les heures en semaine, de 8 h à 18 h, et à votre demande' : 'Les mails du service sont lus dans Outlook à votre demande'} : chaque conversation rejoint son dossier, ses pièces
             jointes sont rangées dans OneDrive et les montants alimentent le suivi budgétaire.
             {o.deplacerVers
               ? ` Les mails traités sont ensuite déplacés vers le dossier Outlook « ${o.deplacerVers} »${o.sousDossiers ? ', dans le sous-dossier de leur événement' : ''}.`
@@ -1375,7 +1384,9 @@ function PanneauMiseAJour({
             <Text type="secondary">
               {o.demandeLe
                 ? `Demandée à ${dayjs(o.demandeLe).format('HH:mm')}, démarre vers ${dayjs(releve.prochainPassage).format('HH:mm')}`
-                : `Prochain passage vers ${dayjs(releve.prochainPassage).format(dayjs(releve.prochainPassage).isSame(dayjs(), 'day') ? 'HH:mm' : 'ddd DD/MM à HH:mm')}`}
+                : o.automatique
+                  ? `Prochain passage vers ${dayjs(releve.prochainPassage).format(dayjs(releve.prochainPassage).isSame(dayjs(), 'day') ? 'HH:mm' : 'ddd DD/MM à HH:mm')}`
+                  : 'Lecture à la demande : démarre dans l’heure qui suit le clic'}
             </Text>
           </Space>
           <div className="muted petit" style={{ marginTop: 8 }}>
@@ -1402,7 +1413,7 @@ function PanneauMiseAJour({
           </div>
         )}
 
-        <ReglagesLecture key={`${o.deplacerVers}|${o.sousDossiers}|${o.rattrapageDepuis}`} o={o} apres={apres} />
+        <ReglagesLecture key={`${o.deplacerVers}|${o.sousDossiers}|${o.automatique}|${o.rattrapageDepuis}`} o={o} apres={apres} />
 
         {aRanger && (
           <div>

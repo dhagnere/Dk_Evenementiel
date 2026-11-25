@@ -11,6 +11,8 @@ import { executer, insererUn, requeteUne } from '../../db.js';
 export interface ReglagesOutlook {
   /** Dossier Outlook où déplacer les mails déposés (vide = les laisser dans la boîte de réception). */
   deplacerVers: string;
+  /** Passages automatiques aux heures de bureau ; faux = lecture seulement à la demande. */
+  automatique: boolean;
   /** Ranger dans un sous-dossier par événement (DKEVENTS/La Féerique 2026…), mêmes noms que dans OneDrive. */
   sousDossiers: boolean;
   /** Rattrapage : traiter aussi les mails reçus depuis cette date (AAAA-MM-JJ), vide = nouveaux mails seulement. */
@@ -25,6 +27,7 @@ export interface ReglagesOutlook {
 
 const DEFAUT: ReglagesOutlook = {
   deplacerVers: 'DKEVENTS',
+  automatique: true,
   sousDossiers: true,
   rattrapageDepuis: '2026-01-01',
   rattrapageAtteint: null,
@@ -47,12 +50,13 @@ async function ecrire(r: ReglagesOutlook, par: string): Promise<void> {
 }
 
 export async function modifierReglagesOutlook(
-  v: { deplacerVers?: string; sousDossiers?: boolean; rattrapageDepuis?: string },
+  v: { deplacerVers?: string; automatique?: boolean; sousDossiers?: boolean; rattrapageDepuis?: string },
   par: string
 ): Promise<ReglagesOutlook> {
   const r = await lireReglagesOutlook();
   if (v.deplacerVers !== undefined) r.deplacerVers = v.deplacerVers.trim().replace(/\/+$/, '');
   if (v.sousDossiers !== undefined) r.sousDossiers = v.sousDossiers;
+  if (v.automatique !== undefined) r.automatique = v.automatique;
   if (v.rattrapageDepuis !== undefined && v.rattrapageDepuis !== r.rattrapageDepuis) {
     r.rattrapageDepuis = v.rattrapageDepuis;
     // Nouvelle date de départ : le rattrapage reprend là où il en est, ou il est déjà terminé si la lecture

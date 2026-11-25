@@ -1135,6 +1135,7 @@ assistantRouter.put(
       .object({
         deplacerVers: z.string().max(120).optional(),
         sousDossiers: z.boolean().optional(),
+        automatique: z.boolean().optional(),
         rattrapageDepuis: z.union([z.literal(''), dateDuJour]).optional(),
       })
       .safeParse(req.body);

@@ -18,8 +18,9 @@ https://dkevenenementieltest.osc-fr1.scalingo.io — Outlook : https://outlook.c
    `await (await fetch('/api/assistant/outlook/contexte')).json()`. Si la réponse est une erreur 401/403 (session
    expirée), ne saisis aucun mot de passe : arrête, ferme tes onglets et envoie une notification « Assistant : session
    de l'application expirée, reconnecte-toi ».
-2. Heure de Paris : si on est du lundi au vendredi entre 8 h 00 et 18 h 59, continue. Sinon, continue seulement si
-   `reglages.demandeLe` est renseigné ; dans le cas contraire, ferme l'onglet et termine sans rien faire d'autre.
+2. Si `reglages.demandeLe` est renseigné (lancement demandé depuis l'onglet), continue. Sinon, continue seulement si
+   `reglages.automatique` est vrai et qu'on est du lundi au vendredi entre 8 h 00 et 18 h 59 (heure de Paris) ; dans
+   le cas contraire, ferme l'onglet et termine sans rien faire d'autre.
 3. Garde en mémoire : `reglages.deplacerVers` (dossier Outlook de rangement, vide = ne rien déplacer),
    `dossierOutlook` de chaque événement et `dossierOutlookSansEvenement` (dossier Outlook exact de destination),
    `reglages.rattrapageDepuis`, `reglages.rattrapageAtteint`, `reglages.rattrapageTermine`, `adressesService`,
