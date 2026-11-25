@@ -1,10 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Button, DatePicker, Drawer, InputNumber, Popconfirm, Popover, Select, Space, Typography, Upload, message } from 'antd';
-import { CheckOutlined, InboxOutlined, PlusOutlined, SyncOutlined } from '@ant-design/icons';
-import dayjs, { type Dayjs } from 'dayjs';
-import { api } from '../api';
-import { lancer } from '../lib/actionStock';
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Button,
+  DatePicker,
+  Drawer,
+  InputNumber,
+  Popconfirm,
+  Popover,
+  Select,
+  Space,
+  Typography,
+  Upload,
+  message,
+} from "antd";
+import {
+  CheckOutlined,
+  InboxOutlined,
+  PlusOutlined,
+  SyncOutlined,
+} from "@ant-design/icons";
+import dayjs, { type Dayjs } from "dayjs";
+import { api } from "../api";
+import { lancer } from "../lib/actionStock";
 
 const { Paragraph, Text } = Typography;
 
@@ -86,11 +103,17 @@ interface Mail {
   expediteur: string;
   objet: string;
   dossierCode: string;
-  source: 'index' | 'releve';
+  source: "index" | "releve";
   sens: string;
   destinataires: string;
   consigne: string;
-  piecesJointes: { nom: string; type: string; taille: number; fichierId?: string; onedrive?: { chemin: string; lien?: string } }[];
+  piecesJointes: {
+    nom: string;
+    type: string;
+    taille: number;
+    fichierId?: string;
+    onedrive?: { chemin: string; lien?: string };
+  }[];
   classement: string;
 }
 interface Releve {
@@ -119,10 +142,21 @@ interface EtatReleve {
 interface Prestataire {
   nom: string;
   domaine: string;
-  donnees: { contacts?: string[]; evenements?: string[]; documents?: string[]; dossiers?: string[] };
+  donnees: {
+    contacts?: string[];
+    evenements?: string[];
+    documents?: string[];
+    dossiers?: string[];
+  };
 }
 interface Index {
-  dernierImport: { genereLe: string; periode: string; par: string; createdAt: string; compte: Record<string, number> } | null;
+  dernierImport: {
+    genereLe: string;
+    periode: string;
+    par: string;
+    createdAt: string;
+    compte: Record<string, number>;
+  } | null;
   releve: EtatReleve;
   branches: string[];
   joursAvantAlerte: number;
@@ -136,55 +170,91 @@ interface Index {
 // --- Règles d'affichage reprises de l'application d'origine ----------------------------------------
 
 const STATUTS = [
-  'À traiter',
-  'En attente de réponse',
-  'En attente de validation',
-  'En cours',
-  'Rendez-vous fixé',
-  'Bon de commande émis',
-  'Bon de commande transmis au fournisseur',
-  'Répondu',
-  'Validé',
-  'Validé – consultation lancée',
-  'Pour information',
-  'Clos',
+  "À traiter",
+  "En attente de réponse",
+  "En attente de validation",
+  "En cours",
+  "Rendez-vous fixé",
+  "Bon de commande émis",
+  "Bon de commande transmis au fournisseur",
+  "Répondu",
+  "Validé",
+  "Validé – consultation lancée",
+  "Pour information",
+  "Clos",
 ];
-const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-const aujourdhui = () => dayjs().startOf('day');
-const jours = (date: string) => dayjs(date.slice(0, 10)).diff(aujourdhui(), 'day');
-const fdate = (s?: string | null) => (s ? dayjs(s.slice(0, 10)).format('DD/MM/YYYY') : '—');
+const MOIS = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+];
+const aujourdhui = () => dayjs().startOf("day");
+const jours = (date: string) =>
+  dayjs(date.slice(0, 10)).diff(aujourdhui(), "day");
+const fdate = (s?: string | null) =>
+  s ? dayjs(s.slice(0, 10)).format("DD/MM/YYYY") : "—";
 const classeStatut = (s: string) =>
-  /traiter/.test(s) ? 'st-todo' : /attente/i.test(s) ? 'st-wait' : /information/.test(s) ? 'st-info' : /Clos|Répondu|Validé/.test(s) ? 'st-done' : 'st-run';
+  /traiter/.test(s)
+    ? "st-todo"
+    : /attente/i.test(s)
+      ? "st-wait"
+      : /information/.test(s)
+        ? "st-info"
+        : /Clos|Répondu|Validé/.test(s)
+          ? "st-done"
+          : "st-run";
 const statutOuvert = (s: string) => !/Clos|information/.test(s);
-const euros = (v?: number | null) => (v === null || v === undefined ? '—' : v.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }).replace(/\u202f/g, '\u00a0'));
+const euros = (v?: number | null) =>
+  v === null || v === undefined
+    ? "—"
+    : v
+        .toLocaleString("fr-FR", { style: "currency", currency: "EUR" })
+        .replace(/\u202f/g, "\u00a0");
 const statutDe = (d: Dossier) => d.corrections.statut ?? d.donnees.statut;
-const SANS_EVENEMENT = '';
+const SANS_EVENEMENT = "";
 const MOTIFS: Record<string, string> = {
-  consigne: 'classé par votre consigne',
-  fil: 'même conversation',
-  expediteur: 'expéditeur connu du dossier',
+  consigne: "classé par votre consigne",
+  fil: "même conversation",
+  expediteur: "expéditeur connu du dossier",
   evenement: "événement cité dans le mail",
-  nouveau: 'nouveau dossier, à classer',
+  nouveau: "nouveau dossier, à classer",
   analyse: "classé par l'analyse",
-  manuel: 'déplacé à la main',
+  manuel: "déplacé à la main",
 };
-const recent = (f: Fiche) => !!f.dernier_mail && dayjs().diff(dayjs(f.dernier_mail.replace(' ', 'T')), 'hour') < 48;
-const ko = (o: number) => (o >= 1_048_576 ? `${(o / 1_048_576).toFixed(1).replace('.', ',')} Mo` : `${Math.max(1, Math.round(o / 1024))} Ko`);
+const recent = (f: Fiche) =>
+  !!f.dernier_mail &&
+  dayjs().diff(dayjs(f.dernier_mail.replace(" ", "T")), "hour") < 48;
+const ko = (o: number) =>
+  o >= 1_048_576
+    ? `${(o / 1_048_576).toFixed(1).replace(".", ",")} Mo`
+    : `${Math.max(1, Math.round(o / 1024))} Ko`;
 const prochaineEcheance = (f: Fiche) =>
-  (f.echeances ?? []).filter((e) => e.date && jours(e.date) >= 0).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))[0];
+  (f.echeances ?? [])
+    .filter((e) => e.date && jours(e.date) >= 0)
+    .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))[0];
 const delai = (date: string) => {
   const n = jours(date);
   return n < 0 ? `J+${-n}` : `J-${n}`;
 };
 
-type Vue = 'dossiers' | 'echeances' | 'budget' | 'mails' | 'annuaire' | 'projets';
+type Vue =
+  "dossiers" | "echeances" | "budget" | "mails" | "annuaire" | "projets";
 const ONGLETS: [Vue, string][] = [
-  ['dossiers', 'Dossiers'],
-  ['echeances', 'Échéances'],
-  ['budget', 'Suivi budgétaire'],
-  ['mails', 'Registre des mails'],
-  ['annuaire', 'Annuaire prestataires'],
-  ['projets', 'Rattachement aux projets'],
+  ["dossiers", "Dossiers"],
+  ["echeances", "Échéances"],
+  ["budget", "Suivi budgétaire"],
+  ["mails", "Registre des mails"],
+  ["annuaire", "Annuaire prestataires"],
+  ["projets", "Rattachement aux projets"],
 ];
 
 /**
@@ -195,38 +265,58 @@ const ONGLETS: [Vue, string][] = [
 export default function Assistant() {
   const navigate = useNavigate();
   const [index, setIndex] = useState<Index | null>(null);
-  const [vue, setVue] = useState<Vue>('dossiers');
-  const [q, setQ] = useState('');
-  const [fMois, setFMois] = useState('');
-  const [fEv, setFEv] = useState('');
-  const [fBr, setFBr] = useState('');
-  const [fSt, setFSt] = useState('');
+  const [vue, setVue] = useState<Vue>("dossiers");
+  const [q, setQ] = useState("");
+  const [fMois, setFMois] = useState("");
+  const [fEv, setFEv] = useState("");
+  const [fBr, setFBr] = useState("");
+  const [fSt, setFSt] = useState("");
   const [fVig, setFVig] = useState(false);
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [miseAJour, setMiseAJour] = useState(false);
   const [releveEnCours, setReleveEnCours] = useState(false);
 
-  const charger = () => api.get<Index>('/assistant/index').then(setIndex);
+  const charger = () => api.get<Index>("/assistant/index").then(setIndex);
   const [parametres, setParametres] = useSearchParams();
   useEffect(() => {
     // Lien depuis l'accueil ou une fiche projet : /admin/assistant?dossier=D12
-    const d = parametres.get('dossier');
+    const d = parametres.get("dossier");
     if (d) {
       setOuvert(d);
-      parametres.delete('dossier');
+      parametres.delete("dossier");
       setParametres(parametres, { replace: true });
     }
     charger();
   }, []);
 
-  const mailParNumero = useMemo(() => new Map((index?.mails ?? []).map((m) => [m.numero, m])), [index]);
+  const [bilan, setBilan] = useState<string | null>(null);
+  const mailParNumero = useMemo(
+    () => new Map((index?.mails ?? []).map((m) => [m.numero, m])),
+    [index],
+  );
   const branches = useMemo(
-    () => [...new Set([...(index?.branches ?? []), ...(index?.dossiers ?? []).map((d) => d.donnees.branche)].filter(Boolean))],
-    [index]
+    () => [
+      ...new Set(
+        [
+          ...(index?.branches ?? []),
+          ...(index?.dossiers ?? []).map((d) => d.donnees.branche),
+        ].filter(Boolean),
+      ),
+    ],
+    [index],
   );
   const mois = useMemo(
-    () => [...new Set((index?.mails ?? []).map((m) => m.date.slice(0, 7)).filter((k) => /^\d{4}-\d{2}$/.test(k)))].sort().reverse(),
-    [index]
+    () =>
+      [
+        ...new Set(
+          (index?.mails ?? [])
+            .map((m) => m.date.slice(0, 7))
+            .filter((k) => /^\d{4}-\d{2}$/.test(k)),
+        ),
+      ]
+        .sort()
+        .reverse(),
+    [index],
   );
 
   const filtres = useMemo(() => {
@@ -235,17 +325,23 @@ export default function Assistant() {
     return index.dossiers.filter((d) => {
       const f = d.donnees;
       return (
-        (!fMois || (f.mails ?? []).some((n) => mailParNumero.get(n)?.date.slice(0, 7) === fMois)) &&
+        (!fMois ||
+          (f.mails ?? []).some(
+            (n) => mailParNumero.get(n)?.date.slice(0, 7) === fMois,
+          )) &&
         (!fEv || f.evenement === fEv) &&
         (!fBr || f.branche === fBr) &&
         (!fSt || statutDe(d) === fSt) &&
         (!fVig || (f.vigilance ?? []).length > 0) &&
-        (!r || JSON.stringify(f).toLowerCase().includes(r) || (d.corrections.note ?? '').toLowerCase().includes(r))
+        (!r ||
+          JSON.stringify(f).toLowerCase().includes(r) ||
+          (d.corrections.note ?? "").toLowerCase().includes(r))
       );
     });
   }, [index, q, fMois, fEv, fBr, fSt, fVig, mailParNumero]);
 
-  if (!index) return <div style={{ padding: 24, color: '#5f6b73' }}>Chargement…</div>;
+  if (!index)
+    return <div style={{ padding: 24, color: "#5f6b73" }}>Chargement…</div>;
 
   const ev = (code: string) => index.evenements.find((e) => e.code === code);
   const dernier = index.dernierImport;
@@ -253,30 +349,41 @@ export default function Assistant() {
   const o = releve.outlook;
   // Fraîcheur : dernière lecture d'Outlook, sinon dernier import d'index.
   const reference = releve.derniereLectureOutlook ?? dernier?.createdAt;
-  const age = reference ? aujourdhui().diff(dayjs(reference).startOf('day'), 'day') : null;
+  const age = reference
+    ? aujourdhui().diff(dayjs(reference).startOf("day"), "day")
+    : null;
   const releverMaintenant = async () => {
     setReleveEnCours(true);
     try {
-      if (await lancer(api.post('/assistant/outlook/demande', {}))) await charger();
+      if (await lancer(api.post("/assistant/outlook/demande", {})))
+        await charger();
     } finally {
       setReleveEnCours(false);
     }
   };
   const ouverts = index.dossiers.filter((d) => statutOuvert(statutDe(d)));
   const aTraiter = index.dossiers.filter((d) => /traiter/.test(statutDe(d)));
-  const semaine = index.dossiers.flatMap((d) => (d.donnees.echeances ?? []).filter((e) => e.date && jours(e.date) >= 0 && jours(e.date) <= 7));
-  const vigilance = index.dossiers.filter((d) => (d.donnees.vigilance ?? []).length > 0);
-  const kpi = (k: 'all' | 'todo' | 'week' | 'vig') => {
-    setFSt(k === 'todo' ? 'À traiter' : '');
-    setFVig(k === 'vig');
-    setVue(k === 'week' ? 'echeances' : 'dossiers');
+  const semaine = index.dossiers.flatMap((d) =>
+    (d.donnees.echeances ?? []).filter(
+      (e) => e.date && jours(e.date) >= 0 && jours(e.date) <= 7,
+    ),
+  );
+  const vigilance = index.dossiers.filter(
+    (d) => (d.donnees.vigilance ?? []).length > 0,
+  );
+  const kpi = (k: "all" | "todo" | "week" | "vig") => {
+    setFSt(k === "todo" ? "À traiter" : "");
+    setFVig(k === "vig");
+    setVue(k === "week" ? "echeances" : "dossiers");
   };
   const dossierOuvert = index.dossiers.find((d) => d.code === ouvert) ?? null;
-  const nbCorrections = index.dossiers.filter((d) => d.corrections.statut || d.corrections.note).length;
+  const nbCorrections = index.dossiers.filter(
+    (d) => d.corrections.statut || d.corrections.note,
+  ).length;
   const sansProjet = index.evenements.filter((e) => !e.projetId).length;
 
   const exporterCorrections = () => {
-    window.location.href = '/api/assistant/corrections/export';
+    window.location.href = "/api/assistant/corrections/export";
   };
 
   return (
@@ -287,53 +394,79 @@ export default function Assistant() {
           <h1>Service événementiel – Gestion des dossiers</h1>
           <div className="sub">
             {releve.derniereLectureOutlook
-              ? `Dernière mise à jour le ${dayjs(releve.derniereLectureOutlook).format('DD/MM/YYYY à HH:mm')}`
+              ? `Dernière mise à jour le ${dayjs(releve.derniereLectureOutlook).format("DD/MM/YYYY à HH:mm")}`
               : dernier
-                ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')}`
-                : 'Aucune mise à jour pour l’instant'}
-            {o.demandeLe ? ` · mise à jour demandée, démarre vers ${dayjs(releve.prochainPassage).format('HH:mm')}` : ''}{' '}
-            · <button className="lien clair" onClick={() => setMiseAJour(true)}>état et réglages</button>
+                ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format("DD/MM/YYYY à HH:mm")}`
+                : "Aucune mise à jour pour l’instant"}
+            {demandeEnCours(o)
+              ? ` · mise à jour demandée, démarre vers ${dayjs(releve.prochainPassage).format("HH:mm")}`
+              : ""}
+            {demandeOubliee(o)
+              ? " · la dernière demande n’a pas été prise en charge"
+              : ""}{" "}
+            ·{" "}
+            <button className="lien clair" onClick={() => setMiseAJour(true)}>
+              état et réglages
+            </button>
           </div>
         </div>
         <div className="kpis">
-          <div className="kpi" onClick={() => kpi('all')}>
+          <div className="kpi" onClick={() => kpi("all")}>
             <b>{ouverts.length}</b>
             <span>dossiers ouverts</span>
           </div>
-          <div className="kpi alert" onClick={() => kpi('todo')}>
+          <div className="kpi alert" onClick={() => kpi("todo")}>
             <b>{aTraiter.length}</b>
             <span>à traiter</span>
           </div>
-          <div className="kpi" onClick={() => kpi('week')}>
+          <div className="kpi" onClick={() => kpi("week")}>
             <b>{semaine.length}</b>
             <span>échéances à 7 jours</span>
           </div>
-          <div className="kpi" onClick={() => kpi('vig')}>
+          <div className="kpi" onClick={() => kpi("vig")}>
             <b>{vigilance.length}</b>
             <span>points de vigilance</span>
           </div>
-          <button className="maj" onClick={releverMaintenant} disabled={releveEnCours || !!o.demandeLe}>
-            <SyncOutlined spin={releveEnCours || !!o.demandeLe} /> {o.demandeLe ? 'Mise à jour demandée' : "Mettre à jour l'assistant"}
+          <button
+            className="maj"
+            onClick={releverMaintenant}
+            disabled={releveEnCours || demandeEnCours(o)}
+          >
+            <SyncOutlined spin={releveEnCours || demandeEnCours(o)} />{" "}
+            {demandeEnCours(o)
+              ? "Mise à jour demandée"
+              : "Mettre à jour l'assistant"}
           </button>
         </div>
       </header>
       {age !== null && age > index.joursAvantAlerte && (
         <div className="stale">
-          Dernière mise à jour il y a {age} jours : les dossiers ne sont peut-être plus à jour. Vérifiez que le poste du chef de service est allumé, avec
-          Chrome ouvert, ou cliquez sur « Mettre à jour l'assistant ».
+          Dernière mise à jour il y a {age} jours : les dossiers ne sont
+          peut-être plus à jour. Vérifiez que le poste du chef de service est
+          allumé, avec Chrome ouvert, ou cliquez sur « Mettre à jour l'assistant
+          ».
         </div>
       )}
       <nav>
         {ONGLETS.map(([v, l]) => (
-          <button key={v} className={vue === v ? 'on' : ''} onClick={() => setVue(v)}>
+          <button
+            key={v}
+            className={vue === v ? "on" : ""}
+            onClick={() => setVue(v)}
+          >
             {l}
-            {v === 'projets' && sansProjet ? ` (${sansProjet})` : ''}
+            {v === "projets" && sansProjet ? ` (${sansProjet})` : ""}
           </button>
         ))}
       </nav>
-      {vue !== 'projets' && (
+      {vue !== "projets" && (
         <div className="filters">
-          <input type="search" placeholder="Rechercher (titre, contact, mot-clé…)" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input
+            type="search"
+            placeholder="Rechercher (titre, contact, mot-clé…)"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
           <select value={fMois} onChange={(e) => setFMois(e.target.value)}>
             <option value="">Tous les mois</option>
             {mois.map((k) => (
@@ -363,34 +496,91 @@ export default function Assistant() {
             ))}
           </select>
           <label className="row muted">
-            <input type="checkbox" checked={fVig} onChange={(e) => setFVig(e.target.checked)} /> Avec point de vigilance
+            <input
+              type="checkbox"
+              checked={fVig}
+              onChange={(e) => setFVig(e.target.checked)}
+            />{" "}
+            Avec point de vigilance
           </label>
-          <span style={{ marginLeft: 'auto' }} />
-          <button className="btn" onClick={exporterCorrections} title="Vos statuts et notes, dans un fichier à transmettre à l'assistant">
-            Exporter mes corrections{nbCorrections ? ` (${nbCorrections})` : ''}
+          <span style={{ marginLeft: "auto" }} />
+          <button
+            className="btn"
+            onClick={exporterCorrections}
+            title="Vos statuts et notes, dans un fichier à transmettre à l'assistant"
+          >
+            Exporter mes corrections{nbCorrections ? ` (${nbCorrections})` : ""}
           </button>
         </div>
       )}
       <main>
-        {vue === 'dossiers' && <VueDossiers dossiers={filtres} index={index} ouvrir={setOuvert} />}
-        {vue === 'echeances' && <VueEcheances dossiers={filtres} ev={ev} ouvrir={setOuvert} />}
-        {vue === 'budget' && <VueBudget dossiers={filtres} ev={ev} ouvrir={setOuvert} />}
-        {vue === 'mails' && <VueMails dossiers={filtres} mails={index.mails} ev={ev} ouvrir={setOuvert} recharger={charger} />}
-        {vue === 'annuaire' && <VueAnnuaire dossiers={filtres} prestataires={index.prestataires} q={q} ev={ev} ouvrir={setOuvert} />}
-        {vue === 'projets' && <VueProjets index={index} recharger={charger} ouvrirProjet={(id) => navigate(`/projets/${id}`)} />}
+        {vue === "dossiers" && (
+          <VueDossiers dossiers={filtres} index={index} ouvrir={setOuvert} />
+        )}
+        {vue === "echeances" && (
+          <VueEcheances dossiers={filtres} ev={ev} ouvrir={setOuvert} />
+        )}
+        {vue === "budget" && (
+          <VueBudget dossiers={filtres} ev={ev} ouvrir={setOuvert} />
+        )}
+        {vue === "mails" && (
+          <VueMails
+            dossiers={filtres}
+            mails={index.mails}
+            ev={ev}
+            ouvrir={setOuvert}
+            recharger={charger}
+          />
+        )}
+        {vue === "annuaire" && (
+          <VueAnnuaire
+            dossiers={filtres}
+            prestataires={index.prestataires}
+            q={q}
+            ev={ev}
+            ouvrir={setOuvert}
+          />
+        )}
+        {vue === "projets" && (
+          <VueProjets
+            index={index}
+            recharger={charger}
+            ouvrirProjet={(id) => navigate(`/projets/${id}`)}
+            ouvrirBilan={setBilan}
+          />
+        )}
       </main>
       <footer>
-        {index.dossiers.length} dossiers, {index.mails.length} mails au registre. Une consigne écrite au-dessus d'un mail (« #feerique
-        #logistique », « #D12 », « #urgent ») force son classement. Statuts et notes sont enregistrés dans l'application.
+        {index.dossiers.length} dossiers, {index.mails.length} mails au
+        registre. Une consigne écrite au-dessus d'un mail (« #feerique
+        #logistique », « #D12 », « #urgent ») force son classement. Statuts et
+        notes sont enregistrés dans l'application.
       </footer>
       <FicheDossier
         dossier={dossierOuvert}
-        evenement={dossierOuvert ? ev(dossierOuvert.donnees.evenement) : undefined}
-        mails={(dossierOuvert?.donnees.mails ?? []).map((n) => mailParNumero.get(n)).filter((m): m is Mail => !!m)}
+        evenement={
+          dossierOuvert ? ev(dossierOuvert.donnees.evenement) : undefined
+        }
+        mails={(dossierOuvert?.donnees.mails ?? [])
+          .map((n) => mailParNumero.get(n))
+          .filter((m): m is Mail => !!m)}
         index={index}
         fermer={() => setOuvert(null)}
         recharger={charger}
         ouvrirProjet={(id) => navigate(`/projets/${id}`)}
+      />
+      <BilanEvenement
+        evenement={
+          bilan
+            ? (index.evenements.find((e) => e.code === bilan) ?? null)
+            : null
+        }
+        index={index}
+        fermer={() => setBilan(null)}
+        ouvrirDossier={(c) => {
+          setBilan(null);
+          setOuvert(c);
+        }}
       />
       <PanneauMiseAJour
         ouvert={miseAJour}
@@ -421,12 +611,14 @@ function Carte({ d, ouvrir }: { d: Dossier; ouvrir: (c: string) => void }) {
   return (
     <div className={`card p-${f.priorite}`} onClick={() => ouvrir(d.code)}>
       <div className="meta">
-        <span className="tag">{f.branche || 'Branche à préciser'}</span>
+        <span className="tag">{f.branche || "Branche à préciser"}</span>
         <span className={`tag st ${classeStatut(s)}`}>{s}</span>
         <span>
-          {d.code} · {nbMails} mail{nbMails > 1 ? 's' : ''}
+          {d.code} · {nbMails} mail{nbMails > 1 ? "s" : ""}
         </span>
-        {nbTaches > 0 && <span className="tag st-done">{nbTaches} au rétroplanning</span>}
+        {nbTaches > 0 && (
+          <span className="tag st-done">{nbTaches} au rétroplanning</span>
+        )}
         {recent(f) && <span className="tag neuf">nouveau mail</span>}
       </div>
       <h3>{f.titre}</h3>
@@ -436,24 +628,57 @@ function Carte({ d, ouvrir }: { d: Dossier; ouvrir: (c: string) => void }) {
           <b>{fdate(n.date)}</b> ({delai(n.date)}) – {n.libelle}
         </div>
       )}
-      {(f.vigilance ?? []).length > 0 && <div className="warn">⚠ {f.vigilance![0]}</div>}
-      {d.corrections.note && <div className="note-carte">✎ {d.corrections.note}</div>}
-      {!d.corrections.note && (f.remarques ?? []).length > 0 && <div className="note-carte">✎ {f.remarques![f.remarques!.length - 1]}</div>}
+      {(f.vigilance ?? []).length > 0 && (
+        <div className="warn">⚠ {f.vigilance![0]}</div>
+      )}
+      {d.corrections.note && (
+        <div className="note-carte">✎ {d.corrections.note}</div>
+      )}
+      {!d.corrections.note && (f.remarques ?? []).length > 0 && (
+        <div className="note-carte">
+          ✎ {f.remarques![f.remarques!.length - 1]}
+        </div>
+      )}
     </div>
   );
 }
 
-function VueDossiers({ dossiers, index, ouvrir }: { dossiers: Dossier[]; index: Index; ouvrir: (c: string) => void }) {
-  if (!dossiers.length) return <div className="empty">Aucun dossier ne correspond aux filtres.</div>;
+function VueDossiers({
+  dossiers,
+  index,
+  ouvrir,
+}: {
+  dossiers: Dossier[];
+  index: Index;
+  ouvrir: (c: string) => void;
+}) {
+  if (!dossiers.length)
+    return (
+      <div className="empty">Aucun dossier ne correspond aux filtres.</div>
+    );
   const parEv = new Map<string, Dossier[]>();
-  dossiers.forEach((d) => parEv.set(d.donnees.evenement, [...(parEv.get(d.donnees.evenement) ?? []), d]));
+  dossiers.forEach((d) =>
+    parEv.set(d.donnees.evenement, [
+      ...(parEv.get(d.donnees.evenement) ?? []),
+      d,
+    ]),
+  );
   // Événements à venir d'abord (du plus proche au plus lointain), puis sans date, puis passés.
-  const rang = (e: Evenement) => (!e.dateJour ? 1 : jours(e.dateJour) >= 0 ? 0 : 2);
-  const tries = [...index.evenements].sort((a, b) => rang(a) - rang(b) || (rang(a) === 2 ? -1 : 1) * (a.dateJour ?? '').localeCompare(b.dateJour ?? ''));
+  const rang = (e: Evenement) =>
+    !e.dateJour ? 1 : jours(e.dateJour) >= 0 ? 0 : 2;
+  const tries = [...index.evenements].sort(
+    (a, b) =>
+      rang(a) - rang(b) ||
+      (rang(a) === 2 ? -1 : 1) *
+        (a.dateJour ?? "").localeCompare(b.dateJour ?? ""),
+  );
   const ordre = [
     SANS_EVENEMENT,
     ...tries.map((e) => e.code),
-    ...[...parEv.keys()].filter((k) => k !== SANS_EVENEMENT && !index.evenements.some((e) => e.code === k)),
+    ...[...parEv.keys()].filter(
+      (k) =>
+        k !== SANS_EVENEMENT && !index.evenements.some((e) => e.code === k),
+    ),
   ];
   return (
     <>
@@ -461,15 +686,28 @@ function VueDossiers({ dossiers, index, ouvrir }: { dossiers: Dossier[]; index: 
         .filter((code) => parEv.has(code))
         .map((code) => {
           const e = index.evenements.find((x) => x.code === code);
-          const items = parEv.get(code)!.sort((a, b) => (a.donnees.priorite === 'Haute' ? 0 : 1) - (b.donnees.priorite === 'Haute' ? 0 : 1));
+          const items = parEv
+            .get(code)!
+            .sort(
+              (a, b) =>
+                (a.donnees.priorite === "Haute" ? 0 : 1) -
+                (b.donnees.priorite === "Haute" ? 0 : 1),
+            );
           return (
             <div key={code}>
-              <div className={`group${code === SANS_EVENEMENT ? ' a-classer' : ''}`}>
-                <h2>{code === SANS_EVENEMENT ? 'À classer – sans événement' : (e?.nom ?? code)}</h2>
+              <div
+                className={`group${code === SANS_EVENEMENT ? " a-classer" : ""}`}
+              >
+                <h2>
+                  {code === SANS_EVENEMENT
+                    ? "À classer – sans événement"
+                    : (e?.nom ?? code)}
+                </h2>
                 <small>
-                  {e?.dateJour ? fdate(e.dateJour) : ''}
-                  {e?.lieu ? ` · ${e.lieu}` : ''} · {items.length} dossier{items.length > 1 ? 's' : ''}
-                  {e?.projetTitre ? ` · projet : ${e.projetTitre}` : ''}
+                  {e?.dateJour ? fdate(e.dateJour) : ""}
+                  {e?.lieu ? ` · ${e.lieu}` : ""} · {items.length} dossier
+                  {items.length > 1 ? "s" : ""}
+                  {e?.projetTitre ? ` · projet : ${e.projetTitre}` : ""}
                 </small>
               </div>
               <div className="grid">
@@ -484,10 +722,22 @@ function VueDossiers({ dossiers, index, ouvrir }: { dossiers: Dossier[]; index: 
   );
 }
 
-function VueEcheances({ dossiers, ev, ouvrir }: { dossiers: Dossier[]; ev: (c: string) => Evenement | undefined; ouvrir: (c: string) => void }) {
+function VueEcheances({
+  dossiers,
+  ev,
+  ouvrir,
+}: {
+  dossiers: Dossier[];
+  ev: (c: string) => Evenement | undefined;
+  ouvrir: (c: string) => void;
+}) {
   const lignes = dossiers
-    .flatMap((d) => (d.donnees.echeances ?? []).filter((e) => e.date).map((e) => ({ ...e, d })))
-    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+    .flatMap((d) =>
+      (d.donnees.echeances ?? [])
+        .filter((e) => e.date)
+        .map((e) => ({ ...e, d })),
+    )
+    .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
   if (!lignes.length) return <div className="empty">Aucune échéance.</div>;
   return (
     <table>
@@ -506,9 +756,13 @@ function VueEcheances({ dossiers, ev, ouvrir }: { dossiers: Dossier[]; ev: (c: s
           const n = jours(r.date!);
           const s = statutDe(r.d);
           return (
-            <tr key={i} className={`click ${n < 0 ? 'late' : n <= 7 ? 'soon' : ''}`} onClick={() => ouvrir(r.d.code)}>
+            <tr
+              key={i}
+              className={`click ${n < 0 ? "late" : n <= 7 ? "soon" : ""}`}
+              onClick={() => ouvrir(r.d.code)}
+            >
               <td>{fdate(r.date)}</td>
-              <td>{n < 0 ? 'passée' : n === 0 ? "aujourd'hui" : `J-${n}`}</td>
+              <td>{n < 0 ? "passée" : n === 0 ? "aujourd'hui" : `J-${n}`}</td>
               <td>{r.libelle}</td>
               <td>{r.d.donnees.titre}</td>
               <td>{ev(r.d.donnees.evenement)?.nom ?? r.d.donnees.evenement}</td>
@@ -525,16 +779,33 @@ function VueEcheances({ dossiers, ev, ouvrir }: { dossiers: Dossier[]; ev: (c: s
 
 type LigneBudgetDossier = LigneBudget & { d: Dossier };
 
-function VueBudget({ dossiers, ev, ouvrir }: { dossiers: Dossier[]; ev: (c: string) => Evenement | undefined; ouvrir: (c: string) => void }) {
-  const lignes: LigneBudgetDossier[] = dossiers.flatMap((d) => (d.donnees.budget ?? []).map((b) => ({ ...b, d })));
-  const lus = lignes.filter((r) => typeof r.montant_ttc === 'number');
-  const somme = (arr: LigneBudgetDossier[]) => arr.reduce((a, r) => a + (r.montant_ttc ?? 0), 0);
-  const grouper = (cle: (r: LigneBudgetDossier) => string): [string, LigneBudgetDossier[]][] => {
+function VueBudget({
+  dossiers,
+  ev,
+  ouvrir,
+}: {
+  dossiers: Dossier[];
+  ev: (c: string) => Evenement | undefined;
+  ouvrir: (c: string) => void;
+}) {
+  const lignes: LigneBudgetDossier[] = dossiers.flatMap((d) =>
+    (d.donnees.budget ?? []).map((b) => ({ ...b, d })),
+  );
+  const lus = lignes.filter((r) => typeof r.montant_ttc === "number");
+  const somme = (arr: LigneBudgetDossier[]) =>
+    arr.reduce((a, r) => a + (r.montant_ttc ?? 0), 0);
+  const grouper = (
+    cle: (r: LigneBudgetDossier) => string,
+  ): [string, LigneBudgetDossier[]][] => {
     const m = new Map<string, LigneBudgetDossier[]>();
     lignes.forEach((r) => m.set(cle(r), [...(m.get(cle(r)) ?? []), r]));
     return [...m.entries()];
   };
-  const tableauCumul = (titre: string, colonne: string, entrees: [string, LigneBudgetDossier[]][]) => (
+  const tableauCumul = (
+    titre: string,
+    colonne: string,
+    entrees: [string, LigneBudgetDossier[]][],
+  ) => (
     <>
       <h3 className="h3">{titre}</h3>
       <table>
@@ -568,8 +839,9 @@ function VueBudget({ dossiers, ev, ouvrir }: { dossiers: Dossier[]; ev: (c: stri
   return (
     <>
       <div className="note">
-        Le cumul ne compte que les montants effectivement lus. {lignes.length - lus.length} document(s) sur {lignes.length} restent à lire
-        (pièce jointe non encore consultée ou montant absent du mail).
+        Le cumul ne compte que les montants effectivement lus.{" "}
+        {lignes.length - lus.length} document(s) sur {lignes.length} restent à
+        lire (pièce jointe non encore consultée ou montant absent du mail).
       </div>
       <div className="totals">
         <div className="tot">
@@ -579,11 +851,20 @@ function VueBudget({ dossiers, ev, ouvrir }: { dossiers: Dossier[]; ev: (c: stri
           <b>{lignes.length}</b>documents financiers détectés
         </div>
         <div className="tot">
-          <b>{lignes.filter((r) => /commande/i.test(r.type ?? '')).length}</b>bon(s) de commande
+          <b>{lignes.filter((r) => /commande/i.test(r.type ?? "")).length}</b>
+          bon(s) de commande
         </div>
       </div>
-      {tableauCumul('Cumul par événement', 'Événement', grouper((r) => ev(r.d.donnees.evenement)?.nom ?? r.d.donnees.evenement))}
-      {tableauCumul('Cumul par branche', 'Branche', grouper((r) => r.d.donnees.branche))}
+      {tableauCumul(
+        "Cumul par événement",
+        "Événement",
+        grouper((r) => ev(r.d.donnees.evenement)?.nom ?? r.d.donnees.evenement),
+      )}
+      {tableauCumul(
+        "Cumul par branche",
+        "Branche",
+        grouper((r) => r.d.donnees.branche),
+      )}
       <h3 className="h3">Détail des documents</h3>
       <table>
         <thead>
@@ -628,7 +909,9 @@ function VueMails({
 }) {
   const [choisis, setChoisis] = useState<Set<string>>(new Set());
   const parCode = new Map(dossiers.map((d) => [d.code, d]));
-  const lignes = mails.filter((m) => parCode.has(m.dossierCode)).sort((a, b) => b.date.localeCompare(a.date));
+  const lignes = mails
+    .filter((m) => parCode.has(m.dossierCode))
+    .sort((a, b) => b.date.localeCompare(a.date));
   if (!lignes.length) return <div className="empty">Aucun mail.</div>;
   const basculer = (id: string) =>
     setChoisis((c) => {
@@ -639,17 +922,24 @@ function VueMails({
     });
   const tous = lignes.every((m) => choisis.has(m._id));
   const supprimer = async () => {
-    if (await lancer(api.post('/assistant/mails/supprimer', { ids: [...choisis] }))) {
+    if (
+      await lancer(
+        api.post("/assistant/mails/supprimer", { ids: [...choisis] }),
+      )
+    ) {
       setChoisis(new Set());
       recharger();
     }
   };
   return (
     <>
-      <div className="row" style={{ margin: '4px 0 10px', minHeight: 32 }}>
+      <div className="row" style={{ margin: "4px 0 10px", minHeight: 32 }}>
         {choisis.size > 0 ? (
           <>
-            <span>{choisis.size} mail{choisis.size > 1 ? 's' : ''} sélectionné{choisis.size > 1 ? 's' : ''}</span>
+            <span>
+              {choisis.size} mail{choisis.size > 1 ? "s" : ""} sélectionné
+              {choisis.size > 1 ? "s" : ""}
+            </span>
             <Popconfirm
               title="Supprimer ces mails du registre ?"
               description="Ils ne reviendront pas, même transférés à nouveau. Un dossier ouvert automatiquement qui n'a plus de mail est retiré."
@@ -667,7 +957,9 @@ function VueMails({
             </button>
           </>
         ) : (
-          <span className="muted petit">Cochez des mails pour les supprimer du registre.</span>
+          <span className="muted petit">
+            Cochez des mails pour les supprimer du registre.
+          </span>
         )}
       </div>
       <table>
@@ -678,7 +970,11 @@ function VueMails({
                 type="checkbox"
                 aria-label="Tout sélectionner"
                 checked={tous}
-                onChange={() => setChoisis(tous ? new Set() : new Set(lignes.map((m) => m._id)))}
+                onChange={() =>
+                  setChoisis(
+                    tous ? new Set() : new Set(lignes.map((m) => m._id)),
+                  )
+                }
               />
             </th>
             <th>Date</th>
@@ -693,15 +989,32 @@ function VueMails({
           {lignes.map((m) => {
             const d = parCode.get(m.dossierCode)!;
             return (
-              <tr key={m._id ?? m.numero} className={`click${choisis.has(m._id) ? ' choisi' : ''}`} onClick={() => ouvrir(d.code)}>
+              <tr
+                key={m._id ?? m.numero}
+                className={`click${choisis.has(m._id) ? " choisi" : ""}`}
+                onClick={() => ouvrir(d.code)}
+              >
                 <td onClick={(e) => e.stopPropagation()}>
-                  <input type="checkbox" aria-label="Sélectionner" checked={choisis.has(m._id)} onChange={() => basculer(m._id)} />
+                  <input
+                    type="checkbox"
+                    aria-label="Sélectionner"
+                    checked={choisis.has(m._id)}
+                    onChange={() => basculer(m._id)}
+                  />
                 </td>
                 <td>
                   {fdate(m.date)} {m.date.slice(11, 16)}
                 </td>
-                <td title={m.sens === 'envoyé' ? 'Envoyé par le service' : m.sens === 'reçu' ? 'Reçu' : ''}>
-                  {m.sens === 'envoyé' ? '↗' : m.sens === 'reçu' ? '↘' : ''}
+                <td
+                  title={
+                    m.sens === "envoyé"
+                      ? "Envoyé par le service"
+                      : m.sens === "reçu"
+                        ? "Reçu"
+                        : ""
+                  }
+                >
+                  {m.sens === "envoyé" ? "↗" : m.sens === "reçu" ? "↘" : ""}
                 </td>
                 <td>{m.expediteur}</td>
                 <td>{m.objet}</td>
@@ -734,9 +1047,11 @@ function VueAnnuaire({
   const lignes = prestataires.filter(
     (p) =>
       (!r || JSON.stringify(p).toLowerCase().includes(r)) &&
-      (!(p.donnees.dossiers ?? []).length || (p.donnees.dossiers ?? []).some((x) => codes.has(x)))
+      (!(p.donnees.dossiers ?? []).length ||
+        (p.donnees.dossiers ?? []).some((x) => codes.has(x))),
   );
-  if (!lignes.length) return <div className="empty">Aucun prestataire ne correspond.</div>;
+  if (!lignes.length)
+    return <div className="empty">Aucun prestataire ne correspond.</div>;
   return (
     <table>
       <thead>
@@ -756,9 +1071,13 @@ function VueAnnuaire({
               <b>{p.nom}</b>
             </td>
             <td>{p.domaine}</td>
-            <td>{(p.donnees.contacts ?? []).join(', ')}</td>
-            <td>{(p.donnees.evenements ?? []).map((e) => ev(e)?.nom ?? e).join(' ; ')}</td>
-            <td>{(p.donnees.documents ?? []).join(' ; ')}</td>
+            <td>{(p.donnees.contacts ?? []).join(", ")}</td>
+            <td>
+              {(p.donnees.evenements ?? [])
+                .map((e) => ev(e)?.nom ?? e)
+                .join(" ; ")}
+            </td>
+            <td>{(p.donnees.documents ?? []).join(" ; ")}</td>
             <td>
               {(p.donnees.dossiers ?? []).map((x) => (
                 <a
@@ -781,16 +1100,33 @@ function VueAnnuaire({
   );
 }
 
-function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharger: () => void; ouvrirProjet: (id: string) => void }) {
+function VueProjets({
+  index,
+  recharger,
+  ouvrirProjet,
+  ouvrirBilan,
+}: {
+  index: Index;
+  recharger: () => void;
+  ouvrirProjet: (id: string) => void;
+  ouvrirBilan: (code: string) => void;
+}) {
   const rattacher = async (code: string, projetId: string | null) => {
-    if (await lancer(api.put(`/assistant/evenements/${code}/projet`, { projetId }))) recharger();
+    if (
+      await lancer(
+        api.put(`/assistant/evenements/${code}/projet`, { projetId }),
+      )
+    )
+      recharger();
   };
-  const nbDossiers = (code: string) => index.dossiers.filter((d) => d.donnees.evenement === code).length;
+  const nbDossiers = (code: string) =>
+    index.dossiers.filter((d) => d.donnees.evenement === code).length;
   return (
     <>
       <div className="note">
-        Rattachez chaque événement de l'assistant à son projet. Le lien est conservé d'une mise à jour à l'autre. Les dossiers rattachés
-        peuvent alors verser leurs échéances et actions au rétroplanning du projet.
+        Rattachez chaque événement de l'assistant à son projet. Le lien est
+        conservé d'une mise à jour à l'autre. Les dossiers rattachés peuvent
+        alors verser leurs échéances et actions au rétroplanning du projet.
       </div>
       <table>
         <thead>
@@ -799,7 +1135,9 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
             <th>Date</th>
             <th>Dossiers</th>
             <th>Projet</th>
-            <th title="OneDrive : Mes fichiers → Assistant → … ; Outlook : sous-dossier du dossier de rangement">Dossier OneDrive et Outlook</th>
+            <th title="OneDrive : Mes fichiers → Assistant → … ; Outlook : sous-dossier du dossier de rangement">
+              Dossier OneDrive et Outlook
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -807,10 +1145,23 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
             <tr key={e.code}>
               <td>
                 <b>{e.nom}</b>
-                <div className="muted">{e.lieu || 'Lieu à préciser'}</div>
+                <div className="muted">{e.lieu || "Lieu à préciser"}</div>
               </td>
               <td>{fdate(e.dateJour)}</td>
-              <td>{nbDossiers(e.code)}</td>
+              <td>
+                {nbDossiers(e.code)}
+                {nbDossiers(e.code) > 0 && (
+                  <div>
+                    <button
+                      className="lien"
+                      style={{ padding: 0 }}
+                      onClick={() => ouvrirBilan(e.code)}
+                    >
+                      bilan
+                    </button>
+                  </div>
+                )}
+              </td>
               <td>
                 {e.projetId ? (
                   <Space wrap>
@@ -823,14 +1174,25 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
                     >
                       {e.projetTitre}
                     </a>
-                    <Button size="small" type="text" onClick={() => rattacher(e.code, null)}>
+                    <Button
+                      size="small"
+                      type="text"
+                      onClick={() => rattacher(e.code, null)}
+                    >
                       Détacher
                     </Button>
                   </Space>
                 ) : (
                   <Space wrap>
                     {e.proposition && (
-                      <Button size="small" type="primary" ghost onClick={() => rattacher(e.code, e.proposition!.projetId)}>
+                      <Button
+                        size="small"
+                        type="primary"
+                        ghost
+                        onClick={() =>
+                          rattacher(e.code, e.proposition!.projetId)
+                        }
+                      >
                         Rattacher à « {e.proposition.titre} »
                       </Button>
                     )}
@@ -841,7 +1203,10 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
                       style={{ width: 220 }}
                       optionFilterProp="label"
                       onChange={(v: string) => rattacher(e.code, v)}
-                      options={index.projets.map((p) => ({ value: p._id, label: `${p.titre} (${fdate(p.dateJour)})` }))}
+                      options={index.projets.map((p) => ({
+                        value: p._id,
+                        label: `${p.titre} (${fdate(p.dateJour)})`,
+                      }))}
                     />
                     <CreerProjet evenement={e} apres={recharger} />
                   </Space>
@@ -854,8 +1219,15 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
                   placeholder={e.nom.split(/\s+[–—-]\s+/)[0]}
                   onBlur={async (x) => {
                     const v = x.target.value.trim();
-                    if (v !== (e.dossierOnedrive ?? '')) {
-                      if (await lancer(api.put(`/assistant/evenements/${e.code}/onedrive`, { dossier: v }))) recharger();
+                    if (v !== (e.dossierOnedrive ?? "")) {
+                      if (
+                        await lancer(
+                          api.put(`/assistant/evenements/${e.code}/onedrive`, {
+                            dossier: v,
+                          }),
+                        )
+                      )
+                        recharger();
                     }
                   }}
                 />
@@ -868,15 +1240,26 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
   );
 }
 
-function CreerProjet({ evenement, apres }: { evenement: Evenement; apres: () => void }) {
+function CreerProjet({
+  evenement,
+  apres,
+}: {
+  evenement: Evenement;
+  apres: () => void;
+}) {
   const [ouvert, setOuvert] = useState(false);
-  const [jour, setJour] = useState<Dayjs | null>(evenement.dateJour ? dayjs(evenement.dateJour) : null);
+  const [jour, setJour] = useState<Dayjs | null>(
+    evenement.dateJour ? dayjs(evenement.dateJour) : null,
+  );
   const [jauge, setJauge] = useState<number | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const creer = async () => {
     setEnvoi(true);
     const ok = await lancer(
-      api.post(`/assistant/evenements/${evenement.code}/creer-projet`, { dateJour: jour?.format('YYYY-MM-DD'), jauge: jauge ?? null })
+      api.post(`/assistant/evenements/${evenement.code}/creer-projet`, {
+        dateJour: jour?.format("YYYY-MM-DD"),
+        jauge: jauge ?? null,
+      }),
     );
     setEnvoi(false);
     if (ok) {
@@ -892,10 +1275,31 @@ function CreerProjet({ evenement, apres }: { evenement: Evenement; apres: () => 
       title={`Créer le projet « ${evenement.nom} »`}
       content={
         <Space direction="vertical" style={{ width: 280 }}>
-          <Text type="secondary">Le rétroplanning est généré d'après la jauge. Le niveau pourra être affiné dans la fiche du projet.</Text>
-          <DatePicker value={jour} onChange={setJour} format="DD/MM/YYYY" placeholder="Jour J" style={{ width: '100%' }} />
-          <InputNumber value={jauge} onChange={(v) => setJauge(v)} min={0} placeholder="Jauge prévisionnelle (facultatif)" style={{ width: '100%' }} />
-          <Button type="primary" block loading={envoi} disabled={!jour} onClick={creer}>
+          <Text type="secondary">
+            Le rétroplanning est généré d'après la jauge. Le niveau pourra être
+            affiné dans la fiche du projet.
+          </Text>
+          <DatePicker
+            value={jour}
+            onChange={setJour}
+            format="DD/MM/YYYY"
+            placeholder="Jour J"
+            style={{ width: "100%" }}
+          />
+          <InputNumber
+            value={jauge}
+            onChange={(v) => setJauge(v)}
+            min={0}
+            placeholder="Jauge prévisionnelle (facultatif)"
+            style={{ width: "100%" }}
+          />
+          <Button
+            type="primary"
+            block
+            loading={envoi}
+            disabled={!jour}
+            onClick={creer}
+          >
             Créer et rattacher
           </Button>
         </Space>
@@ -927,24 +1331,44 @@ function FicheDossier({
   recharger: () => Promise<unknown>;
   ouvrirProjet: (id: string) => void;
 }) {
-  const [note, setNote] = useState('');
-  useEffect(() => setNote(dossier?.corrections.note ?? ''), [dossier?.code]);
+  const [note, setNote] = useState("");
+  useEffect(() => setNote(dossier?.corrections.note ?? ""), [dossier?.code]);
   if (!dossier) return null;
   const f = dossier.donnees;
   const s = statutDe(dossier);
 
   const corriger = async (corps: { statut?: string | null; note?: string }) => {
-    const res = await api.put<{ ok: boolean; message: string }>(`/assistant/dossiers/${dossier.code}/correction`, corps);
+    const res = await api.put<{ ok: boolean; message: string }>(
+      `/assistant/dossiers/${dossier.code}/correction`,
+      corps,
+    );
     if (!res.ok) message.error(res.message);
     await recharger();
   };
-  const reclasser = async (corps: { evenement?: string; branche?: string; priorite?: string }) => {
-    if (await lancer(api.put(`/assistant/dossiers/${dossier.code}/classement`, corps))) recharger();
+  const reclasser = async (corps: {
+    evenement?: string;
+    branche?: string;
+    priorite?: string;
+  }) => {
+    if (
+      await lancer(
+        api.put(`/assistant/dossiers/${dossier.code}/classement`, corps),
+      )
+    )
+      recharger();
   };
-  const versTache = async (type: 'echeance' | 'action', i: number) => {
-    if (await lancer(api.post(`/assistant/dossiers/${dossier.code}/tache`, { type, index: i }))) recharger();
+  const versTache = async (type: "echeance" | "action", i: number) => {
+    if (
+      await lancer(
+        api.post(`/assistant/dossiers/${dossier.code}/tache`, {
+          type,
+          index: i,
+        }),
+      )
+    )
+      recharger();
   };
-  const boutonTache = (type: 'echeance' | 'action', i: number) =>
+  const boutonTache = (type: "echeance" | "action", i: number) =>
     dossier.converties[`${type}:${i}`] ? (
       <span className="tag st-done">
         <CheckOutlined /> au rétroplanning
@@ -966,26 +1390,36 @@ function FicheDossier({
     );
 
   return (
-    <Drawer open width={640} onClose={fermer} closable={false} styles={{ body: { padding: 0 } }}>
+    <Drawer
+      open
+      width={640}
+      onClose={fermer}
+      closable={false}
+      styles={{ body: { padding: 0 } }}
+    >
       <div className="asst fiche">
         <style>{CSS}</style>
         <button className="close" aria-label="Fermer" onClick={fermer}>
           ×
         </button>
         <div className="meta">
-          <span className="tag">{f.branche || 'Branche à préciser'}</span>
+          <span className="tag">{f.branche || "Branche à préciser"}</span>
           <span>{dossier.code}</span>
           <span>Priorité {f.priorite.toLowerCase()}</span>
-          {dossier.source === 'releve' && <span>· ouvert automatiquement</span>}
+          {dossier.source === "releve" && <span>· ouvert automatiquement</span>}
         </div>
         <h2>{f.titre}</h2>
         <div className="meta">
-          {evenement?.nom ?? (f.evenement || 'Sans événement')}
-          {evenement?.dateJour ? ` · ${fdate(evenement.dateJour)}` : ''}
+          {evenement?.nom ?? (f.evenement || "Sans événement")}
+          {evenement?.dateJour ? ` · ${fdate(evenement.dateJour)}` : ""}
         </div>
         <h4>Classement</h4>
         <div className="row classement">
-          <select value={f.evenement} onChange={(e) => reclasser({ evenement: e.target.value })} aria-label="Événement">
+          <select
+            value={f.evenement}
+            onChange={(e) => reclasser({ evenement: e.target.value })}
+            aria-label="Événement"
+          >
             <option value="">— sans événement —</option>
             {index.evenements.map((e) => (
               <option key={e.code} value={e.code}>
@@ -993,20 +1427,33 @@ function FicheDossier({
               </option>
             ))}
           </select>
-          <select value={f.branche} onChange={(e) => reclasser({ branche: e.target.value })} aria-label="Branche">
+          <select
+            value={f.branche}
+            onChange={(e) => reclasser({ branche: e.target.value })}
+            aria-label="Branche"
+          >
             <option value="">— branche —</option>
-            {[...new Set([...index.branches, f.branche].filter(Boolean))].map((b) => (
-              <option key={b}>{b}</option>
-            ))}
+            {[...new Set([...index.branches, f.branche].filter(Boolean))].map(
+              (b) => (
+                <option key={b}>{b}</option>
+              ),
+            )}
           </select>
-          <select value={f.priorite} onChange={(e) => reclasser({ priorite: e.target.value })} aria-label="Priorité">
-            {['Haute', 'Normale', 'Basse'].map((x) => (
+          <select
+            value={f.priorite}
+            onChange={(e) => reclasser({ priorite: e.target.value })}
+            aria-label="Priorité"
+          >
+            {["Haute", "Normale", "Basse"].map((x) => (
               <option key={x}>{x}</option>
             ))}
           </select>
         </div>
-        {dossier.source === 'index' && (
-          <div className="muted petit">Fiche de l'assistant : un nouvel import d'index réécrira ce classement.</div>
+        {dossier.source === "index" && (
+          <div className="muted petit">
+            Fiche de l'assistant : un nouvel import d'index réécrira ce
+            classement.
+          </div>
         )}
         <h4>Projet</h4>
         {evenement?.projetId ? (
@@ -1020,39 +1467,51 @@ function FicheDossier({
             {evenement.projetTitre}
           </a>
         ) : (
-          <span className="muted">Événement non rattaché : voir l'onglet « Rattachement aux projets ».</span>
+          <span className="muted">
+            Événement non rattaché : voir l'onglet « Rattachement aux projets ».
+          </span>
         )}
         <h4>Statut</h4>
         <div className="row">
-          <select value={s} onChange={(e) => corriger({ statut: e.target.value })}>
+          <select
+            value={s}
+            onChange={(e) => corriger({ statut: e.target.value })}
+          >
             {[...new Set([...STATUTS, s])].map((x) => (
               <option key={x}>{x}</option>
             ))}
           </select>
           {dossier.corrections.statut && (
             <>
-              <span className="tag">modifié par vous (assistant : {f.statut})</span>
-              <button className="lien" onClick={() => corriger({ statut: null })}>
+              <span className="tag">
+                modifié par vous (assistant : {f.statut})
+              </span>
+              <button
+                className="lien"
+                onClick={() => corriger({ statut: null })}
+              >
                 annuler
               </button>
             </>
           )}
         </div>
         <h4>Demandeur</h4>
-        <div>{f.demandeur || '—'}</div>
+        <div>{f.demandeur || "—"}</div>
         <h4>Contacts</h4>
         {liste(f.contacts ?? [])}
-        <h4>
-          Résumé
-        </h4>
-        <div>{f.resume || '—'}</div>
-        {f.analyse && <div className="muted petit">Analysé le {dayjs(f.analyse).format('DD/MM/YYYY à HH:mm')}</div>}
+        <h4>Résumé</h4>
+        <div>{f.resume || "—"}</div>
+        {f.analyse && (
+          <div className="muted petit">
+            Analysé le {dayjs(f.analyse).format("DD/MM/YYYY à HH:mm")}
+          </div>
+        )}
         <h4>Échéances</h4>
         {(f.echeances ?? []).length ? (
           <ul>
             {(f.echeances ?? []).map((e, i) => (
               <li key={i}>
-                {fdate(e.date)} – {e.libelle} {boutonTache('echeance', i)}
+                {fdate(e.date)} – {e.libelle} {boutonTache("echeance", i)}
               </li>
             ))}
           </ul>
@@ -1064,7 +1523,7 @@ function FicheDossier({
           <ul>
             {(f.actions ?? []).map((a, i) => (
               <li key={i}>
-                {a} {boutonTache('action', i)}
+                {a} {boutonTache("action", i)}
               </li>
             ))}
           </ul>
@@ -1073,7 +1532,7 @@ function FicheDossier({
         )}
         {(f.vigilance ?? []).length > 0 && (
           <>
-            <h4 style={{ color: 'var(--amber)' }}>Points de vigilance</h4>
+            <h4 style={{ color: "var(--amber)" }}>Points de vigilance</h4>
             {liste(f.vigilance ?? [])}
           </>
         )}
@@ -1083,7 +1542,11 @@ function FicheDossier({
             <div className="pj" key={i}>
               <div>
                 {p.fichierId ? (
-                  <a href={`/api/assistant/fichiers/${p.fichierId}`} target="_blank" rel="noreferrer">
+                  <a
+                    href={`/api/assistant/fichiers/${p.fichierId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     {p.nom}
                   </a>
                 ) : (
@@ -1093,8 +1556,8 @@ function FicheDossier({
               <span>
                 {p.type} · {p.taille}
                 <br />
-                {p.emplacement?.startsWith('OneDrive') ? (
-                  typeof p.onedrive === 'string' ? (
+                {p.emplacement?.startsWith("OneDrive") ? (
+                  typeof p.onedrive === "string" ? (
                     <a href={p.onedrive} target="_blank" rel="noreferrer">
                       {p.emplacement}
                     </a>
@@ -1102,9 +1565,9 @@ function FicheDossier({
                     p.emplacement
                   )
                 ) : p.fichierId ? (
-                  'cliquez pour ouvrir'
+                  "cliquez pour ouvrir"
                 ) : (
-                  p.emplacement || 'à récupérer'
+                  p.emplacement || "à récupérer"
                 )}
               </span>
             </div>
@@ -1118,17 +1581,25 @@ function FicheDossier({
             {liste(
               (f.budget ?? []).map(
                 (b) =>
-                  `${b.type ?? ''} ${b.reference ?? ''} – ${b.fournisseur ?? ''} : ${
-                    b.montant_ttc == null ? 'montant à lire' : `${euros(b.montant_ttc)} TTC`
-                  } (${b.statut_lecture ?? ''})`
-              )
+                  `${b.type ?? ""} ${b.reference ?? ""} – ${b.fournisseur ?? ""} : ${
+                    b.montant_ttc == null
+                      ? "montant à lire"
+                      : `${euros(b.montant_ttc)} TTC`
+                  } (${b.statut_lecture ?? ""})`,
+              ),
             )}
           </>
         )}
         {f.brouillon && (
           <>
             <h4>Brouillon de réponse</h4>
-            <Paragraph copyable={{ text: f.brouillon, tooltips: ['Copier le brouillon', 'Copié'] }} style={{ margin: 0 }}>
+            <Paragraph
+              copyable={{
+                text: f.brouillon,
+                tooltips: ["Copier le brouillon", "Copié"],
+              }}
+              style={{ margin: 0 }}
+            >
               <pre className="draft">{f.brouillon}</pre>
             </Paragraph>
           </>
@@ -1140,20 +1611,37 @@ function FicheDossier({
           </>
         )}
         <h4>Mails du dossier</h4>
-        <MailsDuDossier mails={mails} dossier={dossier} index={index} recharger={recharger} />
+        <MailsDuDossier
+          mails={mails}
+          dossier={dossier}
+          index={index}
+          recharger={recharger}
+        />
         <h4>Mes notes</h4>
         <textarea
           placeholder="Notes personnelles, enregistrées dans l'application"
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          onBlur={() => note !== (dossier.corrections.note ?? '') && corriger({ note })}
+          onBlur={() =>
+            note !== (dossier.corrections.note ?? "") && corriger({ note })
+          }
         />
       </div>
     </Drawer>
   );
 }
 
-function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; dossier: Dossier; index: Index; recharger: () => Promise<unknown> }) {
+function MailsDuDossier({
+  mails,
+  dossier,
+  index,
+  recharger,
+}: {
+  mails: Mail[];
+  dossier: Dossier;
+  index: Index;
+  recharger: () => Promise<unknown>;
+}) {
   const [deplie, setDeplie] = useState<string | null>(null);
   const [corps, setCorps] = useState<Record<string, string>>({});
   if (!mails.length) return <span className="muted">—</span>;
@@ -1162,46 +1650,72 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
     if (deplie === m._id) return setDeplie(null);
     setDeplie(m._id);
     if (corps[m._id] === undefined) {
-      const r = await api.get<{ mail: { corps: string } }>(`/assistant/mails/${m._id}`);
-      setCorps((c) => ({ ...c, [m._id]: r.mail.corps || '(texte vide)' }));
+      const r = await api.get<{ mail: { corps: string } }>(
+        `/assistant/mails/${m._id}`,
+      );
+      setCorps((c) => ({ ...c, [m._id]: r.mail.corps || "(texte vide)" }));
     }
   };
   const deplacer = async (m: Mail, cible: string) => {
-    if (await lancer(api.put(`/assistant/mails/${m._id}/dossier`, { dossier: cible }))) recharger();
+    if (
+      await lancer(
+        api.put(`/assistant/mails/${m._id}/dossier`, { dossier: cible }),
+      )
+    )
+      recharger();
   };
   return (
     <div className="mails">
       {tries.map((m) => (
-        <div key={m._id ?? m.numero} className={`mail ${m.sens === 'envoyé' ? 'envoye' : ''}`}>
-          <div className="entete" onClick={() => m.source === 'releve' && lire(m)} style={{ cursor: m.source === 'releve' ? 'pointer' : 'default' }}>
-            <span className="sens">{m.sens === 'envoyé' ? '↗' : '↘'}</span>
+        <div
+          key={m._id ?? m.numero}
+          className={`mail ${m.sens === "envoyé" ? "envoye" : ""}`}
+        >
+          <div
+            className="entete"
+            onClick={() => m.source === "releve" && lire(m)}
+            style={{ cursor: m.source === "releve" ? "pointer" : "default" }}
+          >
+            <span className="sens">{m.sens === "envoyé" ? "↗" : "↘"}</span>
             <span className="quand">
               {fdate(m.date)} {m.date.slice(11, 16)}
             </span>
             <b>{m.expediteur}</b>
             <span className="objet">{m.objet}</span>
           </div>
-          {m.source === 'releve' && (
+          {m.source === "releve" && (
             <div className="details">
               {m.piecesJointes.length > 0 && (
                 <span>
-                  📎{' '}
+                  📎{" "}
                   {m.piecesJointes.map((p, i) => (
                     <span key={i}>
-                      {i > 0 && ', '}
+                      {i > 0 && ", "}
                       {p.fichierId ? (
-                        <a href={`/api/assistant/fichiers/${p.fichierId}`} target="_blank" rel="noreferrer">
+                        <a
+                          href={`/api/assistant/fichiers/${p.fichierId}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
                           {p.nom}
                         </a>
                       ) : (
                         p.nom
-                      )}{' '}
-                      ({ko(p.taille)}){p.onedrive && <span title={`OneDrive › ${p.onedrive.chemin}`}> ☁</span>}
+                      )}{" "}
+                      ({ko(p.taille)})
+                      {p.onedrive && (
+                        <span title={`OneDrive › ${p.onedrive.chemin}`}>
+                          {" "}
+                          ☁
+                        </span>
+                      )}
                     </span>
                   ))}
                 </span>
               )}
-              <span className="muted">{MOTIFS[m.classement] ?? m.classement}</span>
+              <span className="muted">
+                {MOTIFS[m.classement] ?? m.classement}
+              </span>
               <Popconfirm
                 title="Supprimer ce mail du registre ?"
                 description="Il ne reviendra pas, même transféré à nouveau."
@@ -1209,7 +1723,12 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
                 cancelText="Annuler"
                 okButtonProps={{ danger: true }}
                 onConfirm={async () => {
-                  if (await lancer(api.post('/assistant/mails/supprimer', { ids: [m._id] }))) recharger();
+                  if (
+                    await lancer(
+                      api.post("/assistant/mails/supprimer", { ids: [m._id] }),
+                    )
+                  )
+                    recharger();
                 }}
               >
                 <button className="lien danger">supprimer</button>
@@ -1223,7 +1742,9 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
                 <option value="">déplacer vers…</option>
                 <option value="nouveau">un nouveau dossier</option>
                 {index.dossiers
-                  .filter((d) => d.code !== dossier.code && statutOuvert(statutDe(d)))
+                  .filter(
+                    (d) => d.code !== dossier.code && statutOuvert(statutDe(d)),
+                  )
                   .map((d) => (
                     <option key={d.code} value={d.code}>
                       {d.code} – {d.donnees.titre.slice(0, 60)}
@@ -1234,13 +1755,519 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
           )}
           {deplie === m._id && (
             <div className="corps">
-              {m.destinataires && <div className="muted">À : {m.destinataires}</div>}
-              <pre>{corps[m._id] ?? 'Chargement…'}</pre>
+              {m.destinataires && (
+                <div className="muted">À : {m.destinataires}</div>
+              )}
+              <pre>{corps[m._id] ?? "Chargement…"}</pre>
             </div>
           )}
         </div>
       ))}
     </div>
+  );
+}
+
+// --- Bilan d'un événement ---------------------------------------------------------------------------
+
+/** Médiane d'une liste d'heures, ou null. */
+const mediane = (v: number[]) => {
+  if (!v.length) return null;
+  const t = [...v].sort((a, b) => a - b);
+  const m = Math.floor(t.length / 2);
+  return t.length % 2 ? t[m] : (t[m - 1] + t[m]) / 2;
+};
+const duree = (h: number | null) =>
+  h === null
+    ? "—"
+    : h < 1
+      ? "moins d’1 h"
+      : h < 48
+        ? `${Math.round(h)} h`
+        : `${Math.round(h / 24)} j`;
+const dateMail = (d: string) => dayjs(d.replace(" ", "T"));
+/** Contact externe d'un dossier : ni adresse de la collectivité, ni membre du service. */
+const contactExterne = (
+  contacts: string[],
+  service: Set<string>,
+  fournisseur: string,
+) => {
+  const externes = contacts.filter(
+    (c) =>
+      !/@(cud|ville-dunkerque)\.fr/i.test(c) &&
+      ![...service].some((n) => n && c.toUpperCase().includes(n.toUpperCase())),
+  );
+  // De préférence celui dont le nom ou l'adresse rappelle le fournisseur.
+  const mots = normaliserNom(fournisseur)
+    .split(" ")
+    .filter((m) => m.length >= 3);
+  return (
+    externes.find((c) =>
+      mots.some((m) => normaliserNom(c).replace(/ /g, "").includes(m)),
+    ) ??
+    externes[0] ??
+    ""
+  );
+};
+const normaliserNom = (t: string) =>
+  t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+interface LigneInterlocuteur {
+  nom: string;
+  recus: number;
+  dossiers: Set<string>;
+  delais: number[];
+  sansReponse: number;
+}
+
+function calculerBilan(evenement: Evenement, index: Index) {
+  const dossiers = index.dossiers.filter(
+    (d) => d.donnees.evenement === evenement.code,
+  );
+  const codes = new Set(dossiers.map((d) => d.code));
+  const mails = index.mails.filter((m) => codes.has(m.dossierCode));
+  // Membres du service : expéditeurs des mails reconnus comme envoyés.
+  const service = new Set(
+    index.mails.filter((m) => m.sens === "envoyé").map((m) => m.expediteur),
+  );
+  const envoye = (m: Mail) => m.sens === "envoyé" || service.has(m.expediteur);
+
+  const parNom = new Map<string, LigneInterlocuteur>();
+  const ligne = (nom: string) => {
+    let l = parNom.get(nom);
+    if (!l)
+      parNom.set(
+        nom,
+        (l = {
+          nom,
+          recus: 0,
+          dossiers: new Set(),
+          delais: [],
+          sansReponse: 0,
+        }),
+      );
+    return l;
+  };
+  const tousDelais: number[] = [];
+  const enAttente: { dossier: Dossier; mail: Mail }[] = [];
+  for (const d of dossiers) {
+    const fil = mails
+      .filter((m) => m.dossierCode === d.code)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    let attente: Mail | null = null;
+    for (const m of fil) {
+      if (envoye(m)) {
+        if (attente) {
+          const h =
+            dateMail(m.date).diff(dateMail(attente.date), "minute") / 60;
+          if (h >= 0) {
+            ligne(attente.expediteur).delais.push(h);
+            tousDelais.push(h);
+          }
+          attente = null;
+        }
+      } else {
+        const l = ligne(m.expediteur);
+        l.recus++;
+        l.dossiers.add(d.code);
+        attente ??= m;
+      }
+    }
+    if (attente && statutOuvert(statutDe(d))) {
+      ligne(attente.expediteur).sansReponse++;
+      enAttente.push({ dossier: d, mail: attente });
+    }
+  }
+  const interlocuteurs = [...parNom.values()]
+    .filter((l) => l.recus > 0)
+    .sort((a, b) => b.recus - a.recus);
+
+  // Budget : documents financiers par fournisseur et par branche.
+  const lignes = dossiers.flatMap((d) =>
+    (d.donnees.budget ?? []).map((b) => ({ ...b, dossier: d })),
+  );
+  const fournisseurs = new Map<
+    string,
+    {
+      nom: string;
+      total: number;
+      documents: number;
+      inconnus: number;
+      dernier: (typeof lignes)[number];
+    }
+  >();
+  for (const b of lignes) {
+    const nom = (b.fournisseur || "Fournisseur non précisé").trim();
+    const f = fournisseurs.get(nom) ?? {
+      nom,
+      total: 0,
+      documents: 0,
+      inconnus: 0,
+      dernier: b,
+    };
+    f.documents++;
+    if (typeof b.montant_ttc === "number") f.total += b.montant_ttc;
+    else f.inconnus++;
+    if (
+      (b.dossier.donnees.dernier_mail ?? "") >=
+      (f.dernier.dossier.donnees.dernier_mail ?? "")
+    )
+      f.dernier = b;
+    fournisseurs.set(nom, f);
+  }
+  const parBranche = new Map<string, number>();
+  for (const b of lignes)
+    if (typeof b.montant_ttc === "number")
+      parBranche.set(
+        b.dossier.donnees.branche || "—",
+        (parBranche.get(b.dossier.donnees.branche || "—") ?? 0) + b.montant_ttc,
+      );
+
+  // Échéances et vigilance.
+  const echeances = dossiers.flatMap((d) =>
+    (d.donnees.echeances ?? [])
+      .filter((e) => e.date)
+      .map((e) => ({ ...e, dossier: d })),
+  );
+  const passees = echeances.filter((e) => jours(e.date!) < 0);
+  const depassees = passees.filter((e) => statutOuvert(statutDe(e.dossier)));
+  const aVenir = echeances.filter((e) => jours(e.date!) >= 0);
+  const vigilance = dossiers
+    .filter((d) => statutOuvert(statutDe(d)))
+    .flatMap((d) =>
+      (d.donnees.vigilance ?? []).map((v) => ({ texte: v, dossier: d })),
+    );
+
+  const recontacter = [...fournisseurs.values()]
+    .filter((f) => f.nom !== "Fournisseur non précisé")
+    .map((f) => ({
+      ...f,
+      contact: contactExterne(
+        dossiers
+          .filter((d) =>
+            (d.donnees.budget ?? []).some(
+              (x) => (x.fournisseur || "").trim() === f.nom,
+            ),
+          )
+          .flatMap((d) => d.donnees.contacts ?? []),
+        service,
+        f.nom,
+      ),
+    }))
+    .sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+
+  return {
+    dossiers,
+    ouverts: dossiers.filter((d) => statutOuvert(statutDe(d))).length,
+    mails,
+    recus: mails.filter((m) => !envoye(m)).length,
+    envoyes: mails.filter(envoye).length,
+    delaiMedian: mediane(tousDelais),
+    interlocuteurs,
+    enAttente,
+    fournisseurs: [...fournisseurs.values()].sort((a, b) => b.total - a.total),
+    totalConnu: lignes.reduce(
+      (t, b) => t + (typeof b.montant_ttc === "number" ? b.montant_ttc : 0),
+      0,
+    ),
+    montantsInconnus: lignes.filter((b) => typeof b.montant_ttc !== "number")
+      .length,
+    parBranche: [...parBranche.entries()].sort((a, b) => b[1] - a[1]),
+    passees,
+    depassees,
+    aVenir,
+    vigilance,
+    recontacter,
+  };
+}
+
+function BilanEvenement({
+  evenement,
+  index,
+  fermer,
+  ouvrirDossier,
+}: {
+  evenement: Evenement | null;
+  index: Index;
+  fermer: () => void;
+  ouvrirDossier: (code: string) => void;
+}) {
+  const b = useMemo(
+    () => (evenement ? calculerBilan(evenement, index) : null),
+    [evenement, index],
+  );
+  if (!evenement || !b) return null;
+  const lienDossier = (d: Dossier) => (
+    <button
+      className="lien"
+      style={{ padding: 0 }}
+      onClick={() => ouvrirDossier(d.code)}
+    >
+      {d.code}
+    </button>
+  );
+  const exporter = () => {
+    const cel = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const l: unknown[][] = [
+      [`Bilan – ${evenement.nom}`],
+      [`Établi le ${dayjs().format("DD/MM/YYYY")}`],
+      [],
+      ["Prestataires à recontacter"],
+      [
+        "Fournisseur",
+        "Interlocuteur",
+        "Dernier document",
+        "Référence",
+        "Montant TTC",
+        "Dossier",
+      ],
+      ...b.recontacter.map((f) => [
+        f.nom,
+        f.contact,
+        f.dernier.type,
+        f.dernier.reference,
+        f.dernier.montant_ttc ?? "",
+        f.dernier.dossier.code,
+      ]),
+      [],
+      ["Montants par fournisseur"],
+      ["Fournisseur", "Documents", "Total TTC connu", "Montants non lus"],
+      ...b.fournisseurs.map((f) => [f.nom, f.documents, f.total, f.inconnus]),
+      [],
+      ["Interlocuteurs"],
+      [
+        "Nom",
+        "Mails reçus",
+        "Dossiers",
+        "Délai médian de réponse (h)",
+        "Sans réponse",
+      ],
+      ...b.interlocuteurs.map((i) => [
+        i.nom,
+        i.recus,
+        i.dossiers.size,
+        mediane(i.delais)?.toFixed(1) ?? "",
+        i.sansReponse,
+      ]),
+    ];
+    const blob = new Blob(
+      ["﻿" + l.map((r) => r.map(cel).join(";")).join("\r\n")],
+      { type: "text/csv;charset=utf-8" },
+    );
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `bilan-${evenement.code.toLowerCase()}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  return (
+    <Drawer
+      open
+      onClose={fermer}
+      width={860}
+      title={`Bilan – ${evenement.nom}`}
+      extra={<Button onClick={exporter}>Exporter (tableur)</Button>}
+    >
+      <div className="asst panneau bilan">
+        <style>{CSS}</style>
+        <div className="totals">
+          <div className="tot">
+            <b>{b.dossiers.length}</b>dossiers, dont {b.ouverts} ouverts
+          </div>
+          <div className="tot">
+            <b>{b.mails.length}</b>mails : {b.recus} reçus, {b.envoyes} envoyés
+          </div>
+          <div className="tot">
+            <b>{duree(b.delaiMedian)}</b>délai médian de réponse
+          </div>
+          <div className="tot">
+            <b>{euros(b.totalConnu)}</b>engagés (montants lus)
+            {b.montantsInconnus
+              ? `, ${b.montantsInconnus} document${b.montantsInconnus > 1 ? "s" : ""} sans montant`
+              : ""}
+          </div>
+        </div>
+
+        <h3 className="h3">
+          Prestataires à recontacter pour l'édition suivante
+        </h3>
+        {b.recontacter.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Fournisseur</th>
+                <th>Interlocuteur</th>
+                <th>Dernier document</th>
+                <th>Montant TTC</th>
+                <th>Dossier</th>
+              </tr>
+            </thead>
+            <tbody>
+              {b.recontacter.map((f) => (
+                <tr key={f.nom}>
+                  <td>
+                    <b>{f.nom}</b>
+                  </td>
+                  <td>{f.contact || "—"}</td>
+                  <td>
+                    {f.dernier.type || "Document"}{" "}
+                    {f.dernier.reference ? `– ${f.dernier.reference}` : ""}
+                  </td>
+                  <td>{euros(f.dernier.montant_ttc)}</td>
+                  <td>{lienDossier(f.dernier.dossier)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="muted">
+            Aucun devis, bon de commande ou facture relevé pour cet événement.
+          </div>
+        )}
+
+        <h3 className="h3">Montants engagés</h3>
+        {b.fournisseurs.length ? (
+          <div className="deux">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fournisseur</th>
+                  <th>Documents</th>
+                  <th>Total TTC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {b.fournisseurs.map((f) => (
+                  <tr key={f.nom}>
+                    <td>{f.nom}</td>
+                    <td>{f.documents}</td>
+                    <td>
+                      {f.inconnus === f.documents ? (
+                        <span className="muted">montant non lu</span>
+                      ) : (
+                        <>
+                          {euros(f.total)}
+                          {f.inconnus ? (
+                            <span className="muted">
+                              {" "}
+                              + {f.inconnus} non lu{f.inconnus > 1 ? "s" : ""}
+                            </span>
+                          ) : null}
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <table>
+              <thead>
+                <tr>
+                  <th>Branche</th>
+                  <th>Total TTC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {b.parBranche.length ? (
+                  b.parBranche.map(([br, t]) => (
+                    <tr key={br}>
+                      <td>{br}</td>
+                      <td>{euros(t)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={2} className="muted">
+                      Aucun montant lu
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="muted">Aucun montant relevé.</div>
+        )}
+
+        <h3 className="h3">Interlocuteurs et délais de réponse</h3>
+        {b.interlocuteurs.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Interlocuteur</th>
+                <th>Mails reçus</th>
+                <th>Dossiers</th>
+                <th>Délai médian de réponse</th>
+                <th>En attente de réponse</th>
+              </tr>
+            </thead>
+            <tbody>
+              {b.interlocuteurs.map((i) => (
+                <tr key={i.nom}>
+                  <td>{i.nom}</td>
+                  <td>{i.recus}</td>
+                  <td>{i.dossiers.size}</td>
+                  <td>{duree(mediane(i.delais))}</td>
+                  <td className={i.sansReponse ? "alerte" : ""}>
+                    {i.sansReponse || "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="muted">Aucun mail reçu.</div>
+        )}
+        {b.enAttente.length > 0 && (
+          <div className="note">
+            <b>Dernier message resté sans réponse :</b>{" "}
+            {b.enAttente.map((a, k) => (
+              <span key={a.dossier.code}>
+                {k > 0 && " · "}
+                {lienDossier(a.dossier)} {a.mail.expediteur} (
+                {dateMail(a.mail.date).format("DD/MM")})
+              </span>
+            ))}
+          </div>
+        )}
+
+        <h3 className="h3">Échéances et points de vigilance</h3>
+        <ul className="aide">
+          <li>
+            {b.passees.length} échéance{b.passees.length > 1 ? "s" : ""} passée
+            {b.passees.length > 1 ? "s" : ""}, dont{" "}
+            <b className={b.depassees.length ? "alerte" : ""}>
+              {b.depassees.length} sur des dossiers encore ouverts
+            </b>{" "}
+            ; {b.aVenir.length} à venir.
+          </li>
+          {b.depassees.map((e, k) => (
+            <li key={k}>
+              {fdate(e.date)} – {e.libelle} ({lienDossier(e.dossier)})
+            </li>
+          ))}
+          <li>
+            {b.vigilance.length} point{b.vigilance.length > 1 ? "s" : ""} de
+            vigilance sur les dossiers ouverts
+            {b.vigilance.length ? " :" : "."}
+          </li>
+          {b.vigilance.map((v, k) => (
+            <li key={`v${k}`}>
+              {v.texte} ({lienDossier(v.dossier)})
+            </li>
+          ))}
+        </ul>
+        <div className="muted petit" style={{ marginTop: 14 }}>
+          Délai de réponse : temps entre le premier message reçu d'un échange et
+          la réponse du service qui le suit, dans le même dossier. Montants :
+          ceux lus sur les devis, bons de commande et factures.
+        </div>
+      </div>
+    </Drawer>
   );
 }
 
@@ -1257,28 +2284,56 @@ interface ReglagesOutlook {
   demandePar: string;
 }
 
+/** Demande de lecture en cours, si elle a moins de 75 minutes (au-delà, elle n'a pas été prise en charge). */
+const demandeEnCours = (o: ReglagesOutlook) =>
+  !!o.demandeLe && dayjs().diff(dayjs(o.demandeLe), "minute") < 75;
+const demandeOubliee = (o: ReglagesOutlook) =>
+  !!o.demandeLe && !demandeEnCours(o);
+
 /** Avancement du rattrapage, en pourcentage de la période à reprendre (de la date de départ à aujourd'hui). */
 function avancementRattrapage(o: ReglagesOutlook): number | null {
   if (!o.rattrapageDepuis) return null;
   if (o.rattrapageTermine) return 100;
   if (!o.rattrapageAtteint) return 0;
-  const total = aujourdhui().diff(dayjs(o.rattrapageDepuis), 'day');
-  const fait = aujourdhui().diff(dayjs(o.rattrapageAtteint), 'day');
-  return total > 0 ? Math.max(0, Math.min(99, Math.round((fait / total) * 100))) : 100;
+  const total = aujourdhui().diff(dayjs(o.rattrapageDepuis), "day");
+  const fait = aujourdhui().diff(dayjs(o.rattrapageAtteint), "day");
+  return total > 0
+    ? Math.max(0, Math.min(99, Math.round((fait / total) * 100)))
+    : 100;
 }
 
-function ReglagesLecture({ o, apres }: { o: ReglagesOutlook; apres: () => void }) {
+function ReglagesLecture({
+  o,
+  apres,
+}: {
+  o: ReglagesOutlook;
+  apres: () => void;
+}) {
   const [dossier, setDossier] = useState(o.deplacerVers);
   const [deplacer, setDeplacer] = useState(!!o.deplacerVers);
   const [parEvenement, setParEvenement] = useState(o.sousDossiers);
   const [auto, setAuto] = useState(o.automatique);
   const [depuis, setDepuis] = useState(o.rattrapageDepuis);
   const [envoi, setEnvoi] = useState(false);
-  const modifie = (deplacer ? dossier.trim() : '') !== o.deplacerVers || parEvenement !== o.sousDossiers || auto !== o.automatique || depuis !== o.rattrapageDepuis;
+  const modifie =
+    (deplacer ? dossier.trim() : "") !== o.deplacerVers ||
+    parEvenement !== o.sousDossiers ||
+    auto !== o.automatique ||
+    depuis !== o.rattrapageDepuis;
   const enregistrer = async () => {
     setEnvoi(true);
     try {
-      if (await lancer(api.put('/assistant/outlook/reglages', { deplacerVers: deplacer ? dossier.trim() : '', sousDossiers: parEvenement, automatique: auto, rattrapageDepuis: depuis }))) apres();
+      if (
+        await lancer(
+          api.put("/assistant/outlook/reglages", {
+            deplacerVers: deplacer ? dossier.trim() : "",
+            sousDossiers: parEvenement,
+            automatique: auto,
+            rattrapageDepuis: depuis,
+          }),
+        )
+      )
+        apres();
     } finally {
       setEnvoi(false);
     }
@@ -1288,30 +2343,65 @@ function ReglagesLecture({ o, apres }: { o: ReglagesOutlook; apres: () => void }
       <Text strong>Réglages de la lecture</Text>
       <label>
         Passages
-        <select value={auto ? 'auto' : 'demande'} onChange={(e) => setAuto(e.target.value === 'auto')}>
-          <option value="auto">automatiques, toutes les heures en semaine de 8 h à 18 h, et à la demande</option>
-          <option value="demande">à la demande seulement (bouton « Lancer maintenant »)</option>
+        <select
+          value={auto ? "auto" : "demande"}
+          onChange={(e) => setAuto(e.target.value === "auto")}
+        >
+          <option value="auto">
+            automatiques, toutes les heures en semaine de 8 h à 18 h, et à la
+            demande
+          </option>
+          <option value="demande">
+            à la demande seulement (bouton « Lancer maintenant »)
+          </option>
         </select>
       </label>
       <label className="case">
-        <input type="checkbox" checked={deplacer} onChange={(e) => setDeplacer(e.target.checked)} /> Une fois traité, déplacer le mail de la boîte de
-        réception vers le dossier Outlook :
+        <input
+          type="checkbox"
+          checked={deplacer}
+          onChange={(e) => setDeplacer(e.target.checked)}
+        />{" "}
+        Une fois traité, déplacer le mail de la boîte de réception vers le
+        dossier Outlook :
       </label>
-      <input type="text" value={dossier} disabled={!deplacer} onChange={(e) => setDossier(e.target.value)} placeholder="DKEVENTS" />
+      <input
+        type="text"
+        value={dossier}
+        disabled={!deplacer}
+        onChange={(e) => setDossier(e.target.value)}
+        placeholder="DKEVENTS"
+      />
       <label className="case">
-        <input type="checkbox" checked={parEvenement} disabled={!deplacer} onChange={(e) => setParEvenement(e.target.checked)} /> Dans un sous-dossier par
-        événement, aux mêmes noms que dans OneDrive ({dossier.trim() || 'DKEVENTS'} → La Féerique 2026…). Les mails sans événement vont dans « Fonctionnement
-        du service ».
+        <input
+          type="checkbox"
+          checked={parEvenement}
+          disabled={!deplacer}
+          onChange={(e) => setParEvenement(e.target.checked)}
+        />{" "}
+        Dans un sous-dossier par événement, aux mêmes noms que dans OneDrive (
+        {dossier.trim() || "DKEVENTS"} → La Féerique 2026…). Les mails sans
+        événement vont dans « Fonctionnement du service ».
       </label>
       <label>
         Reprendre aussi les mails reçus depuis le
-        <input type="date" value={depuis} onChange={(e) => setDepuis(e.target.value)} />
+        <input
+          type="date"
+          value={depuis}
+          onChange={(e) => setDepuis(e.target.value)}
+        />
       </label>
       <div className="muted petit" style={{ marginTop: 4 }}>
-        Laissez la date vide pour ne lire que les nouveaux mails. Changer la date relance le rattrapage à partir de celle-ci.
+        Laissez la date vide pour ne lire que les nouveaux mails. Changer la
+        date relance le rattrapage à partir de celle-ci.
       </div>
       <Space style={{ marginTop: 10 }}>
-        <Button type="primary" loading={envoi} disabled={!modifie || (deplacer && !dossier.trim())} onClick={enregistrer}>
+        <Button
+          type="primary"
+          loading={envoi}
+          disabled={!modifie || (deplacer && !dossier.trim())}
+          onClick={enregistrer}
+        >
           Enregistrer
         </Button>
       </Space>
@@ -1335,17 +2425,25 @@ function PanneauMiseAJour({
   releve: EtatReleve;
   relever: () => void;
   releveEnCours: boolean;
-  dernier: Index['dernierImport'];
+  dernier: Index["dernierImport"];
   nbCorrections: number;
   exporter: () => void;
   apres: () => void;
 }) {
   const [envoi, setEnvoi] = useState(false);
   const [ancien, setAncien] = useState(false);
-  const [aRanger, setARanger] = useState<{ racine: string; pieces: { dossierOneDrive: string }[] } | null>(null);
+  const [aRanger, setARanger] = useState<{
+    racine: string;
+    pieces: { dossierOneDrive: string }[];
+  } | null>(null);
   useEffect(() => {
     if (ouvert)
-      api.get<{ racine: string; pieces: { dossierOneDrive: string }[] }>('/assistant/pieces/a-ranger').then(setARanger).catch(() => setARanger(null));
+      api
+        .get<{ racine: string; pieces: { dossierOneDrive: string }[] }>(
+          "/assistant/pieces/a-ranger",
+        )
+        .then(setARanger)
+        .catch(() => setARanger(null));
   }, [ouvert]);
   const o = releve.outlook;
   const avancement = avancementRattrapage(o);
@@ -1355,161 +2453,213 @@ function PanneauMiseAJour({
     try {
       const texte = await fichier.text();
       // donnees.js (« window.DONNEES = {…} ») est accepté comme donnees.json.
-      const json = JSON.parse(texte.replace(/^﻿/, '').replace(/^\s*window\.DONNEES\s*=\s*/, '').replace(/;\s*$/, ''));
-      if (await lancer(api.post('/assistant/import', json))) apres();
+      const json = JSON.parse(
+        texte
+          .replace(/^﻿/, "")
+          .replace(/^\s*window\.DONNEES\s*=\s*/, "")
+          .replace(/;\s*$/, ""),
+      );
+      if (await lancer(api.post("/assistant/import", json))) apres();
     } catch {
-      message.error("Fichier illisible : déposez le donnees.json produit par l'assistant");
+      message.error(
+        "Fichier illisible : déposez le donnees.json produit par l'assistant",
+      );
     } finally {
       setEnvoi(false);
     }
   };
 
   return (
-    <Drawer open={ouvert} onClose={fermer} width={620} title="Mise à jour des dossiers">
+    <Drawer
+      open={ouvert}
+      onClose={fermer}
+      width={620}
+      title="Mise à jour des dossiers"
+    >
       <div className="asst panneau">
-      <style>{CSS}</style>
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <div>
-          <Paragraph style={{ marginBottom: 8 }}>
-            {o.automatique ? 'Les mails du service sont lus dans Outlook toutes les heures en semaine, de 8 h à 18 h, et à votre demande' : 'Les mails du service sont lus dans Outlook à votre demande'} : chaque conversation rejoint son dossier, ses pièces
-            jointes sont rangées dans OneDrive et les montants alimentent le suivi budgétaire.
-            {o.deplacerVers
-              ? ` Les mails traités sont ensuite déplacés vers le dossier Outlook « ${o.deplacerVers} »${o.sousDossiers ? ', dans le sous-dossier de leur événement' : ''}.`
-              : ''}
-          </Paragraph>
-          <Space wrap>
-            <Button type="primary" icon={<SyncOutlined spin={releveEnCours} />} onClick={relever} disabled={releveEnCours || !!o.demandeLe}>
-              {o.demandeLe ? 'Lecture demandée' : 'Lancer maintenant'}
-            </Button>
-            <Text type="secondary">
-              {o.demandeLe
-                ? `Demandée à ${dayjs(o.demandeLe).format('HH:mm')}, démarre vers ${dayjs(releve.prochainPassage).format('HH:mm')}`
-                : o.automatique
-                  ? `Prochain passage vers ${dayjs(releve.prochainPassage).format(dayjs(releve.prochainPassage).isSame(dayjs(), 'day') ? 'HH:mm' : 'ddd DD/MM à HH:mm')}`
-                  : 'Lecture à la demande : démarre dans l’heure qui suit le clic'}
-            </Text>
-          </Space>
-          <div className="muted petit" style={{ marginTop: 8 }}>
-            {releve.derniereLectureOutlook
-              ? `Dernière lecture le ${dayjs(releve.derniereLectureOutlook).format('DD/MM/YYYY à HH:mm')}.`
-              : 'Aucune lecture pour l’instant.'}{' '}
-            La lecture a besoin du poste du chef de service allumé, avec Chrome ouvert.
-          </div>
-        </div>
-
-        {avancement !== null && (
+        <style>{CSS}</style>
+        <Space direction="vertical" size="large" style={{ width: "100%" }}>
           <div>
-            <Text strong>Reprise des mails depuis le {fdate(o.rattrapageDepuis)}</Text>
-            <div className="jauge" title={`${avancement} %`}>
-              <span style={{ width: `${avancement}%` }} />
-            </div>
-            <div className="muted petit">
-              {o.rattrapageTermine
-                ? 'Terminée : tous les mails de la période ont été lus.'
-                : o.rattrapageAtteint
-                  ? `${avancement} % : mails lus jusqu'au ${fdate(o.rattrapageAtteint)} en remontant le temps. Chaque passage traite une trentaine de conversations après les nouveaux mails.`
-                  : 'Pas encore commencée : elle démarre au prochain passage, après les nouveaux mails.'}
-            </div>
-          </div>
-        )}
-
-        <ReglagesLecture key={`${o.deplacerVers}|${o.sousDossiers}|${o.automatique}|${o.rattrapageDepuis}`} o={o} apres={apres} />
-
-        {aRanger && (
-          <div>
-            <Text strong>Pièces jointes dans OneDrive</Text>
-            <Paragraph type="secondary" style={{ margin: '4px 0 0' }}>
-              {aRanger.pieces.length === 0
-                ? `Toutes les pièces jointes sont rangées (${aRanger.racine.replace('/', ' → ')}).`
-                : `${aRanger.pieces.length} pièce${aRanger.pieces.length > 1 ? 's' : ''} jointe${aRanger.pieces.length > 1 ? 's' : ''} encore à ranger dans OneDrive (${aRanger.racine.replace('/', ' → ')}), dans ${[...new Set(aRanger.pieces.map((p) => p.dossierOneDrive))].join(', ')}.`}
+            <Paragraph style={{ marginBottom: 8 }}>
+              {o.automatique
+                ? "Les mails du service sont lus dans Outlook toutes les heures en semaine, de 8 h à 18 h, et à votre demande"
+                : "Les mails du service sont lus dans Outlook à votre demande"}{" "}
+              : chaque conversation rejoint son dossier, ses pièces jointes sont
+              rangées dans OneDrive et les montants alimentent le suivi
+              budgétaire.
+              {o.deplacerVers
+                ? ` Les mails traités sont ensuite déplacés vers le dossier Outlook « ${o.deplacerVers} »${o.sousDossiers ? ", dans le sous-dossier de leur événement" : ""}.`
+                : ""}
             </Paragraph>
-          </div>
-        )}
-
-        <div>
-          <Text strong>Consignes de classement</Text>
-          <ul className="aide">
-            <li>
-              Au-dessus d'un mail transféré, écrivez <code>#feerique #logistique</code> (événement, branche), <code>#D12</code> (dossier précis) ou{' '}
-              <code>#urgent</code> (priorité haute). Le reste du texte devient une remarque dans la fiche.
-            </li>
-            <li>Sans consigne, le mail rejoint sa conversation, le dossier de son expéditeur ou l'événement qu'il cite ; sinon il part « à classer ».</li>
-            <li>Les mails sans rapport avec le service (lettres d'information, invitations extérieures) restent dans la boîte de réception, marqués « DK traité ».</li>
-          </ul>
-        </div>
-
-        {releve.derniers.length > 0 && (
-          <div>
-            <Text strong>Derniers passages</Text>
-            <table className="releves">
-              <thead>
-                <tr>
-                  <th>Quand</th>
-                  <th>Lus</th>
-                  <th>Ajoutés</th>
-                  <th>Dossiers créés</th>
-                  <th>Pièces</th>
-                  <th>Déplacés</th>
-                  <th>Remarque</th>
-                </tr>
-              </thead>
-              <tbody>
-                {releve.derniers.map((r) => (
-                  <tr key={r._id}>
-                    <td>{dayjs(r.debut).format('DD/MM HH:mm')}</td>
-                    <td>{r.lus}</td>
-                    <td>{r.nouveaux}</td>
-                    <td>{r.dossiersCrees}</td>
-                    <td>{r.pieces ?? 0}</td>
-                    <td>{r.deplaces ?? 0}</td>
-                    <td>{r.erreur || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div>
-          <button className="lien-gris" onClick={() => setAncien(!ancien)}>
-            {ancien ? '▾' : '▸'} Importer un index de l'assistant (ancien mode)
-          </button>
-          {ancien && (
-            <div style={{ marginTop: 8 }}>
-              <Upload.Dragger
-                accept=".json,.js"
-                multiple={false}
-                showUploadList={false}
-                disabled={envoi}
-                beforeUpload={(f) => {
-                  importer(f);
-                  return false;
-                }}
+            <Space wrap>
+              <Button
+                type="primary"
+                icon={<SyncOutlined spin={releveEnCours} />}
+                onClick={relever}
+                disabled={releveEnCours || demandeEnCours(o)}
               >
-                <p className="ant-upload-drag-icon">
-                  <InboxOutlined />
-                </p>
-                <p className="ant-upload-text">Déposez ici donnees.json</p>
-                <p className="ant-upload-hint">
-                  Remplace les fiches de l'assistant (D01…). Les dossiers et mails lus dans Outlook, les rattachements, tâches, statuts corrigés et
-                  notes sont conservés.
-                </p>
-              </Upload.Dragger>
-              {nbCorrections > 0 && (
-                <Button style={{ marginTop: 8 }} onClick={exporter}>
-                  Télécharger mes corrections ({nbCorrections} dossier{nbCorrections > 1 ? 's' : ''})
-                </Button>
-              )}
-              {dernier && (
-                <div className="muted petit" style={{ marginTop: 8 }}>
-                  Dernier import le {dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')} par {dernier.par} : {dernier.compte.dossiers} dossiers,{' '}
-                  {dernier.compte.mails} mails.
-                </div>
-              )}
+                {demandeEnCours(o) ? "Lecture demandée" : "Lancer maintenant"}
+              </Button>
+              <Text type="secondary">
+                {demandeEnCours(o)
+                  ? `Demandée à ${dayjs(o.demandeLe).format("HH:mm")}, démarre vers ${dayjs(releve.prochainPassage).format("HH:mm")}`
+                  : o.automatique
+                    ? `Prochain passage vers ${dayjs(releve.prochainPassage).format(dayjs(releve.prochainPassage).isSame(dayjs(), "day") ? "HH:mm" : "ddd DD/MM à HH:mm")}`
+                    : "Lecture à la demande : démarre dans l’heure qui suit le clic"}
+              </Text>
+            </Space>
+            {demandeOubliee(o) && (
+              <div className="note">
+                La demande du {dayjs(o.demandeLe).format("DD/MM à HH:mm")} n'a
+                pas été prise en charge : le poste du chef de service était
+                peut-être éteint, Chrome fermé ou la session Outlook expirée.
+                Vous pouvez relancer.
+              </div>
+            )}
+            <div className="muted petit" style={{ marginTop: 8 }}>
+              {releve.derniereLectureOutlook
+                ? `Dernière lecture le ${dayjs(releve.derniereLectureOutlook).format("DD/MM/YYYY à HH:mm")}.`
+                : "Aucune lecture pour l’instant."}{" "}
+              La lecture a besoin du poste du chef de service allumé, avec
+              Chrome ouvert.
+            </div>
+          </div>
+
+          {avancement !== null && (
+            <div>
+              <Text strong>
+                Reprise des mails depuis le {fdate(o.rattrapageDepuis)}
+              </Text>
+              <div className="jauge" title={`${avancement} %`}>
+                <span style={{ width: `${avancement}%` }} />
+              </div>
+              <div className="muted petit">
+                {o.rattrapageTermine
+                  ? "Terminée : tous les mails de la période ont été lus."
+                  : o.rattrapageAtteint
+                    ? `${avancement} % : mails lus jusqu'au ${fdate(o.rattrapageAtteint)} en remontant le temps. Chaque passage traite une trentaine de conversations après les nouveaux mails.`
+                    : "Pas encore commencée : elle démarre au prochain passage, après les nouveaux mails."}
+              </div>
             </div>
           )}
-        </div>
-      </Space>
+
+          <ReglagesLecture
+            key={`${o.deplacerVers}|${o.sousDossiers}|${o.automatique}|${o.rattrapageDepuis}`}
+            o={o}
+            apres={apres}
+          />
+
+          {aRanger && (
+            <div>
+              <Text strong>Pièces jointes dans OneDrive</Text>
+              <Paragraph type="secondary" style={{ margin: "4px 0 0" }}>
+                {aRanger.pieces.length === 0
+                  ? `Toutes les pièces jointes sont rangées (${aRanger.racine.replace("/", " → ")}).`
+                  : `${aRanger.pieces.length} pièce${aRanger.pieces.length > 1 ? "s" : ""} jointe${aRanger.pieces.length > 1 ? "s" : ""} encore à ranger dans OneDrive (${aRanger.racine.replace("/", " → ")}), dans ${[...new Set(aRanger.pieces.map((p) => p.dossierOneDrive))].join(", ")}.`}
+              </Paragraph>
+            </div>
+          )}
+
+          <div>
+            <Text strong>Consignes de classement</Text>
+            <ul className="aide">
+              <li>
+                Au-dessus d'un mail transféré, écrivez{" "}
+                <code>#feerique #logistique</code> (événement, branche),{" "}
+                <code>#D12</code> (dossier précis) ou <code>#urgent</code>{" "}
+                (priorité haute). Le reste du texte devient une remarque dans la
+                fiche.
+              </li>
+              <li>
+                Sans consigne, le mail rejoint sa conversation, le dossier de
+                son expéditeur ou l'événement qu'il cite ; sinon il part « à
+                classer ».
+              </li>
+              <li>
+                Les mails sans rapport avec le service (lettres d'information,
+                invitations extérieures) restent dans la boîte de réception,
+                marqués « DK traité ».
+              </li>
+            </ul>
+          </div>
+
+          {releve.derniers.length > 0 && (
+            <div>
+              <Text strong>Derniers passages</Text>
+              <table className="releves">
+                <thead>
+                  <tr>
+                    <th>Quand</th>
+                    <th>Lus</th>
+                    <th>Ajoutés</th>
+                    <th>Dossiers créés</th>
+                    <th>Pièces</th>
+                    <th>Déplacés</th>
+                    <th>Remarque</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {releve.derniers.map((r) => (
+                    <tr key={r._id}>
+                      <td>{dayjs(r.debut).format("DD/MM HH:mm")}</td>
+                      <td>{r.lus}</td>
+                      <td>{r.nouveaux}</td>
+                      <td>{r.dossiersCrees}</td>
+                      <td>{r.pieces ?? 0}</td>
+                      <td>{r.deplaces ?? 0}</td>
+                      <td>{r.erreur || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div>
+            <button className="lien-gris" onClick={() => setAncien(!ancien)}>
+              {ancien ? "▾" : "▸"} Importer un index de l'assistant (ancien
+              mode)
+            </button>
+            {ancien && (
+              <div style={{ marginTop: 8 }}>
+                <Upload.Dragger
+                  accept=".json,.js"
+                  multiple={false}
+                  showUploadList={false}
+                  disabled={envoi}
+                  beforeUpload={(f) => {
+                    importer(f);
+                    return false;
+                  }}
+                >
+                  <p className="ant-upload-drag-icon">
+                    <InboxOutlined />
+                  </p>
+                  <p className="ant-upload-text">Déposez ici donnees.json</p>
+                  <p className="ant-upload-hint">
+                    Remplace les fiches de l'assistant (D01…). Les dossiers et
+                    mails lus dans Outlook, les rattachements, tâches, statuts
+                    corrigés et notes sont conservés.
+                  </p>
+                </Upload.Dragger>
+                {nbCorrections > 0 && (
+                  <Button style={{ marginTop: 8 }} onClick={exporter}>
+                    Télécharger mes corrections ({nbCorrections} dossier
+                    {nbCorrections > 1 ? "s" : ""})
+                  </Button>
+                )}
+                {dernier && (
+                  <div className="muted petit" style={{ marginTop: 8 }}>
+                    Dernier import le{" "}
+                    {dayjs(dernier.createdAt).format("DD/MM/YYYY à HH:mm")} par{" "}
+                    {dernier.par} : {dernier.compte.dossiers} dossiers,{" "}
+                    {dernier.compte.mails} mails.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </Space>
       </div>
     </Drawer>
   );
@@ -1611,6 +2761,12 @@ const CSS = `
 .asst .lien.danger{color:var(--red)}
 .asst .reglages label.case{display:flex;gap:8px;align-items:flex-start;color:var(--ink)}
 .asst .reglages label.case input{display:inline-block;width:auto;margin-top:3px}
+.asst.bilan .totals{grid-template-columns:repeat(4,1fr);margin-top:0}
+.asst.bilan .tot{font-size:12px;color:var(--muted)}
+.asst.bilan .deux{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.asst.bilan .deux table{margin-top:6px}
+.asst.bilan table{margin-top:6px}
+.asst .alerte{color:var(--red);font-weight:600}
 .asst .jauge{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:6px 0 4px}
 .asst .jauge span{display:block;height:100%;background:var(--sea)}
 .asst tr.choisi td{background:#eef5f8}

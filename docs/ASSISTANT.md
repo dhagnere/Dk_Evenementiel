@@ -260,12 +260,23 @@ associations). C'est pourquoi l'onglet est réservé aux super-administrateurs. 
 hors du système d'information de la collectivité : n'y transférer que le courrier utile au suivi des dossiers. Ce traitement est à inscrire au registre
 RGPD de la collectivité, avec le délégué à la protection des données.
 
+## Bilan d'un événement
+
+Onglet Assistant → Rattachement aux projets → lien **bilan** sous le nombre de dossiers. Calculé à partir des dossiers
+et des mails de l'événement :
+
+- chiffres clés : dossiers (ouverts), mails reçus et envoyés, délai médian de réponse, montants engagés ;
+- **prestataires à recontacter pour l'édition suivante** : fournisseur, interlocuteur, dernier devis, bon de commande
+  ou facture, montant, dossier ;
+- montants engagés par fournisseur et par branche (montants lus sur les documents ; ceux non lus sont signalés) ;
+- interlocuteurs : mails reçus, dossiers, délai médian de réponse, échanges restés sans réponse ;
+- échéances passées (dont celles de dossiers encore ouverts) et points de vigilance ouverts ;
+- export tableur (CSV, s'ouvre dans Excel).
+
+Le délai de réponse est le temps entre le premier message reçu d'un échange et la réponse du service qui le suit,
+dans le même dossier. Le bilan prend toute sa valeur une fois l'année 2026 reprise.
+
 ## Idées retenues pour la suite
 
-- **Bilan d'événement** (retenue le 25 novembre 2026) : à la clôture d'un événement, tirer de son sous-dossier
-  DKEVENTS et de ses dossiers un bilan prêt pour le retour d'expérience : nombre d'échanges par prestataire, délais de
-  réponse (mail reçu → réponse envoyée), montants engagés par fournisseur et par branche, échéances tenues ou
-  dépassées, points de vigilance restés ouverts. À construire une fois l'année 2026 reprise, pour disposer de données
-  complètes (La Féerique 2026 comme premier cas).
 - **Répondre dans ma messagerie** : bouton dans la fiche dossier qui ouvre le brouillon de réponse dans Outlook,
   prêt à relire et envoyer depuis la messagerie professionnelle.
