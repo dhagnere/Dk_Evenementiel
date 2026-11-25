@@ -270,7 +270,10 @@ const TABLES = {
     json: ['valeur'],
   },
   assistant_releves: {
-    colonnes: ['_id', 'debut', 'fin', 'lus', 'nouveaux', 'doublons', 'dossiersCrees', 'analyses', 'ignores', 'erreur', 'par', 'createdAt', 'updatedAt'],
+    colonnes: [
+      '_id', 'debut', 'fin', 'lus', 'nouveaux', 'doublons', 'dossiersCrees', 'analyses', 'ignores', 'pieces', 'deplaces', 'erreur', 'par',
+      'createdAt', 'updatedAt',
+    ],
     json: [],
   },
   assistant_prestataires: {

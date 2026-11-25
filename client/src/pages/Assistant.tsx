@@ -103,27 +103,18 @@ interface Releve {
   dossiersCrees: number;
   ignores: number;
   analyses: number;
+  pieces?: number;
+  deplaces?: number;
   erreur: string;
   par: string;
 }
 interface EtatReleve {
-  configure: boolean;
-  /** Réglages saisis à l'écran ou posés sur le serveur. */
-  origine: 'ecran' | 'serveur' | null;
-  illisible: boolean;
-  /** Identifiants refusés : la mise à jour automatique attend leur correction. */
-  suspendue: boolean;
-  /** Dernière lecture d'Outlook Web déposée dans l'application. */
+  /** Dernière lecture d'Outlook déposée dans l'application. */
   derniereLectureOutlook: string | null;
-  adresseMasquee: string;
-  /** Pièces jointes copiées dans l'application. */
-  stockage: boolean;
-  minutes: number;
-  adressesService: string[];
-  analyse: boolean;
-  origineAnalyse: 'ecran' | 'serveur' | null;
+  /** Réglages de la lecture d'Outlook et lancement demandé. */
+  outlook: ReglagesOutlook;
+  prochainPassage: string;
   derniers: Releve[];
-  prochain: string | null;
 }
 interface Prestataire {
   nom: string;
@@ -213,7 +204,6 @@ export default function Assistant() {
   const [fVig, setFVig] = useState(false);
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [miseAJour, setMiseAJour] = useState(false);
-  const [corriger, setCorriger] = useState(false);
   const [releveEnCours, setReleveEnCours] = useState(false);
 
   const charger = () => api.get<Index>('/assistant/index').then(setIndex);
@@ -260,19 +250,14 @@ export default function Assistant() {
   const ev = (code: string) => index.evenements.find((e) => e.code === code);
   const dernier = index.dernierImport;
   const releve = index.releve;
-  const dernierReleve = releve.derniers[0];
-  const dernierReussi = releve.derniers.find((r) => !r.erreur || r.lus > 0);
-  // Fraîcheur : dernière mise à jour automatique réussie si elle est configurée, sinon dernier import d'index.
-  const reference = releve.configure ? dernierReussi?.debut : dernier?.createdAt;
+  const o = releve.outlook;
+  // Fraîcheur : dernière lecture d'Outlook, sinon dernier import d'index.
+  const reference = releve.derniereLectureOutlook ?? dernier?.createdAt;
   const age = reference ? aujourdhui().diff(dayjs(reference).startOf('day'), 'day') : null;
   const releverMaintenant = async () => {
-    if (!releve.configure) return setMiseAJour(true);
     setReleveEnCours(true);
     try {
-      const r = await api.post<{ ok: boolean; message: string; bilan?: { nouveaux: number } }>('/assistant/releve', {});
-      if (r.ok) message.success(r.message, 6);
-      else message.error(r.message, 8);
-      await charger();
+      if (await lancer(api.post('/assistant/outlook/demande', {}))) await charger();
     } finally {
       setReleveEnCours(false);
     }
@@ -301,15 +286,12 @@ export default function Assistant() {
         <div>
           <h1>Service événementiel – Gestion des dossiers</h1>
           <div className="sub">
-            {releve.derniereLectureOutlook && !releve.configure
-              ? `Dernière lecture d'Outlook le ${dayjs(releve.derniereLectureOutlook).format('DD/MM/YYYY à HH:mm')}`
-              : releve.configure
-              ? `${
-                  dernierReussi ? `Dernière mise à jour le ${dayjs(dernierReussi.debut).format('DD/MM/YYYY à HH:mm')}` : 'Aucune mise à jour réussie'
-                }${releve.minutes ? ` · automatique toutes les ${releve.minutes} min` : ''}`
+            {releve.derniereLectureOutlook
+              ? `Dernière mise à jour le ${dayjs(releve.derniereLectureOutlook).format('DD/MM/YYYY à HH:mm')}`
               : dernier
                 ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format('DD/MM/YYYY à HH:mm')}`
-                : 'Aucun index importé'}{' '}
+                : 'Aucune mise à jour pour l’instant'}
+            {o.demandeLe ? ` · mise à jour demandée, démarre vers ${dayjs(releve.prochainPassage).format('HH:mm')}` : ''}{' '}
             · <button className="lien clair" onClick={() => setMiseAJour(true)}>état et réglages</button>
           </div>
         </div>
@@ -330,37 +312,15 @@ export default function Assistant() {
             <b>{vigilance.length}</b>
             <span>points de vigilance</span>
           </div>
-          <button className="maj" onClick={releverMaintenant} disabled={releveEnCours}>
-            <SyncOutlined spin={releveEnCours} /> {releveEnCours ? 'Mise à jour…' : "Mettre à jour l'assistant"}
+          <button className="maj" onClick={releverMaintenant} disabled={releveEnCours || !!o.demandeLe}>
+            <SyncOutlined spin={releveEnCours || !!o.demandeLe} /> {o.demandeLe ? 'Mise à jour demandée' : "Mettre à jour l'assistant"}
           </button>
         </div>
       </header>
-      {releve.configure && dernierReleve?.erreur && (
-        <div className="stale err">
-          Dernière mise à jour : {dernierReleve.erreur}
-          {releve.suspendue && ' La mise à jour automatique est suspendue jusqu’à la correction des réglages.'}
-          {releve.origine === 'serveur' && ' Ces réglages viennent du serveur ; ceux saisis à l’écran les remplacent.'}{' '}
-          <button
-            className="btn petit"
-            onClick={() => {
-              setCorriger(true);
-              setMiseAJour(true);
-            }}
-          >
-            Corriger les réglages
-          </button>
-        </div>
-      )}
-      {!releve.configure && !dernier && !releve.derniereLectureOutlook && (
+      {age !== null && age > index.joursAvantAlerte && (
         <div className="stale">
-          La mise à jour automatique n'est pas encore configurée : voir « état et réglages ».
-        </div>
-      )}
-      {(releve.configure || dernier) && !(releve.configure && dernierReleve?.erreur) && (age === null || age > index.joursAvantAlerte) && (
-        <div className="stale">
-          {age === null
-            ? "Aucune mise à jour réussie pour l'instant : cliquez sur « Mettre à jour l'assistant »."
-            : `Dernière mise à jour il y a ${age} jours : les dossiers ne sont peut-être plus à jour. Cliquez sur « Mettre à jour l'assistant ».`}
+          Dernière mise à jour il y a {age} jours : les dossiers ne sont peut-être plus à jour. Vérifiez que le poste du chef de service est allumé, avec
+          Chrome ouvert, ou cliquez sur « Mettre à jour l'assistant ».
         </div>
       )}
       <nav>
@@ -434,11 +394,7 @@ export default function Assistant() {
       />
       <PanneauMiseAJour
         ouvert={miseAJour}
-        corriger={corriger}
-        fermer={() => {
-          setMiseAJour(false);
-          setCorriger(false);
-        }}
+        fermer={() => setMiseAJour(false)}
         releve={releve}
         relever={releverMaintenant}
         releveEnCours={releveEnCours}
@@ -972,7 +928,6 @@ function FicheDossier({
   ouvrirProjet: (id: string) => void;
 }) {
   const [note, setNote] = useState('');
-  const [analyseEnCours, setAnalyseEnCours] = useState(false);
   useEffect(() => setNote(dossier?.corrections.note ?? ''), [dossier?.code]);
   if (!dossier) return null;
   const f = dossier.donnees;
@@ -982,14 +937,6 @@ function FicheDossier({
     const res = await api.put<{ ok: boolean; message: string }>(`/assistant/dossiers/${dossier.code}/correction`, corps);
     if (!res.ok) message.error(res.message);
     await recharger();
-  };
-  const analyser = async () => {
-    setAnalyseEnCours(true);
-    try {
-      if (await lancer(api.post(`/assistant/dossiers/${dossier.code}/analyser`, {}))) await recharger();
-    } finally {
-      setAnalyseEnCours(false);
-    }
   };
   const reclasser = async (corps: { evenement?: string; branche?: string; priorite?: string }) => {
     if (await lancer(api.put(`/assistant/dossiers/${dossier.code}/classement`, corps))) recharger();
@@ -1097,11 +1044,6 @@ function FicheDossier({
         {liste(f.contacts ?? [])}
         <h4>
           Résumé
-          {index.releve.analyse && mails.some((m) => m.source === 'releve') && (
-            <button className="lien" onClick={analyser} disabled={analyseEnCours} style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
-              {analyseEnCours ? 'analyse en cours…' : f.analyse ? 'analyser à nouveau' : 'analyser ce dossier'}
-            </button>
-          )}
         </h4>
         <div>{f.resume || '—'}</div>
         {f.analyse && <div className="muted petit">Analysé le {dayjs(f.analyse).format('DD/MM/YYYY à HH:mm')}</div>}
@@ -1304,153 +1246,65 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
 
 // --- Mise à jour ---------------------------------------------------------------------------------
 
-function Reglages({ releve, annuler, apres }: { releve: EtatReleve; annuler?: () => void; apres: () => void }) {
-  const [adresse, setAdresse] = useState('');
-  const [motDePasse, setMotDePasse] = useState('');
-  const [service, setService] = useState(releve.adressesService.join(', '));
-  const [minutes, setMinutes] = useState(releve.minutes || 15);
+interface ReglagesOutlook {
+  deplacerVers: string;
+  rattrapageDepuis: string;
+  rattrapageAtteint: string | null;
+  rattrapageTermine: boolean;
+  demandeLe: string | null;
+  demandePar: string;
+}
+
+/** Avancement du rattrapage, en pourcentage de la période à reprendre (de la date de départ à aujourd'hui). */
+function avancementRattrapage(o: ReglagesOutlook): number | null {
+  if (!o.rattrapageDepuis) return null;
+  if (o.rattrapageTermine) return 100;
+  if (!o.rattrapageAtteint) return 0;
+  const total = aujourdhui().diff(dayjs(o.rattrapageDepuis), 'day');
+  const fait = aujourdhui().diff(dayjs(o.rattrapageAtteint), 'day');
+  return total > 0 ? Math.max(0, Math.min(99, Math.round((fait / total) * 100))) : 100;
+}
+
+function ReglagesLecture({ o, apres }: { o: ReglagesOutlook; apres: () => void }) {
+  const [dossier, setDossier] = useState(o.deplacerVers);
+  const [deplacer, setDeplacer] = useState(!!o.deplacerVers);
+  const [depuis, setDepuis] = useState(o.rattrapageDepuis);
   const [envoi, setEnvoi] = useState(false);
+  const modifie = (deplacer ? dossier.trim() : '') !== o.deplacerVers || depuis !== o.rattrapageDepuis;
   const enregistrer = async () => {
     setEnvoi(true);
     try {
-      const r = await api.put<{ ok: boolean; message: string }>('/assistant/configuration', {
-        adresse: adresse.trim(),
-        motDePasse: motDePasse || undefined,
-        minutes,
-        adressesService: service,
-      });
-      if (r.ok) {
-        message.success(r.message);
-        setMotDePasse('');
-        apres();
-      } else message.error(r.message, 8);
+      if (await lancer(api.put('/assistant/outlook/reglages', { deplacerVers: deplacer ? dossier.trim() : '', rattrapageDepuis: depuis }))) apres();
     } finally {
       setEnvoi(false);
     }
   };
   return (
     <div className="reglages">
-      <Text strong>{releve.configure ? 'Modifier les réglages' : 'Configurer la messagerie de l’assistant'}</Text>
-      {releve.illisible && <div className="stale err" style={{ margin: '8px 0' }}>Les réglages enregistrés ne sont plus lisibles : ressaisissez-les.</div>}
-      {!releve.configure && !releve.illisible && (
-        <Paragraph type="secondary" style={{ margin: '4px 0 10px' }}>
-          Saisissez l'adresse et le mot de passe de la messagerie de l'assistant. La connexion est essayée avant l'enregistrement ; le mot de
-          passe est chiffré et ne s'affiche plus ensuite.
-        </Paragraph>
-      )}
-      <label>
-        Adresse de la messagerie
-        <input type="email" autoComplete="off" value={adresse} onChange={(e) => setAdresse(e.target.value)} placeholder={releve.adresseMasquee || 'adresse@…'} />
+      <Text strong>Réglages de la lecture</Text>
+      <label className="case">
+        <input type="checkbox" checked={deplacer} onChange={(e) => setDeplacer(e.target.checked)} /> Une fois traité, déplacer le mail de la boîte de
+        réception vers le dossier Outlook :
       </label>
+      <input type="text" value={dossier} disabled={!deplacer} onChange={(e) => setDossier(e.target.value)} placeholder="DKEVENTS" />
       <label>
-        Mot de passe {releve.configure && releve.origine === 'ecran' ? '(laisser vide pour garder l’actuel)' : ''}
-        <input type="password" autoComplete="new-password" value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)} />
+        Reprendre aussi les mails reçus depuis le
+        <input type="date" value={depuis} onChange={(e) => setDepuis(e.target.value)} />
       </label>
-      <label>
-        Vos adresses d'envoi (séparées par des virgules)
-        <input type="text" value={service} onChange={(e) => setService(e.target.value)} placeholder="prenom.nom@cud.fr, evenementiel@…" />
-      </label>
-      <label>
-        Fréquence
-        <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
-          {[5, 15, 30, 60, 120].map((m) => (
-            <option key={m} value={m}>
-              toutes les {m} minutes
-            </option>
-          ))}
-          <option value={0}>à la demande seulement</option>
-        </select>
-      </label>
+      <div className="muted petit" style={{ marginTop: 4 }}>
+        Laissez la date vide pour ne lire que les nouveaux mails. Changer la date relance le rattrapage à partir de celle-ci.
+      </div>
       <Space style={{ marginTop: 10 }}>
-        <Button type="primary" loading={envoi} disabled={!adresse.trim()} onClick={enregistrer}>
-          Tester et enregistrer
+        <Button type="primary" loading={envoi} disabled={!modifie || (deplacer && !dossier.trim())} onClick={enregistrer}>
+          Enregistrer
         </Button>
-        {annuler && <Button onClick={annuler}>Annuler</Button>}
       </Space>
-    </div>
-  );
-}
-
-function ReglagesAnalyse({ releve, apres }: { releve: EtatReleve; apres: () => void }) {
-  const [edition, setEdition] = useState(false);
-  const [cle, setCle] = useState('');
-  const [modele, setModele] = useState('');
-  const [envoi, setEnvoi] = useState(false);
-  const [lot, setLot] = useState(false);
-  const enregistrer = async (valeur: string | null) => {
-    setEnvoi(true);
-    try {
-      const r = await api.put<{ ok: boolean; message: string }>('/assistant/configuration/analyse', { cle: valeur, modele });
-      if (r.ok) {
-        message.success(r.message);
-        setCle('');
-        setEdition(false);
-        apres();
-      } else message.error(r.message, 8);
-    } finally {
-      setEnvoi(false);
-    }
-  };
-  const analyserEnAttente = async () => {
-    setLot(true);
-    try {
-      const r = await api.post<{ ok: boolean; message: string }>('/assistant/analyser-dossiers', {});
-      if (r.ok) message.success(r.message, 8);
-      else message.error(r.message, 8);
-      apres();
-    } finally {
-      setLot(false);
-    }
-  };
-  return (
-    <div>
-      <Text strong>Analyse complète</Text>
-      <Paragraph type="secondary" style={{ margin: '4px 0 8px' }}>
-        Lecture de chaque mail et de ses pièces jointes (PDF, scans, images) : résumé, actions, points de vigilance, échéances, suivi
-        budgétaire, brouillon de réponse et classement. Service facturé à l'usage.
-      </Paragraph>
-      {releve.analyse && !edition ? (
-        <Space wrap>
-          <span className="tag st-done">activée{releve.origineAnalyse === 'serveur' ? ' (réglée sur le serveur)' : ''}</span>
-          <Button size="small" loading={lot} onClick={analyserEnAttente}>
-            Analyser les dossiers en attente
-          </Button>
-          {releve.origineAnalyse === 'ecran' && (
-            <>
-              <button className="lien" onClick={() => setEdition(true)}>
-                changer la clé
-              </button>
-              <Popconfirm title="Désactiver l'analyse complète ?" okText="Désactiver" cancelText="Annuler" onConfirm={() => enregistrer(null)}>
-                <button className="lien danger">désactiver</button>
-              </Popconfirm>
-            </>
-          )}
-        </Space>
-      ) : (
-        <div className="reglages">
-          <label>
-            Clé du service d'analyse
-            <input type="password" autoComplete="new-password" value={cle} onChange={(e) => setCle(e.target.value)} />
-          </label>
-          <label>
-            Modèle (facultatif, laisser vide)
-            <input type="text" value={modele} onChange={(e) => setModele(e.target.value)} />
-          </label>
-          <Space style={{ marginTop: 10 }}>
-            <Button type="primary" loading={envoi} disabled={!cle.trim()} onClick={() => enregistrer(cle.trim())}>
-              Tester et enregistrer
-            </Button>
-            {edition && <Button onClick={() => setEdition(false)}>Annuler</Button>}
-          </Space>
-        </div>
-      )}
     </div>
   );
 }
 
 function PanneauMiseAJour({
   ouvert,
-  corriger,
   fermer,
   releve,
   relever,
@@ -1461,7 +1315,6 @@ function PanneauMiseAJour({
   apres,
 }: {
   ouvert: boolean;
-  corriger: boolean;
   fermer: () => void;
   releve: EtatReleve;
   relever: () => void;
@@ -1473,21 +1326,20 @@ function PanneauMiseAJour({
 }) {
   const [envoi, setEnvoi] = useState(false);
   const [ancien, setAncien] = useState(false);
-  const [edition, setEdition] = useState(false);
   const [aRanger, setARanger] = useState<{ racine: string; pieces: { dossierOneDrive: string }[] } | null>(null);
   useEffect(() => {
-    if (ouvert) {
-      setEdition(corriger);
+    if (ouvert)
       api.get<{ racine: string; pieces: { dossierOneDrive: string }[] }>('/assistant/pieces/a-ranger').then(setARanger).catch(() => setARanger(null));
-    }
-  }, [ouvert, corriger]);
+  }, [ouvert]);
+  const o = releve.outlook;
+  const avancement = avancementRattrapage(o);
 
   const importer = async (fichier: File) => {
     setEnvoi(true);
     try {
       const texte = await fichier.text();
       // donnees.js (« window.DONNEES = {…} ») est accepté comme donnees.json.
-      const json = JSON.parse(texte.replace(/^\uFEFF/, '').replace(/^\s*window\.DONNEES\s*=\s*/, '').replace(/;\s*$/, ''));
+      const json = JSON.parse(texte.replace(/^﻿/, '').replace(/^\s*window\.DONNEES\s*=\s*/, '').replace(/;\s*$/, ''));
       if (await lancer(api.post('/assistant/import', json))) apres();
     } catch {
       message.error("Fichier illisible : déposez le donnees.json produit par l'assistant");
@@ -1497,56 +1349,59 @@ function PanneauMiseAJour({
   };
 
   return (
-    <Drawer open={ouvert} onClose={fermer} width={600} title="Mise à jour automatique des dossiers">
+    <Drawer open={ouvert} onClose={fermer} width={620} title="Mise à jour des dossiers">
       <div className="asst panneau">
       <style>{CSS}</style>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        {(!releve.configure || edition) && (
-          <Reglages
-            releve={releve}
-            annuler={releve.configure ? () => setEdition(false) : undefined}
-            apres={() => {
-              setEdition(false);
-              apres();
-            }}
-          />
-        )}
-        {releve.configure && !edition ? (
+        <div>
+          <Paragraph style={{ marginBottom: 8 }}>
+            Les mails du service sont lus dans Outlook toutes les heures, de 7 h à 19 h : chaque conversation rejoint son dossier, ses pièces
+            jointes sont rangées dans OneDrive et les montants alimentent le suivi budgétaire.
+            {o.deplacerVers ? ` Les mails traités sont ensuite déplacés vers le dossier Outlook « ${o.deplacerVers} ».` : ''}
+          </Paragraph>
+          <Space wrap>
+            <Button type="primary" icon={<SyncOutlined spin={releveEnCours} />} onClick={relever} disabled={releveEnCours || !!o.demandeLe}>
+              {o.demandeLe ? 'Lecture demandée' : 'Lancer maintenant'}
+            </Button>
+            <Text type="secondary">
+              {o.demandeLe
+                ? `Demandée à ${dayjs(o.demandeLe).format('HH:mm')}, démarre vers ${dayjs(releve.prochainPassage).format('HH:mm')}`
+                : `Prochain passage vers ${dayjs(releve.prochainPassage).format(dayjs(releve.prochainPassage).isSame(dayjs(), 'day') ? 'HH:mm' : 'ddd DD/MM à HH:mm')}`}
+            </Text>
+          </Space>
+          <div className="muted petit" style={{ marginTop: 8 }}>
+            {releve.derniereLectureOutlook
+              ? `Dernière lecture le ${dayjs(releve.derniereLectureOutlook).format('DD/MM/YYYY à HH:mm')}.`
+              : 'Aucune lecture pour l’instant.'}{' '}
+            La lecture a besoin du poste du chef de service allumé, avec Chrome ouvert.
+          </div>
+        </div>
+
+        {avancement !== null && (
           <div>
-            <Paragraph style={{ marginBottom: 8 }}>
-              L'application met à jour les dossiers {releve.minutes ? `toutes les ${releve.minutes} minutes` : 'à la demande'} et range
-              chaque nouveau mail dans un dossier.
-            </Paragraph>
-            <Space wrap>
-              <Button type="primary" icon={<SyncOutlined spin={releveEnCours} />} onClick={relever} disabled={releveEnCours}>
-                Mettre à jour maintenant
-              </Button>
-              {releve.prochain && <Text type="secondary">Prochaine mise à jour vers {dayjs(releve.prochain).format('HH:mm')}</Text>}
-            </Space>
-            <div className="muted petit" style={{ marginTop: 8 }}>
-              Analyse complète (résumés, actions, points de vigilance) : {releve.analyse ? 'activée' : 'non activée, classement par règles'}.
-              {releve.adressesService.length > 0 && ` Mails partis de ${releve.adressesService.join(', ')} : classés « envoyés ».`}
-              {releve.stockage ? ' Pièces jointes conservées dans l’application.' : ' Pièces jointes : stockage de fichiers non configuré, seuls les noms sont notés.'}
+            <Text strong>Reprise des mails depuis le {fdate(o.rattrapageDepuis)}</Text>
+            <div className="jauge" title={`${avancement} %`}>
+              <span style={{ width: `${avancement}%` }} />
             </div>
-            <div className="petit" style={{ marginTop: 8 }}>
-              Messagerie {releve.adresseMasquee}
-              {releve.origine === 'serveur' ? ' (réglée sur le serveur)' : ''} ·{' '}
-              <button className="lien" onClick={() => setEdition(true)}>
-                modifier les réglages
-              </button>
+            <div className="muted petit">
+              {o.rattrapageTermine
+                ? 'Terminée : tous les mails de la période ont été lus.'
+                : o.rattrapageAtteint
+                  ? `${avancement} % : mails lus jusqu'au ${fdate(o.rattrapageAtteint)} en remontant le temps. Chaque passage traite une trentaine de conversations après les nouveaux mails.`
+                  : 'Pas encore commencée : elle démarre au prochain passage, après les nouveaux mails.'}
             </div>
           </div>
-        ) : null}
+        )}
 
-        {releve.configure && <ReglagesAnalyse releve={releve} apres={apres} />}
+        <ReglagesLecture key={`${o.deplacerVers}|${o.rattrapageDepuis}`} o={o} apres={apres} />
 
         {aRanger && (
           <div>
             <Text strong>Pièces jointes dans OneDrive</Text>
             <Paragraph type="secondary" style={{ margin: '4px 0 0' }}>
               {aRanger.pieces.length === 0
-                ? 'Toutes les pièces jointes sont rangées.'
-                : `${aRanger.pieces.length} pièce${aRanger.pieces.length > 1 ? 's' : ''} jointe${aRanger.pieces.length > 1 ? 's' : ''} à ranger dans OneDrive (${aRanger.racine.replace('/', ' → ')}), dans ${[...new Set(aRanger.pieces.map((p) => p.dossierOneDrive))].join(', ')}. Le rangement se lance à la demande : « range les pièces jointes ».`}
+                ? `Toutes les pièces jointes sont rangées (${aRanger.racine.replace('/', ' → ')}).`
+                : `${aRanger.pieces.length} pièce${aRanger.pieces.length > 1 ? 's' : ''} jointe${aRanger.pieces.length > 1 ? 's' : ''} encore à ranger dans OneDrive (${aRanger.racine.replace('/', ' → ')}), dans ${[...new Set(aRanger.pieces.map((p) => p.dossierOneDrive))].join(', ')}.`}
             </Paragraph>
           </div>
         )}
@@ -1555,39 +1410,39 @@ function PanneauMiseAJour({
           <Text strong>Consignes de classement</Text>
           <ul className="aide">
             <li>
-              Au-dessus d'un mail, écrivez <code>#feerique #logistique</code> (événement, branche), <code>#D12</code> (dossier précis) ou{' '}
+              Au-dessus d'un mail transféré, écrivez <code>#feerique #logistique</code> (événement, branche), <code>#D12</code> (dossier précis) ou{' '}
               <code>#urgent</code> (priorité haute). Le reste du texte devient une remarque dans la fiche.
             </li>
             <li>Sans consigne, le mail rejoint sa conversation, le dossier de son expéditeur ou l'événement qu'il cite ; sinon il part « à classer ».</li>
-            <li>Vos propres messages sont reconnus et classés « envoyés ».</li>
+            <li>Les mails sans rapport avec le service (lettres d'information, invitations extérieures) restent dans la boîte de réception, marqués « DK traité ».</li>
           </ul>
         </div>
 
         {releve.derniers.length > 0 && (
           <div>
-            <Text strong>Dernières mises à jour</Text>
+            <Text strong>Derniers passages</Text>
             <table className="releves">
               <thead>
                 <tr>
                   <th>Quand</th>
                   <th>Lus</th>
                   <th>Ajoutés</th>
-                  <th>Dossiers</th>
-                  <th>Doublons</th>
-                  <th>Ignorés</th>
+                  <th>Dossiers créés</th>
+                  <th>Pièces</th>
+                  <th>Déplacés</th>
                   <th>Remarque</th>
                 </tr>
               </thead>
               <tbody>
                 {releve.derniers.map((r) => (
-                  <tr key={r._id} className={r.erreur ? 'late' : ''}>
+                  <tr key={r._id}>
                     <td>{dayjs(r.debut).format('DD/MM HH:mm')}</td>
                     <td>{r.lus}</td>
                     <td>{r.nouveaux}</td>
                     <td>{r.dossiersCrees}</td>
-                    <td>{r.doublons}</td>
-                    <td>{r.ignores ?? 0}</td>
-                    <td>{r.erreur || (r.par === 'mise à jour automatique' ? 'automatique' : r.par)}</td>
+                    <td>{r.pieces ?? 0}</td>
+                    <td>{r.deplaces ?? 0}</td>
+                    <td>{r.erreur || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1616,8 +1471,8 @@ function PanneauMiseAJour({
                 </p>
                 <p className="ant-upload-text">Déposez ici donnees.json</p>
                 <p className="ant-upload-hint">
-                  Remplace les fiches de l'assistant (D01…). Les dossiers et mails de la mise à jour automatique, les rattachements, tâches, statuts
-                  corrigés et notes sont conservés.
+                  Remplace les fiches de l'assistant (D01…). Les dossiers et mails lus dans Outlook, les rattachements, tâches, statuts corrigés et
+                  notes sont conservés.
                 </p>
               </Upload.Dragger>
               {nbCorrections > 0 && (
@@ -1734,6 +1589,10 @@ const CSS = `
 .asst .reglages label{display:block;margin-top:8px;font-size:13px;color:var(--muted)}
 .asst .reglages input,.asst .reglages select{display:block;width:100%;margin-top:3px;font:inherit;border:1px solid var(--line);border-radius:5px;padding:7px 9px;background:#fff;color:var(--ink)}
 .asst .lien.danger{color:var(--red)}
+.asst .reglages label.case{display:flex;gap:8px;align-items:flex-start;color:var(--ink)}
+.asst .reglages label.case input{display:inline-block;width:auto;margin-top:3px}
+.asst .jauge{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:6px 0 4px}
+.asst .jauge span{display:block;height:100%;background:var(--sea)}
 .asst tr.choisi td{background:#eef5f8}
 .asst input.champ-od{font:inherit;font-size:12px;border:1px solid var(--line);border-radius:4px;padding:3px 6px;width:180px}
 .asst ul.aide{margin:6px 0 0;padding-left:18px}

@@ -9,6 +9,7 @@ import { mots } from '../lib/assistant/texte.js';
 import { BRANCHES } from '../lib/assistant/classement.js';
 import { analyserDossier, contexteDepot, deposerConversation, etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
 import { AnalyseImpossible, schemaReponse, testerCleAnalyse } from '../lib/assistant/analyse.js';
+import { demanderLecture, enregistrerPassage, lireReglagesOutlook, modifierReglagesOutlook } from '../lib/assistant/outlook.js';
 import {
   ConnexionImpossible,
   enregistrerCleAnalyse,
@@ -1110,5 +1111,70 @@ assistantRouter.post(
     const nouveaux = resultats.reduce((n, r) => n + r.nouveaux, 0);
     await consigner(identiteDeRequete(req), 'assistant_releve', `${nouveaux} mail(s) lus dans Outlook`, { conversations: resultats.length });
     res.json({ ok: true, message: `${nouveaux} mail(s) ajouté(s) au registre`, resultats });
+  })
+);
+
+const dateDuJour = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((v) => !Number.isNaN(Date.parse(v)), 'Date invalide');
+
+/** Réglages de la lecture d'Outlook (dossier de rangement, rattrapage) et demande en cours. */
+assistantRouter.get(
+  '/outlook/reglages',
+  traiter(async (_req, res) => {
+    const passages = await requete("SELECT * FROM assistant_releves WHERE par LIKE '%lecture Outlook%' ORDER BY debut DESC LIMIT 12");
+    res.json({ reglages: await lireReglagesOutlook(), passages });
+  })
+);
+
+assistantRouter.put(
+  '/outlook/reglages',
+  traiter(async (req, res) => {
+    const parsed = z
+      .object({
+        deplacerVers: z.string().max(120).optional(),
+        rattrapageDepuis: z.union([z.literal(''), dateDuJour]).optional(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const r = await modifierReglagesOutlook(parsed.data, req.session!.nom);
+    await consigner(identiteDeRequete(req), 'assistant_configuration', 'outlook', parsed.data);
+    res.json({ ok: true, message: 'Réglages enregistrés', reglages: r });
+  })
+);
+
+/** Bouton « Lancer maintenant » : la lecture est prise en charge au passage suivant (dans l'heure). */
+assistantRouter.post(
+  '/outlook/demande',
+  traiter(async (req, res) => {
+    const r = await demanderLecture(req.session!.nom);
+    await consigner(identiteDeRequete(req), 'assistant_releve', 'lecture demandée');
+    res.json({ ok: true, message: 'Lecture d’Outlook demandée : elle démarre au prochain passage, dans l’heure', reglages: r });
+  })
+);
+
+/** Bilan d'un passage de lecture d'Outlook (envoyé par la lecture elle-même). */
+assistantRouter.post(
+  '/outlook/passage',
+  traiter(async (req, res) => {
+    const n = z.number().int().min(0).max(100_000);
+    const parsed = z
+      .object({
+        examinees: n,
+        deposees: n,
+        dossiersCrees: n.optional().default(0),
+        pieces: n.optional().default(0),
+        deplaces: n.optional().default(0),
+        ignores: n.optional().default(0),
+        debut: z.string().max(40).optional(),
+        rattrapageAtteint: dateDuJour.nullable().optional(),
+        rattrapageTermine: z.boolean().optional(),
+        remarque: z.string().max(1000).optional(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    await enregistrerPassage(parsed.data, req.session!.nom);
+    res.json({ ok: true, message: 'Passage enregistré' });
   })
 );

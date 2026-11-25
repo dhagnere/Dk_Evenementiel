@@ -6,21 +6,38 @@ chaque mail utile devient une ligne du registre et rejoint un dossier, que l'on 
 ## Méthode principale : lecture d'Outlook Web (depuis le 25 novembre 2026)
 
 Comme l'assistant de bureau d'origine, la mise à jour lit directement la messagerie professionnelle dans Outlook Web,
-depuis le Chrome du chef de service (ouvert, connecté à Microsoft 365) : à la demande (« mets à jour l'assistant ») et à
-heures fixes en tâche planifiée sur son poste. À chaque passage :
+depuis le Chrome du chef de service (poste allumé, Chrome ouvert, connecté à Microsoft 365). Une tâche planifiée passe
+**toutes les heures à hh:07, de 7 h à 19 h, tous les jours** ; hors semaine de bureau (week-end, avant 8 h, après 18 h)
+elle ne lit que si un lancement a été demandé. À chaque passage :
 
-1. lecture des nouveaux mails liés au service (reçus et envoyés), compréhension du texte et des pièces jointes ;
-2. pièces jointes enregistrées dans OneDrive → Mes fichiers → Assistant → dossier de l'événement ;
+1. nouveaux mails d'abord, puis **rattrapage** : une trentaine de conversations plus anciennes, en remontant jusqu'à la
+   date de départ réglée à l'écran (1er janvier 2026 par défaut) ;
+2. compréhension du texte et des pièces jointes ; pièces enregistrées dans OneDrive → Mes fichiers → Assistant →
+   dossier de l'événement ;
 3. dépôt dans l'application, conversation par conversation (`POST /api/assistant/outlook/depot`) : mails, dossier
    (existant ou nouveau), résumé, échéances, actions, vigilance, **lignes budgétaires**, brouillon de réponse,
-   emplacement OneDrive des pièces. Rien n'est remplacé ; un mail déjà présent est ignoré ;
-4. catégorie Outlook « DK traité » posée sur chaque mail traité : il n'est pas relu au passage suivant.
+   emplacement OneDrive des pièces. Rien n'est remplacé ; un mail déjà présent (y compris par l'ancien index, même
+   minute et même objet) est ignoré ;
+4. catégorie Outlook « DK traité » sur chaque mail lu ; les mails déposés sont **déplacés de la boîte de réception vers
+   le dossier Outlook réglé à l'écran (DKEVENTS par défaut)**. Les mails sans rapport avec le service restent dans la
+   boîte de réception, marqués « DK traité » ;
+5. bilan du passage (`POST /api/assistant/outlook/passage`) : mails examinés, déposés, dossiers créés, pièces rangées,
+   mails déplacés, avancement du rattrapage. La demande de lancement en cours est soldée.
 
-`GET /api/assistant/outlook/contexte` fournit ce dont la lecture a besoin : événements et leur dossier OneDrive,
-dossiers ouverts, branches, adresses du service, date du dernier mail déposé.
+### État et réglages (onglet Assistant)
 
-Aucun mail ne quitte la messagerie professionnelle, aucune clé payante n'est nécessaire. Le relevé de la messagerie de
-l'assistant décrit ci-dessous reste disponible en secours, pour les jours où le poste est éteint.
+- **Lancer maintenant** (et le bouton « Mettre à jour l'assistant » de l'en-tête) : enregistre une demande
+  (`POST /api/assistant/outlook/demande`), prise en charge au passage suivant, dans l'heure, y compris le week-end ;
+- **Déplacer vers le dossier Outlook** : case à cocher et nom du dossier (vide = les mails restent dans la boîte) ;
+- **Reprendre les mails reçus depuis le** : date de départ du rattrapage, avec une jauge d'avancement ;
+- **Derniers passages** : tableau des douze derniers bilans.
+
+`GET /api/assistant/outlook/contexte` fournit à la lecture ces réglages, les événements et leur dossier OneDrive, les
+dossiers ouverts, les branches et les adresses du service.
+
+Aucun mail ne quitte la messagerie professionnelle, aucune clé payante n'est nécessaire. Les réglages de la messagerie
+de secours et de l'analyse payante ont été retirés de l'écran ; le relevé de secours décrit ci-dessous ne tourne plus
+que si la variable `ASSISTANT_RELEVE_SECOURS=oui` est posée sur le serveur.
 
 ## Principe du relevé de secours
 

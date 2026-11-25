@@ -6,6 +6,7 @@ import { AnalyseImpossible, analyseActive, analyser, appliquerAnalyse, type Doss
 import { classer, contactsDe, lireConsigne, type Classement, type ContexteClassement } from './classement.js';
 import { detecterEcheances } from './echeances.js';
 import { nettoyerAnciensMails } from './maintenance.js';
+import { lireReglagesOutlook, prochainPassageOutlook } from './outlook.js';
 import { formatParis, objetDeFil } from './texte.js';
 import { decoderTransfert, empreinteDe, type MailOrigine, type PieceJointe, type Transfert } from './transferts.js';
 
@@ -145,8 +146,14 @@ async function enregistrer(
   const nouveaux: { m: MailOrigine; empreinte: string }[] = [];
   for (const m of t.mails) {
     const empreinte = empreinteDe(m);
+    const dejaDansIndex =
+      !!m.date &&
+      (await requete<{ objet: string }>("SELECT objet FROM assistant_mails WHERE source = 'index' AND date = $1", [formatParis(m.date)])).some(
+        (x) => objetDeFil(x.objet) === objetDeFil(m.objet)
+      );
     if (
       vus.has(empreinte) ||
+      dejaDansIndex ||
       (await requeteUne(
         'SELECT 1 FROM assistant_mails WHERE empreinte = $1 UNION ALL SELECT 1 FROM assistant_mails_supprimes WHERE empreinte = $1',
         [empreinte]
@@ -472,6 +479,8 @@ let minuteur: NodeJS.Timeout | null = null;
 export function demarrerReleveAutomatique(): void {
   if (minuteur) return;
   void nettoyerAnciensMails().catch((e) => console.error('[assistant] Nettoyage des anciens mails :', (e as Error).message));
+  // Depuis la bascule sur Outlook Web, le relevé de la messagerie de secours ne tourne plus tout seul.
+  if (process.env.ASSISTANT_RELEVE_SECOURS !== 'oui') return;
   const tour = async () => {
     try {
       const c = await lireConfiguration();
@@ -490,7 +499,12 @@ export function demarrerReleveAutomatique(): void {
 /** Pour l'onglet : réglages (sans secret, adresse masquée) et dernières mises à jour. */
 export async function etatReleve() {
   const c = await lireConfiguration();
-  const derniers = await requete('SELECT * FROM assistant_releves ORDER BY debut DESC LIMIT 10');
+  // Historique : les passages de lecture d'Outlook (le relevé de secours n'y figure que s'il est réactivé).
+  const derniers = await requete(
+    process.env.ASSISTANT_RELEVE_SECOURS === 'oui'
+      ? 'SELECT * FROM assistant_releves ORDER BY debut DESC LIMIT 12'
+      : "SELECT * FROM assistant_releves WHERE par LIKE '%lecture Outlook%' ORDER BY debut DESC LIMIT 12"
+  );
   const dernier = derniers[0] as { debut?: Date } | undefined;
   const configure = estConfiguree(c) && !c.illisible;
   const prochain = configure && c.minutes > 0 && dernier?.debut ? new Date(new Date(dernier.debut).getTime() + c.minutes * 60_000) : null;
@@ -501,6 +515,8 @@ export async function etatReleve() {
       ((derniers as { par?: string; debut?: Date }[]).find((r) => r.par?.includes('lecture Outlook'))?.debut ??
         (await requeteUne<{ d: Date | null }>("SELECT max(debut) AS d FROM assistant_releves WHERE par LIKE '%lecture Outlook%'"))?.d) ||
       null,
+    outlook: await lireReglagesOutlook(),
+    prochainPassage: prochainPassageOutlook(),
     origine: c.origine,
     suspendue: !!identifiantsRefuses && identifiantsRefuses === empreinteIdentifiants(c),
     illisible: c.illisible,
@@ -625,8 +641,8 @@ export async function deposerConversation(c: ConversationDeposee, par: string): 
       }))
       .sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0)),
   };
+  void par;
   const code = await enregistrer(t, '', ctx, dossiers, bilan, conf.adresse, c.analyse);
-  await insererUn('assistant_releves', { debut: new Date(), fin: new Date(), ...bilan, par: `${par} · lecture Outlook` }).catch(() => undefined);
   return { dossier: code, bilan };
 }
 
@@ -641,6 +657,7 @@ export async function contexteDepot() {
   );
   const dernier = await requeteUne<{ d: Date | null }>("SELECT max(date_envoi) AS d FROM assistant_mails WHERE source = 'releve'");
   return {
+    reglages: await lireReglagesOutlook(),
     adressesService: conf.adressesService,
     dernierMail: dernier?.d ?? null,
     branches: ['Protocole', 'Animation', 'Logistique', 'Affichage', 'KIOSC', 'VSL', 'Pilotage du service'],
