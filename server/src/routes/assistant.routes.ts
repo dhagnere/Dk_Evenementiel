@@ -951,3 +951,112 @@ assistantRouter.get(
     });
   })
 );
+
+// --- Rangement des pièces jointes dans OneDrive -----------------------------------------------------
+//
+// Le rangement lui-même se fait dans le navigateur du chef de service (Outlook Web → « Enregistrer sur
+// OneDrive » → Mes fichiers → Assistant → dossier de l'événement), comme le faisait l'assistant de bureau.
+// L'application fournit la liste de ce qui attend et note l'emplacement de chaque pièce rangée.
+
+const DOSSIER_SANS_EVENEMENT = 'Fonctionnement du service';
+/** « La Féerique 2026 – Marché de Noël et château du Père Noël » → « La Féerique 2026 ». */
+const nomCourt = (nom: string) => nom.split(/\s+[–—-]\s+/)[0].replace(/[\\/:*?"<>|#%]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+
+interface PieceEnBase {
+  nom: string;
+  type: string;
+  taille: number;
+  fichierId?: string;
+  onedrive?: { chemin: string; lien?: string; le: string };
+}
+
+/** Pièces jointes des mails arrivés automatiquement, pas encore rangées dans OneDrive. */
+assistantRouter.get(
+  '/pieces/a-ranger',
+  traiter(async (_req, res) => {
+    const lignes = await requete<{
+      _id: string; numero: number; date: string; expediteur: string; objet: string; dossierCode: string; piecesJointes: PieceEnBase[];
+      titre: string | null; evenementCode: string | null; evenementNom: string | null; dossierOnedrive: string | null;
+    }>(
+      `SELECT m.id, m.numero, m.date, m.expediteur, m.objet, m.dossier_code, m.pieces_jointes,
+              d.titre, d.evenement_code, e.nom AS evenement_nom, e.dossier_onedrive
+         FROM assistant_mails m
+         LEFT JOIN assistant_dossiers d ON d.code = m.dossier_code
+         LEFT JOIN assistant_evenements e ON e.code = d.evenement_code
+        WHERE m.source = 'releve' AND jsonb_array_length(m.pieces_jointes) > 0
+        ORDER BY m.date`
+    );
+    const pieces = lignes.flatMap((l) =>
+      (l.piecesJointes ?? [])
+        .filter((p) => !p.onedrive)
+        .map((p) => ({
+          mailId: l._id,
+          date: l.date,
+          expediteur: l.expediteur,
+          objet: l.objet,
+          nom: p.nom,
+          taille: p.taille,
+          dossier: l.dossierCode,
+          titreDossier: l.titre ?? '',
+          evenement: l.evenementCode ?? '',
+          dossierOneDrive: l.dossierOnedrive || (l.evenementNom ? nomCourt(l.evenementNom) : DOSSIER_SANS_EVENEMENT),
+        }))
+    );
+    res.json({ racine: 'Mes fichiers/Assistant', pieces });
+  })
+);
+
+/** Note qu'une pièce jointe a été rangée dans OneDrive. */
+assistantRouter.post(
+  '/pieces/rangement',
+  traiter(async (req, res) => {
+    const parsed = z
+      .object({
+        mailId: z.string().min(1).max(60),
+        nom: z.string().min(1).max(300),
+        chemin: z.string().trim().min(1).max(500),
+        lien: z.string().url().max(2000).optional(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const { mailId, nom, chemin, lien } = parsed.data;
+    const fait = await transaction(async (client) => {
+      const m = await requeteUne<{ dossierCode: string; piecesJointes: PieceEnBase[] }>(
+        'SELECT dossier_code, pieces_jointes FROM assistant_mails WHERE id = $1 FOR UPDATE',
+        [mailId],
+        client
+      );
+      if (!m) throw new ErreurMetier('Mail introuvable');
+      const pj = (m.piecesJointes ?? []).find((p) => p.nom === nom);
+      if (!pj) throw new ErreurMetier('Pièce jointe introuvable dans ce mail');
+      pj.onedrive = { chemin, ...(lien ? { lien } : {}), le: new Date().toISOString() };
+      await executer('UPDATE assistant_mails SET pieces_jointes = $2, updated_at = now() WHERE id = $1', [mailId, JSON.stringify(m.piecesJointes)], client);
+      // Fiche du dossier : l'emplacement affiché devient OneDrive.
+      const d = await requeteUne<{ donnees: Record<string, unknown> }>('SELECT donnees FROM assistant_dossiers WHERE code = $1 FOR UPDATE', [m.dossierCode], client);
+      if (d && Array.isArray(d.donnees.pieces_jointes)) {
+        const liste = d.donnees.pieces_jointes as Record<string, unknown>[];
+        const cible = liste.find((p) => p.nom === nom && (!pj.fichierId || p.fichierId === pj.fichierId) && !p.onedrive) ?? liste.find((p) => p.nom === nom);
+        if (cible) {
+          cible.emplacement = `OneDrive › ${chemin.replace(/\//g, ' › ')}`;
+          cible.onedrive = lien ?? true;
+          await executer('UPDATE assistant_dossiers SET donnees = $2, updated_at = now() WHERE code = $1', [m.dossierCode, JSON.stringify(d.donnees)], client);
+        }
+      }
+      return true;
+    });
+    if (fait) await consigner(identiteDeRequete(req), 'assistant_piece_rangee', nom, { chemin });
+    res.json({ ok: true, message: 'Pièce jointe notée comme rangée' });
+  })
+);
+
+/** Nom du dossier OneDrive d'un événement (sous Mes fichiers → Assistant). */
+assistantRouter.put(
+  '/evenements/:code/onedrive',
+  traiter(async (req, res) => {
+    const parsed = z.object({ dossier: z.string().trim().max(120) }).safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const n = await executer('UPDATE assistant_evenements SET dossier_onedrive = $2, updated_at = now() WHERE code = $1', [req.params.code, parsed.data.dossier]);
+    if (!n) return void res.status(404).json({ ok: false, message: 'Événement introuvable' });
+    res.json({ ok: true, message: 'Dossier OneDrive enregistré' });
+  })
+);

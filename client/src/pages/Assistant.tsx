@@ -20,6 +20,8 @@ interface PieceJointe {
   taille?: string;
   emplacement?: string;
   fichierId?: string;
+  /** Rangée dans OneDrive : lien vers le fichier, ou true. */
+  onedrive?: string | boolean;
 }
 interface LigneBudget {
   type?: string;
@@ -74,6 +76,8 @@ interface Evenement {
   projetId: string | null;
   projetTitre: string | null;
   proposition: { projetId: string; titre: string } | null;
+  /** Dossier OneDrive des pièces jointes (Mes fichiers → Assistant → …) ; vide = nom court de l'événement. */
+  dossierOnedrive: string;
 }
 interface Mail {
   _id: string;
@@ -86,7 +90,7 @@ interface Mail {
   sens: string;
   destinataires: string;
   consigne: string;
-  piecesJointes: { nom: string; type: string; taille: number; fichierId?: string }[];
+  piecesJointes: { nom: string; type: string; taille: number; fichierId?: string; onedrive?: { chemin: string; lien?: string } }[];
   classement: string;
 }
 interface Releve {
@@ -835,6 +839,7 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
             <th>Date</th>
             <th>Dossiers</th>
             <th>Projet</th>
+            <th title="Mes fichiers → Assistant → …">Dossier OneDrive</th>
           </tr>
         </thead>
         <tbody>
@@ -881,6 +886,19 @@ function VueProjets({ index, recharger, ouvrirProjet }: { index: Index; recharge
                     <CreerProjet evenement={e} apres={recharger} />
                   </Space>
                 )}
+              </td>
+              <td>
+                <input
+                  className="champ-od"
+                  defaultValue={e.dossierOnedrive}
+                  placeholder={e.nom.split(/\s+[–—-]\s+/)[0]}
+                  onBlur={async (x) => {
+                    const v = x.target.value.trim();
+                    if (v !== (e.dossierOnedrive ?? '')) {
+                      if (await lancer(api.put(`/assistant/evenements/${e.code}/onedrive`, { dossier: v }))) recharger();
+                    }
+                  }}
+                />
               </td>
             </tr>
           ))}
@@ -1129,7 +1147,19 @@ function FicheDossier({
               <span>
                 {p.type} · {p.taille}
                 <br />
-                {p.fichierId ? 'cliquez pour ouvrir' : p.emplacement || 'à récupérer'}
+                {p.emplacement?.startsWith('OneDrive') ? (
+                  typeof p.onedrive === 'string' ? (
+                    <a href={p.onedrive} target="_blank" rel="noreferrer">
+                      {p.emplacement}
+                    </a>
+                  ) : (
+                    p.emplacement
+                  )
+                ) : p.fichierId ? (
+                  'cliquez pour ouvrir'
+                ) : (
+                  p.emplacement || 'à récupérer'
+                )}
               </span>
             </div>
           ))
@@ -1220,7 +1250,7 @@ function MailsDuDossier({ mails, dossier, index, recharger }: { mails: Mail[]; d
                       ) : (
                         p.nom
                       )}{' '}
-                      ({ko(p.taille)})
+                      ({ko(p.taille)}){p.onedrive && <span title={`OneDrive › ${p.onedrive.chemin}`}> ☁</span>}
                     </span>
                   ))}
                 </span>
@@ -1440,8 +1470,12 @@ function PanneauMiseAJour({
   const [envoi, setEnvoi] = useState(false);
   const [ancien, setAncien] = useState(false);
   const [edition, setEdition] = useState(false);
+  const [aRanger, setARanger] = useState<{ racine: string; pieces: { dossierOneDrive: string }[] } | null>(null);
   useEffect(() => {
-    if (ouvert) setEdition(corriger);
+    if (ouvert) {
+      setEdition(corriger);
+      api.get<{ racine: string; pieces: { dossierOneDrive: string }[] }>('/assistant/pieces/a-ranger').then(setARanger).catch(() => setARanger(null));
+    }
   }, [ouvert, corriger]);
 
   const importer = async (fichier: File) => {
@@ -1501,6 +1535,17 @@ function PanneauMiseAJour({
         ) : null}
 
         {releve.configure && <ReglagesAnalyse releve={releve} apres={apres} />}
+
+        {aRanger && (
+          <div>
+            <Text strong>Pièces jointes dans OneDrive</Text>
+            <Paragraph type="secondary" style={{ margin: '4px 0 0' }}>
+              {aRanger.pieces.length === 0
+                ? 'Toutes les pièces jointes sont rangées.'
+                : `${aRanger.pieces.length} pièce${aRanger.pieces.length > 1 ? 's' : ''} jointe${aRanger.pieces.length > 1 ? 's' : ''} à ranger dans OneDrive (${aRanger.racine.replace('/', ' → ')}), dans ${[...new Set(aRanger.pieces.map((p) => p.dossierOneDrive))].join(', ')}. Le rangement se lance à la demande : « range les pièces jointes ».`}
+            </Paragraph>
+          </div>
+        )}
 
         <div>
           <Text strong>Consignes de classement</Text>
@@ -1686,6 +1731,7 @@ const CSS = `
 .asst .reglages input,.asst .reglages select{display:block;width:100%;margin-top:3px;font:inherit;border:1px solid var(--line);border-radius:5px;padding:7px 9px;background:#fff;color:var(--ink)}
 .asst .lien.danger{color:var(--red)}
 .asst tr.choisi td{background:#eef5f8}
+.asst input.champ-od{font:inherit;font-size:12px;border:1px solid var(--line);border-radius:4px;padding:3px 6px;width:180px}
 .asst ul.aide{margin:6px 0 0;padding-left:18px}
 .asst ul.aide li{margin-bottom:4px}
 .asst ul.aide code{background:var(--sand);border-radius:3px;padding:0 4px}

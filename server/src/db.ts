@@ -240,7 +240,7 @@ const TABLES = {
     json: ['compte'],
   },
   assistant_evenements: {
-    colonnes: ['code', 'nom', 'dateJour', 'lieu', 'projetId', 'createdAt', 'updatedAt'],
+    colonnes: ['code', 'nom', 'dateJour', 'lieu', 'projetId', 'createdAt', 'updatedAt', 'dossierOnedrive'],
     json: [],
   },
   assistant_dossiers: {

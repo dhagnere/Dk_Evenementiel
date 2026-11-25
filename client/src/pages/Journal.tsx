@@ -44,6 +44,9 @@ const LIBELLES_ACTION: Record<string, { libelle: string; couleur?: string }> = {
   assistant_tache: { libelle: 'Assistant : tâche créée', couleur: 'cyan' },
   assistant_releve: { libelle: 'Assistant : mise à jour', couleur: 'purple' },
   assistant_configuration: { libelle: 'Assistant : réglages de la messagerie', couleur: 'purple' },
+  assistant_piece_rangee: { libelle: 'Assistant : pièce jointe rangée dans OneDrive', couleur: 'cyan' },
+  assistant_mails_supprimes: { libelle: 'Assistant : mails supprimés', couleur: 'red' },
+  assistant_analyse: { libelle: 'Assistant : analyse', couleur: 'purple' },
   assistant_mail_deplace: { libelle: 'Assistant : mail déplacé', couleur: 'cyan' },
   assistant_reclassement: { libelle: 'Assistant : dossier reclassé', couleur: 'cyan' },
 };

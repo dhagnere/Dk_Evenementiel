@@ -123,6 +123,22 @@ essayée, puis chiffrée en base comme le mot de passe). Variante serveur : `ANA
 Avant de l'activer : accord de la DSI, et inscription au registre RGPD (le texte des mails et les pièces jointes partent
 chez un prestataire).
 
+## Pièces jointes rangées dans OneDrive
+
+Les pièces jointes des mails arrivés automatiquement se rangent dans le OneDrive professionnel du chef de service,
+comme le faisait l'assistant de bureau : **Mes fichiers → Assistant → dossier de l'événement** (« La Féerique 2026 »,
+« Carnaval 2027 »…), ou **Fonctionnement du service** pour un dossier sans événement.
+
+- Le rangement se fait **à la demande** (« range les pièces jointes »), dans le Chrome du chef de service, ouvert et
+  connecté à Microsoft 365 : pour chaque pièce, le mail d'origine est retrouvé dans Outlook Web, la pièce est enregistrée
+  par « Enregistrer sur OneDrive » dans le bon dossier (créé s'il manque), puis notée comme rangée dans l'application.
+- L'application fournit la liste de ce qui attend (`GET /api/assistant/pieces/a-ranger`) et garde l'emplacement de
+  chaque pièce rangée (`POST /api/assistant/pieces/rangement`) : la fiche du dossier affiche « OneDrive › Assistant ›
+  La Féerique 2026 » avec un lien, le mail un nuage ☁.
+- Le nom du dossier OneDrive d'un événement se règle dans l'onglet « Rattachement aux projets » (colonne « Dossier
+  OneDrive ») ; vide, c'est le nom de l'événement avant le tiret.
+- Le panneau « état et réglages » indique combien de pièces attendent et dans quels dossiers.
+
 ## Accueil et fiche projet
 
 - **Accueil** (super-administrateurs) : encart « Courrier du service » avec mails reçus en 24 h, dossiers à traiter, en
