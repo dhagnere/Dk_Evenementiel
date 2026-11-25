@@ -22,6 +22,8 @@ export interface PieceJointe {
   contenu?: Buffer;
   /** Fichier copié dans le stockage de l'application. */
   fichierId?: string;
+  /** Déjà rangée dans OneDrive (lecture d'Outlook Web). */
+  onedrive?: { chemin: string; lien?: string };
 }
 
 export interface MailOrigine {

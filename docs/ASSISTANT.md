@@ -3,7 +3,26 @@
 L'onglet **Administration → Assistant**, réservé aux super-administrateurs, suit le courrier du service événementiel :
 chaque mail utile devient une ligne du registre et rejoint un dossier, que l'on relie ensuite aux projets.
 
-## Principe
+## Méthode principale : lecture d'Outlook Web (depuis le 25 novembre 2026)
+
+Comme l'assistant de bureau d'origine, la mise à jour lit directement la messagerie professionnelle dans Outlook Web,
+depuis le Chrome du chef de service (ouvert, connecté à Microsoft 365) : à la demande (« mets à jour l'assistant ») et à
+heures fixes en tâche planifiée sur son poste. À chaque passage :
+
+1. lecture des nouveaux mails liés au service (reçus et envoyés), compréhension du texte et des pièces jointes ;
+2. pièces jointes enregistrées dans OneDrive → Mes fichiers → Assistant → dossier de l'événement ;
+3. dépôt dans l'application, conversation par conversation (`POST /api/assistant/outlook/depot`) : mails, dossier
+   (existant ou nouveau), résumé, échéances, actions, vigilance, **lignes budgétaires**, brouillon de réponse,
+   emplacement OneDrive des pièces. Rien n'est remplacé ; un mail déjà présent est ignoré ;
+4. catégorie Outlook « DK traité » posée sur chaque mail traité : il n'est pas relu au passage suivant.
+
+`GET /api/assistant/outlook/contexte` fournit ce dont la lecture a besoin : événements et leur dossier OneDrive,
+dossiers ouverts, branches, adresses du service, date du dernier mail déposé.
+
+Aucun mail ne quitte la messagerie professionnelle, aucune clé payante n'est nécessaire. Le relevé de la messagerie de
+l'assistant décrit ci-dessous reste disponible en secours, pour les jours où le poste est éteint.
+
+## Principe du relevé de secours
 
 Le chef de service **transfère à la main** les mails utiles de sa messagerie professionnelle vers une **messagerie
 dédiée à l'assistant**. Cette adresse ne sert qu'à l'application ; les réponses partent toujours de la messagerie

@@ -31,7 +31,7 @@ export async function analyseActive(): Promise<boolean> {
   return !!(await lireConfiguration()).cleAnalyse;
 }
 
-const schemaReponse = z.object({
+export const schemaReponse = z.object({
   dossier: z.string().nullable().optional(),
   evenement: z.string().nullable().optional(),
   branche: z.string().nullable().optional(),

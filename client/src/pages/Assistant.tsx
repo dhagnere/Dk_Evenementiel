@@ -113,6 +113,8 @@ interface EtatReleve {
   illisible: boolean;
   /** Identifiants refusés : la mise à jour automatique attend leur correction. */
   suspendue: boolean;
+  /** Dernière lecture d'Outlook Web déposée dans l'application. */
+  derniereLectureOutlook: string | null;
   adresseMasquee: string;
   /** Pièces jointes copiées dans l'application. */
   stockage: boolean;
@@ -299,7 +301,9 @@ export default function Assistant() {
         <div>
           <h1>Service événementiel – Gestion des dossiers</h1>
           <div className="sub">
-            {releve.configure
+            {releve.derniereLectureOutlook && !releve.configure
+              ? `Dernière lecture d'Outlook le ${dayjs(releve.derniereLectureOutlook).format('DD/MM/YYYY à HH:mm')}`
+              : releve.configure
               ? `${
                   dernierReussi ? `Dernière mise à jour le ${dayjs(dernierReussi.debut).format('DD/MM/YYYY à HH:mm')}` : 'Aucune mise à jour réussie'
                 }${releve.minutes ? ` · automatique toutes les ${releve.minutes} min` : ''}`
@@ -347,7 +351,7 @@ export default function Assistant() {
           </button>
         </div>
       )}
-      {!releve.configure && !dernier && (
+      {!releve.configure && !dernier && !releve.derniereLectureOutlook && (
         <div className="stale">
           La mise à jour automatique n'est pas encore configurée : voir « état et réglages ».
         </div>

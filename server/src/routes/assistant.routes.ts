@@ -7,8 +7,8 @@ import { aujourdhui } from '../lib/projets.js';
 import { creerProjet, ErreurMetier, jalonDuDecalage, schemaInfos } from './projets.routes.js';
 import { mots } from '../lib/assistant/texte.js';
 import { BRANCHES } from '../lib/assistant/classement.js';
-import { analyserDossier, etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
-import { AnalyseImpossible, testerCleAnalyse } from '../lib/assistant/analyse.js';
+import { analyserDossier, contexteDepot, deposerConversation, etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
+import { AnalyseImpossible, schemaReponse, testerCleAnalyse } from '../lib/assistant/analyse.js';
 import {
   ConnexionImpossible,
   enregistrerCleAnalyse,
@@ -1058,5 +1058,57 @@ assistantRouter.put(
     const n = await executer('UPDATE assistant_evenements SET dossier_onedrive = $2, updated_at = now() WHERE code = $1', [req.params.code, parsed.data.dossier]);
     if (!n) return void res.status(404).json({ ok: false, message: 'Événement introuvable' });
     res.json({ ok: true, message: 'Dossier OneDrive enregistré' });
+  })
+);
+
+// --- Lecture d'Outlook Web (méthode principale) ---------------------------------------------------
+
+assistantRouter.get(
+  '/outlook/contexte',
+  traiter(async (_req, res) => {
+    res.json(await contexteDepot());
+  })
+);
+
+const schemaPieceDeposee = z.object({
+  nom: z.string().min(1).max(300),
+  type: z.string().max(120).optional(),
+  taille: z.number().int().min(0).optional(),
+  onedrive: z.object({ chemin: z.string().min(1).max(500), lien: z.string().url().max(2000).optional() }).optional(),
+});
+const schemaConversation = z.object({
+  consigne: z.string().max(2000).optional(),
+  mails: z
+    .array(
+      z.object({
+        expediteurNom: z.string().min(1).max(200),
+        expediteurAdresse: z.string().max(200).optional(),
+        destinataires: z.string().max(2000).optional(),
+        date: z.string().min(10).max(40),
+        objet: z.string().max(500),
+        corps: z.string().max(40_000),
+        sens: z.enum(['reçu', 'envoyé']),
+        piecesJointes: z.array(schemaPieceDeposee).max(30).optional(),
+      })
+    )
+    .min(1)
+    .max(40),
+  analyse: schemaReponse,
+});
+
+/** Dépose des conversations lues et comprises dans Outlook Web ; rien n'est remplacé. */
+assistantRouter.post(
+  '/outlook/depot',
+  traiter(async (req, res) => {
+    const parsed = z.object({ conversations: z.array(schemaConversation).min(1).max(50) }).safeParse(req.body);
+    if (!parsed.success) return invalide(res, `Dépôt invalide : ${parsed.error.issues[0]?.path.join('.')} ${parsed.error.issues[0]?.message}`);
+    const resultats: { objet: string; dossier: string | null; nouveaux: number; doublons: number }[] = [];
+    for (const c of parsed.data.conversations) {
+      const r = await deposerConversation(c, req.session!.nom);
+      resultats.push({ objet: c.mails[c.mails.length - 1].objet, dossier: r.dossier, nouveaux: r.bilan.nouveaux, doublons: r.bilan.doublons });
+    }
+    const nouveaux = resultats.reduce((n, r) => n + r.nouveaux, 0);
+    await consigner(identiteDeRequete(req), 'assistant_releve', `${nouveaux} mail(s) lus dans Outlook`, { conversations: resultats.length });
+    res.json({ ok: true, message: `${nouveaux} mail(s) ajouté(s) au registre`, resultats });
   })
 );

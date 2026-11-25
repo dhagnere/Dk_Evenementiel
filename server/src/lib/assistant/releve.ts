@@ -111,7 +111,13 @@ async function copierPieces(pieces: PieceJointe[], bilan: BilanReleve): Promise<
   }
   return ids;
 }
-const sansContenu = (p: PieceJointe) => ({ nom: p.nom, type: p.type, taille: p.taille, ...(p.fichierId ? { fichierId: p.fichierId } : {}) });
+const sansContenu = (p: PieceJointe) => ({
+  nom: p.nom,
+  type: p.type,
+  taille: p.taille,
+  ...(p.fichierId ? { fichierId: p.fichierId } : {}),
+  ...(p.onedrive ? { onedrive: { ...p.onedrive, le: new Date().toISOString() } } : {}),
+});
 
 /** Prochain code de dossier ouvert par le relevé : M001, M002… */
 async function prochainCode(client: pg.PoolClient): Promise<string> {
@@ -130,8 +136,10 @@ async function enregistrer(
   ctx: ContexteClassement,
   dossiers: DossierEnBase[],
   bilan: BilanReleve,
-  boite = ''
-): Promise<void> {
+  boite = '',
+  /** Analyse déjà faite (mails lus dans Outlook Web) : utilisée telle quelle, sans appeler le service. */
+  fournie?: ResultatAnalyse | null
+): Promise<string | null> {
   // Mails déjà au registre (transférés deux fois) : ignorés.
   const vus = new Set<string>();
   const nouveaux: { m: MailOrigine; empreinte: string }[] = [];
@@ -150,13 +158,25 @@ async function enregistrer(
     vus.add(empreinte);
     nouveaux.push({ m, empreinte });
   }
-  if (nouveaux.length === 0) return;
+  if (nouveaux.length === 0) return null;
 
   const consigne = lireConsigne(t.consigne, t.hashtags, ctx);
   let classement = classerTransfert(t, nouveaux.map((n) => n.m), ctx);
 
   let analyse: ResultatAnalyse | null = null;
-  if (await analyseActive()) {
+  if (fournie) {
+    analyse = fournie;
+    bilan.analyses++;
+    if (!consigne.dossier && !consigne.evenement && !consigne.branche) {
+      const d = fournie.dossier ? dossiers.find((x) => x.code === fournie.dossier) : undefined;
+      if (d) classement = { dossier: d.code, evenement: d.evenementCode, branche: d.branche, motif: 'analyse' };
+      else if (fournie.dossier === null || fournie.evenement || fournie.branche) {
+        // Pas de dossier existant désigné : on garde un rattachement par la conversation s'il existe, sinon nouveau dossier.
+        if (classement.motif !== 'fil')
+          classement = { dossier: null, evenement: fournie.evenement ?? classement.evenement, branche: fournie.branche ?? classement.branche, motif: 'analyse' };
+      }
+    }
+  } else if (await analyseActive()) {
     try {
       const pourAnalyse: DossierPourAnalyse[] = dossiers.map((d) => ({
         code: d.code,
@@ -198,12 +218,13 @@ async function enregistrer(
       nom: p.nom,
       taille: taille(p.taille),
       type: p.type,
-      emplacement: p.fichierId ? 'Téléchargeable' : "Messagerie de l'assistant",
+      emplacement: p.onedrive ? `OneDrive › ${p.onedrive.chemin.replace(/\//g, ' › ')}` : p.fichierId ? 'Téléchargeable' : "Messagerie de l'assistant",
       ...(p.fichierId ? { fichierId: p.fichierId } : {}),
+      ...(p.onedrive ? { onedrive: p.onedrive.lien ?? true } : {}),
     }))
   );
 
-  await transaction(async (client) => {
+  return await transaction(async (client) => {
     let code = classement.dossier;
     if (!code) {
       code = await prochainCode(client);
@@ -295,7 +316,7 @@ async function enregistrer(
 
     // Dossier enrichi (verrouillé : un import ou une correction peut tourner en même temps).
     const d = await requeteUne<DossierEnBase>('SELECT code, statut, source, donnees FROM assistant_dossiers WHERE code = $1 FOR UPDATE', [code], client);
-    if (!d) return;
+    if (!d) return code;
     const donnees = { ...d.donnees } as Record<string, unknown>;
     const liste = <T>(cle: string) => (Array.isArray(donnees[cle]) ? (donnees[cle] as T[]) : []);
     donnees.mails = [...liste<number>('mails'), ...numeros];
@@ -332,6 +353,7 @@ async function enregistrer(
       ctxD.contacts = contactsDe(donnees);
       if (rouvrir) ctxD.statut = 'À traiter';
     }
+    return code;
   });
 }
 
@@ -474,6 +496,11 @@ export async function etatReleve() {
   const prochain = configure && c.minutes > 0 && dernier?.debut ? new Date(new Date(dernier.debut).getTime() + c.minutes * 60_000) : null;
   return {
     configure,
+    /** Dernier dépôt venu de la lecture d'Outlook Web (méthode principale). */
+    derniereLectureOutlook:
+      ((derniers as { par?: string; debut?: Date }[]).find((r) => r.par?.includes('lecture Outlook'))?.debut ??
+        (await requeteUne<{ d: Date | null }>("SELECT max(debut) AS d FROM assistant_releves WHERE par LIKE '%lecture Outlook%'"))?.d) ||
+      null,
     origine: c.origine,
     suspendue: !!identifiantsRefuses && identifiantsRefuses === empreinteIdentifiants(c),
     illisible: c.illisible,
@@ -550,4 +577,83 @@ export async function analyserDossier(code: string): Promise<void> {
       client
     );
   });
+}
+
+// --- Dépôt de conversations lues dans Outlook Web ---------------------------------------------------
+//
+// Méthode principale depuis novembre 2026 : le Chrome du chef de service lit Outlook Web (comme l'assistant
+// de bureau), comprend chaque conversation et ses pièces jointes, range celles-ci dans OneDrive, puis dépose
+// ici le résultat. Aucun transfert, aucune clé payante. Le relevé de la messagerie de l'assistant reste
+// possible en secours ; le dédoublonnage par empreinte évite les doubles.
+
+export interface ConversationDeposee {
+  consigne?: string;
+  mails: {
+    expediteurNom: string;
+    expediteurAdresse?: string;
+    destinataires?: string;
+    date: string; // ISO 8601
+    objet: string;
+    corps: string;
+    sens: 'reçu' | 'envoyé';
+    piecesJointes?: { nom: string; type?: string; taille?: number; onedrive?: { chemin: string; lien?: string } }[];
+  }[];
+  analyse: ResultatAnalyse;
+}
+
+export async function deposerConversation(c: ConversationDeposee, par: string): Promise<{ dossier: string | null; bilan: BilanReleve }> {
+  const bilan: BilanReleve = { lus: c.mails.length, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, ignores: 0, erreur: '' };
+  const conf = await lireConfiguration();
+  const service = [...conf.adressesService, conf.adresse].filter(Boolean);
+  const { ctx, dossiers } = await chargerContexte(service);
+  const t: Transfert = {
+    consigne: c.consigne ?? '',
+    hashtags: [...(c.consigne ?? '').matchAll(/#([\p{L}\p{N}_-]{2,40})/gu)].map((h) => h[1]),
+    enveloppe: { nom: '', adresse: '', date: null, objet: c.mails[c.mails.length - 1]?.objet ?? '' },
+    nonDecode: false,
+    mails: c.mails
+      .map((m) => ({
+        expediteurNom: m.expediteurNom,
+        expediteurAdresse: (m.expediteurAdresse ?? '').toLowerCase(),
+        destinataires: m.destinataires ?? '',
+        date: Number.isNaN(Date.parse(m.date)) ? null : new Date(m.date),
+        objet: m.objet,
+        corps: m.corps.slice(0, 20_000),
+        piecesJointes: (m.piecesJointes ?? []).map((p) => ({ nom: p.nom, type: p.type ?? '', taille: p.taille ?? 0, onedrive: p.onedrive })),
+        sens: m.sens,
+        mode: 'direct' as const,
+      }))
+      .sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0)),
+  };
+  const code = await enregistrer(t, '', ctx, dossiers, bilan, conf.adresse, c.analyse);
+  await insererUn('assistant_releves', { debut: new Date(), fin: new Date(), ...bilan, par: `${par} · lecture Outlook` }).catch(() => undefined);
+  return { dossier: code, bilan };
+}
+
+/** Ce dont la lecture d'Outlook a besoin : événements, dossiers ouverts, dossiers OneDrive, dernier passage. */
+export async function contexteDepot() {
+  const conf = await lireConfiguration();
+  const evenements = await requete<{ code: string; nom: string; dateJour: string | null; dossierOnedrive: string }>(
+    'SELECT code, nom, date_jour, dossier_onedrive FROM assistant_evenements ORDER BY date_jour NULLS LAST'
+  );
+  const dossiers = await requete<{ code: string; titre: string; evenementCode: string; branche: string; statut: string; donnees: Record<string, unknown> }>(
+    "SELECT code, titre, evenement_code, branche, statut, donnees FROM assistant_dossiers WHERE statut !~* '^clos' ORDER BY code"
+  );
+  const dernier = await requeteUne<{ d: Date | null }>("SELECT max(date_envoi) AS d FROM assistant_mails WHERE source = 'releve'");
+  return {
+    adressesService: conf.adressesService,
+    dernierMail: dernier?.d ?? null,
+    branches: ['Protocole', 'Animation', 'Logistique', 'Affichage', 'KIOSC', 'VSL', 'Pilotage du service'],
+    racineOneDrive: 'Mes fichiers/Assistant',
+    dossierSansEvenement: 'Fonctionnement du service',
+    evenements: evenements.map((e) => ({ ...e, dossierOnedrive: e.dossierOnedrive || e.nom.split(/\s+[–—-]\s+/)[0].trim() })),
+    dossiers: dossiers.map((d) => ({
+      code: d.code,
+      titre: d.titre,
+      evenement: d.evenementCode,
+      branche: d.branche,
+      statut: d.statut,
+      resume: typeof d.donnees.resume === 'string' ? d.donnees.resume.slice(0, 300) : '',
+    })),
+  };
 }
