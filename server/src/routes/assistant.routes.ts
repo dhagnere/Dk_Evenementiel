@@ -9,6 +9,7 @@ import { mots } from '../lib/assistant/texte.js';
 import { BRANCHES } from '../lib/assistant/classement.js';
 import { analyserDossier, contexteDepot, deposerConversation, etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
 import { AnalyseImpossible, schemaReponse, testerCleAnalyse } from '../lib/assistant/analyse.js';
+import { actualiserPrestataires } from '../lib/assistant/prestataires.js';
 import { demanderLecture, enregistrerPassage, lireReglagesOutlook, modifierReglagesOutlook } from '../lib/assistant/outlook.js';
 import {
   ConnexionImpossible,
@@ -217,6 +218,8 @@ assistantRouter.post(
       return invalide(res, `Ce fichier n'est pas un index de l'assistant (${premier.path.join('.') || 'racine'} : ${premier.message})`);
     }
     const compte = await importerIndex(parsed.data, req.session!.nom);
+    // L'import remplace l'annuaire : on y remet les prestataires relevés dans les documents des dossiers.
+    await actualiserPrestataires().catch(() => undefined);
     await consigner(identiteDeRequete(req), 'assistant_import', parsed.data.periode, compte);
     const pertes = compte.rattachementsPerdus
       ? ` Attention : ${compte.rattachementsPerdus} événement(s) rattaché(s) à un projet ne figurent plus dans l'index.`
@@ -1113,8 +1116,9 @@ assistantRouter.post(
       resultats.push({ objet: c.mails[c.mails.length - 1].objet, dossier: r.dossier, nouveaux: r.bilan.nouveaux, doublons: r.bilan.doublons });
     }
     const nouveaux = resultats.reduce((n, r) => n + r.nouveaux, 0);
+    const annuaire = await actualiserPrestataires().catch(() => ({ crees: 0, completes: 0 }));
     await consigner(identiteDeRequete(req), 'assistant_releve', `${nouveaux} mail(s) lus dans Outlook`, { conversations: resultats.length });
-    res.json({ ok: true, message: `${nouveaux} mail(s) ajouté(s) au registre`, resultats });
+    res.json({ ok: true, message: `${nouveaux} mail(s) ajouté(s) au registre`, resultats, annuaire });
   })
 );
 
@@ -1182,5 +1186,15 @@ assistantRouter.post(
     if (!parsed.success) return invalide(res);
     await enregistrerPassage(parsed.data, req.session!.nom);
     res.json({ ok: true, message: 'Passage enregistré' });
+  })
+);
+
+/** Recalcule l'annuaire à partir des documents financiers des dossiers (sans rien retirer). */
+assistantRouter.post(
+  '/prestataires/actualiser',
+  traiter(async (req, res) => {
+    const r = await actualiserPrestataires();
+    await consigner(identiteDeRequete(req), 'assistant_prestataires', 'annuaire actualisé', r);
+    res.json({ ok: true, message: `Annuaire actualisé : ${r.crees} prestataire(s) ajouté(s), ${r.completes} complété(s)`, ...r });
   })
 );

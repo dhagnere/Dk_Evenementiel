@@ -53,12 +53,16 @@ export const schemaReponse = z.object({
         reference: z.string().max(120).nullable().optional(),
         fournisseur: z.string().max(200).nullable().optional(),
         montant_ttc: z.number().nullable().optional(),
+        /** Domaine d'activité du fournisseur (sanitaires, location de matériel, sonorisation…), pour l'annuaire. */
+        domaine: z.string().max(80).nullable().optional(),
       })
     )
     .max(15)
     .nullable()
     .optional(),
   brouillon: z.string().max(4000).nullable().optional(),
+  /** Interlocuteurs : « Prénom NOM – adresse » (prestataires, partenaires). */
+  contacts: z.array(z.string().max(200)).max(15).nullable().optional(),
 });
 export type ResultatAnalyse = z.infer<typeof schemaReponse>;
 
@@ -240,5 +244,6 @@ export function appliquerAnalyse(donnees: Record<string, unknown>, a: ResultatAn
     donnees.budget = b;
   }
   if (a.brouillon !== undefined) donnees.brouillon = a.brouillon;
+  if (a.contacts?.length) donnees.contacts = uniques([...liste<string>('contacts'), ...a.contacts]);
   donnees.analyse = new Date().toISOString();
 }

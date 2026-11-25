@@ -260,6 +260,14 @@ associations). C'est pourquoi l'onglet est réservé aux super-administrateurs. 
 hors du système d'information de la collectivité : n'y transférer que le courrier utile au suivi des dossiers. Ce traitement est à inscrire au registre
 RGPD de la collectivité, avec le délégué à la protection des données.
 
+## Annuaire des prestataires
+
+L'annuaire (onglet Assistant → Annuaire prestataires) reprend les fiches de l'ancien index et se complète tout seul
+à chaque dépôt depuis Outlook : chaque devis, bon de commande, facture ou contrat relevé dans un dossier ajoute ou
+complète la fiche de son fournisseur (domaine d'activité, contacts externes, événements, documents avec montant,
+dossiers). Rien n'est retiré ; un nouvel import d'index conserve ces ajouts. Recalcul manuel :
+`POST /api/assistant/prestataires/actualiser`.
+
 ## Bilan d'un événement
 
 Onglet Assistant → Rattachement aux projets → lien **bilan** sous le nombre de dossiers. Calculé à partir des dossiers
