@@ -279,6 +279,16 @@ export default function Assistant() {
   const [releveEnCours, setReleveEnCours] = useState(false);
 
   const charger = () => api.get<Index>("/assistant/index").then(setIndex);
+  // Tant qu'une mise à jour est en cours, l'état est relu toutes les 20 secondes : le bouton s'arrête de
+  // tourner dès que le bilan arrive ou que la demande est annulée (depuis un autre onglet ou un autre poste).
+  const demandeLeCourante = index?.releve.outlook.demandeLe ?? null;
+  useEffect(() => {
+    if (!demandeLeCourante) return;
+    const minuterie = window.setInterval(() => {
+      api.get<Index>("/assistant/index").then(setIndex).catch(() => undefined);
+    }, 20_000);
+    return () => window.clearInterval(minuterie);
+  }, [demandeLeCourante]);
   const [parametres, setParametres] = useSearchParams();
   useEffect(() => {
     // Lien depuis l'accueil ou une fiche projet : /admin/assistant?dossier=D12
