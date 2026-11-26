@@ -12,6 +12,13 @@ tout en français.
 Adresse actuelle de l'application (recette, elle changera à la mise en production) :
 https://dkevenenementieltest.osc-fr1.scalingo.io — Outlook : https://outlook.cloud.microsoft/mail/inbox.
 
+## Navigateur : uniquement le Chrome du poste de David
+
+Plusieurs Chrome peuvent être connectés au compte. La lecture n'utilise **que** le Chrome du poste de David
+(ordinateur desktop-9gg2ecq, auquel la tâche planifiée est liée) : `list_connected_browsers`, puis
+`select_browser` sur l'entrée marquée `onThisComputer`. Sans entrée `onThisComputer`, la lecture s'arrête et le
+signale ; elle n'utilise jamais un autre navigateur.
+
 ## 0. Faut-il lire ?
 
 1. Ouvre un nouvel onglet sur l'application, puis exécute dans la page
