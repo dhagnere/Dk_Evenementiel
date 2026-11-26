@@ -25,6 +25,8 @@ export interface ReglagesOutlook {
   demandePar: string;
   /** Lancement immédiat : session ouverte pour la dernière demande. */
   sessionLancee?: string;
+  /** Page de la tâche planifiée (bouton « Exécuter maintenant »), ouverte par le bouton de l'onglet. */
+  pageTache?: string;
 }
 
 const DEFAUT: ReglagesOutlook = {
@@ -52,13 +54,14 @@ async function ecrire(r: ReglagesOutlook, par: string): Promise<void> {
 }
 
 export async function modifierReglagesOutlook(
-  v: { deplacerVers?: string; automatique?: boolean; sousDossiers?: boolean; rattrapageDepuis?: string },
+  v: { deplacerVers?: string; automatique?: boolean; sousDossiers?: boolean; rattrapageDepuis?: string; pageTache?: string },
   par: string
 ): Promise<ReglagesOutlook> {
   const r = await lireReglagesOutlook();
   if (v.deplacerVers !== undefined) r.deplacerVers = v.deplacerVers.trim().replace(/\/+$/, '');
   if (v.sousDossiers !== undefined) r.sousDossiers = v.sousDossiers;
   if (v.automatique !== undefined) r.automatique = v.automatique;
+  if (v.pageTache !== undefined) r.pageTache = v.pageTache.trim();
   if (v.rattrapageDepuis !== undefined && v.rattrapageDepuis !== r.rattrapageDepuis) {
     r.rattrapageDepuis = v.rattrapageDepuis;
     // Nouvelle date de départ : le rattrapage reprend là où il en est, ou il est déjà terminé si la lecture
@@ -134,7 +137,16 @@ export async function lancerMaintenant(par: string): Promise<ReglagesOutlook> {
   const r = await lireReglagesOutlook();
   if (r.demandeLe && Date.now() - Date.parse(r.demandeLe) < 15 * 60_000)
     throw new LancementImpossible('Une mise à jour est déjà en cours : son bilan apparaîtra dans « Derniers passages »');
-  if (!lancementImmediatConfigure()) throw new LancementImpossible('Lancement immédiat non configuré sur le serveur');
+  if (!lancementImmediatConfigure()) {
+    // Sans déclencheur API : la demande est notée (la lecture la traitera quelle que soit l'heure) et l'onglet
+    // ouvre la page de la tâche, où « Exécuter maintenant » la démarre.
+    if (!r.pageTache) throw new LancementImpossible('Lancement immédiat non configuré : renseignez la page de la tâche dans les réglages');
+    r.demandeLe = new Date().toISOString();
+    r.demandePar = par;
+    r.sessionLancee = '';
+    await ecrire(r, par);
+    return r;
+  }
   let reponse: Response;
   try {
     reponse = await fetch(process.env.ASSISTANT_TACHE_URL!, {

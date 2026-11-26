@@ -1144,6 +1144,7 @@ assistantRouter.put(
         deplacerVers: z.string().max(120).optional(),
         sousDossiers: z.boolean().optional(),
         automatique: z.boolean().optional(),
+        pageTache: z.union([z.literal(''), z.string().url().max(300).refine((u) => u.startsWith('https://claude.ai/'), 'Adresse claude.ai attendue')]).optional(),
         rattrapageDepuis: z.union([z.literal(''), dateDuJour]).optional(),
       })
       .safeParse(req.body);
@@ -1161,7 +1162,11 @@ assistantRouter.post(
     try {
       const r = await lancerMaintenant(req.session!.nom);
       await consigner(identiteDeRequete(req), 'assistant_releve', 'mise à jour lancée');
-      res.json({ ok: true, message: 'Mise à jour lancée : la lecture d’Outlook démarre maintenant', reglages: r });
+      res.json(
+        lancementImmediatConfigure()
+          ? { ok: true, message: 'Mise à jour lancée : la lecture d’Outlook démarre maintenant', reglages: r }
+          : { ok: true, message: 'Cliquez « Exécuter maintenant » dans l’onglet qui vient de s’ouvrir', ouvrir: r.pageTache, reglages: r }
+      );
     } catch (e) {
       if (!(e instanceof LancementImpossible)) throw e;
       res.status(409).json({ ok: false, message: e.message });

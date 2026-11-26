@@ -30,7 +30,9 @@ elle ne lit que si un lancement a été demandé. À chaque passage :
 - **Mettre à jour maintenant** (en-tête et panneau) : lance tout de suite la tâche de lecture par son déclencheur
   API (`POST /api/assistant/outlook/demande`, variables `ASSISTANT_TACHE_URL` et `ASSISTANT_TACHE_JETON`). Un second
   clic est refusé tant que la lecture lancée depuis moins de 15 minutes n'a pas déposé son bilan ; **Annuler la
-  demande** (`DELETE /api/assistant/outlook/demande`) libère le bouton ;
+  demande** (`DELETE /api/assistant/outlook/demande`) libère le bouton. Sans déclencheur API (cas des tâches liées à
+  un ordinateur, qui n'en proposent pas), le clic note la demande et ouvre la page de la tâche planifiée
+  (réglage « Page de la tâche planifiée ») : un clic sur « Exécuter maintenant » la démarre aussitôt ;
 - **Passages** : automatiques (toutes les heures en semaine de 8 h à 18 h, plus les demandes) ou à la demande
   seulement ;
 - **Déplacer vers le dossier Outlook** : case à cocher et nom du dossier (vide = les mails restent dans la boîte),

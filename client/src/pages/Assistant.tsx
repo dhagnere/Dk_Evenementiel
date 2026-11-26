@@ -356,9 +356,19 @@ export default function Assistant() {
     : null;
   const releverMaintenant = async () => {
     setReleveEnCours(true);
+    // Sans déclencheur API, la page de la tâche s'ouvre pour « Exécuter maintenant » : l'onglet est ouvert
+    // dans le geste du clic, sinon le navigateur le bloque.
+    const fenetre = !releve.lancementImmediat && o.pageTache ? window.open("about:blank", "_blank") : null;
     try {
-      if (await lancer(api.post("/assistant/outlook/demande", {})))
-        await charger();
+      const reponse = await api.post<{ ok: boolean; message?: string; ouvrir?: string }>("/assistant/outlook/demande", {});
+      if (fenetre) {
+        if (reponse.ouvrir) fenetre.location.href = reponse.ouvrir;
+        else fenetre.close();
+      }
+      if (await lancer(Promise.resolve(reponse))) await charger();
+    } catch (e) {
+      fenetre?.close();
+      await lancer(Promise.reject(e));
     } finally {
       setReleveEnCours(false);
     }
@@ -2276,6 +2286,7 @@ function BilanEvenement({
 // --- Mise à jour ---------------------------------------------------------------------------------
 
 interface ReglagesOutlook {
+  pageTache?: string;
   deplacerVers: string;
   automatique: boolean;
   sousDossiers: boolean;
@@ -2315,6 +2326,7 @@ function ReglagesLecture({
   const [deplacer, setDeplacer] = useState(!!o.deplacerVers);
   const [parEvenement, setParEvenement] = useState(o.sousDossiers);
   const [auto, setAuto] = useState(o.automatique);
+  const [page, setPage] = useState(o.pageTache ?? "");
   const [depuis, setDepuis] = useState(o.rattrapageDepuis);
   const [envoi, setEnvoi] = useState(false);
   const modifie =
@@ -2384,6 +2396,10 @@ function ReglagesLecture({
         Dans un sous-dossier par événement, aux mêmes noms que dans OneDrive (
         {dossier.trim() || "DKEVENTS"} → La Féerique 2026…). Les mails sans
         événement vont dans « Fonctionnement du service ».
+      </label>
+      <label>
+        Page de la tâche planifiée (claude.ai)
+        <input type="text" value={page} onChange={(e) => setPage(e.target.value)} placeholder="https://claude.ai/scheduled-task/…" />
       </label>
       <label>
         Reprendre aussi les mails reçus depuis le
@@ -2519,9 +2535,14 @@ function PanneauMiseAJour({
                     : "La lecture démarre dès le clic"}
               </Text>
             </Space>
-            {!releve.lancementImmediat && (
+            {!releve.lancementImmediat && !o.pageTache && (
               <div className="note">
-                Lancement immédiat pas encore activé sur le serveur : le bouton ne peut pas encore démarrer la lecture.
+                Lancement immédiat pas encore activé : renseignez ci-dessous la page de la tâche planifiée.
+              </div>
+            )}
+            {!releve.lancementImmediat && o.pageTache && (
+              <div className="muted petit" style={{ marginTop: 6 }}>
+                Le bouton ouvre la page de la tâche : cliquez-y « Exécuter maintenant ».
               </div>
             )}
             {demandeOubliee(o) && (
@@ -2560,7 +2581,7 @@ function PanneauMiseAJour({
           )}
 
           <ReglagesLecture
-            key={`${o.deplacerVers}|${o.sousDossiers}|${o.automatique}|${o.rattrapageDepuis}`}
+            key={`${o.deplacerVers}|${o.sousDossiers}|${o.automatique}|${o.rattrapageDepuis}|${o.pageTache}`}
             o={o}
             apres={apres}
           />
