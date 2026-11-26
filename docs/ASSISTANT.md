@@ -27,8 +27,10 @@ elle ne lit que si un lancement a été demandé. À chaque passage :
 
 ### État et réglages (onglet Assistant)
 
-- **Lancer maintenant** (et le bouton « Mettre à jour l'assistant » de l'en-tête) : enregistre une demande
-  (`POST /api/assistant/outlook/demande`), prise en charge au passage suivant, dans l'heure, y compris le week-end ;
+- **Mettre à jour maintenant** (en-tête et panneau) : lance tout de suite la tâche de lecture par son déclencheur
+  API (`POST /api/assistant/outlook/demande`, variables `ASSISTANT_TACHE_URL` et `ASSISTANT_TACHE_JETON`). Un second
+  clic est refusé tant que la lecture lancée depuis moins de 15 minutes n'a pas déposé son bilan ; **Annuler la
+  demande** (`DELETE /api/assistant/outlook/demande`) libère le bouton ;
 - **Passages** : automatiques (toutes les heures en semaine de 8 h à 18 h, plus les demandes) ou à la demande
   seulement ;
 - **Déplacer vers le dossier Outlook** : case à cocher et nom du dossier (vide = les mails restent dans la boîte),

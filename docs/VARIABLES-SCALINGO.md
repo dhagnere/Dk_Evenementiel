@@ -138,3 +138,12 @@ S3_SECRET_ACCESS_KEY=<clé secrète Scaleway>
 
 Après tout changement de variable : redémarrer l'application (`scalingo --app <app> restart`), puis vérifier dans
 **Administration → Système** que le stockage et le courriel apparaissent comme configurés.
+
+## Lancement immédiat de la mise à jour de l'assistant
+
+| Variable | Rôle |
+|---|---|
+| `ASSISTANT_TACHE_URL` | Adresse de déclenchement de la tâche « Mise à jour de l'assistant DK » (claude.ai/code/routines → la tâche → déclencheur **API**), de la forme `https://api.anthropic.com/v1/claude_code/routines/…/fire` |
+| `ASSISTANT_TACHE_JETON` | Jeton généré au même endroit (`sk-ant-oat01-…`), affiché une seule fois. À saisir directement dans Scalingo, jamais dans un mail ni une conversation. Générer un nouveau jeton révoque l'ancien. |
+
+Sans ces deux variables, le bouton « Mettre à jour maintenant » de l'onglet Assistant affiche « Lancement immédiat pas encore activé ».

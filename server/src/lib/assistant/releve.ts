@@ -6,7 +6,7 @@ import { AnalyseImpossible, analyseActive, analyser, appliquerAnalyse, type Doss
 import { classer, contactsDe, lireConsigne, type Classement, type ContexteClassement } from './classement.js';
 import { detecterEcheances } from './echeances.js';
 import { nettoyerAnciensMails } from './maintenance.js';
-import { lireReglagesOutlook, prochainPassageOutlook } from './outlook.js';
+import { lancementImmediatConfigure, lireReglagesOutlook, prochainPassageOutlook } from './outlook.js';
 import { formatParis, objetDeFil } from './texte.js';
 import { decoderTransfert, empreinteDe, type MailOrigine, type PieceJointe, type Transfert } from './transferts.js';
 
@@ -516,6 +516,7 @@ export async function etatReleve() {
         (await requeteUne<{ d: Date | null }>("SELECT max(debut) AS d FROM assistant_releves WHERE par LIKE '%lecture Outlook%'"))?.d) ||
       null,
     outlook: await lireReglagesOutlook(),
+    lancementImmediat: lancementImmediatConfigure(),
     prochainPassage: prochainPassageOutlook(),
     origine: c.origine,
     suspendue: !!identifiantsRefuses && identifiantsRefuses === empreinteIdentifiants(c),

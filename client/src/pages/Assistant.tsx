@@ -137,6 +137,8 @@ interface EtatReleve {
   /** Réglages de la lecture d'Outlook et lancement demandé. */
   outlook: ReglagesOutlook;
   prochainPassage: string;
+  /** Le bouton lance la lecture tout de suite (déclencheur configuré sur le serveur). */
+  lancementImmediat: boolean;
   derniers: Releve[];
 }
 interface Prestataire {
@@ -399,10 +401,10 @@ export default function Assistant() {
                 ? `${dernier.periode} · dernière mise à jour le ${dayjs(dernier.createdAt).format("DD/MM/YYYY à HH:mm")}`
                 : "Aucune mise à jour pour l’instant"}
             {demandeEnCours(o)
-              ? ` · mise à jour demandée, démarre vers ${dayjs(releve.prochainPassage).format("HH:mm")}`
+              ? ` · mise à jour en cours depuis ${dayjs(o.demandeLe).format("HH:mm")}`
               : ""}
             {demandeOubliee(o)
-              ? " · la dernière demande n’a pas été prise en charge"
+              ? " · la dernière mise à jour lancée n’a pas abouti"
               : ""}{" "}
             ·{" "}
             <button className="lien clair" onClick={() => setMiseAJour(true)}>
@@ -434,8 +436,8 @@ export default function Assistant() {
           >
             <SyncOutlined spin={releveEnCours || demandeEnCours(o)} />{" "}
             {demandeEnCours(o)
-              ? "Mise à jour demandée"
-              : "Mettre à jour l'assistant"}
+              ? "Mise à jour en cours…"
+              : "Mettre à jour maintenant"}
           </button>
         </div>
       </header>
@@ -2284,9 +2286,9 @@ interface ReglagesOutlook {
   demandePar: string;
 }
 
-/** Demande de lecture en cours, si elle a moins de 75 minutes (au-delà, elle n'a pas été prise en charge). */
+/** Lecture lancée il y a moins de 15 minutes et pas encore terminée (au-delà, elle n'a pas abouti). */
 const demandeEnCours = (o: ReglagesOutlook) =>
-  !!o.demandeLe && dayjs().diff(dayjs(o.demandeLe), "minute") < 75;
+  !!o.demandeLe && dayjs().diff(dayjs(o.demandeLe), "minute") < 15;
 const demandeOubliee = (o: ReglagesOutlook) =>
   !!o.demandeLe && !demandeEnCours(o);
 
@@ -2352,7 +2354,7 @@ function ReglagesLecture({
             demande
           </option>
           <option value="demande">
-            à la demande seulement (bouton « Lancer maintenant »)
+            à la demande seulement (bouton « Mettre à jour maintenant »)
           </option>
         </select>
       </label>
@@ -2498,20 +2500,34 @@ function PanneauMiseAJour({
                 onClick={relever}
                 disabled={releveEnCours || demandeEnCours(o)}
               >
-                {demandeEnCours(o) ? "Lecture demandée" : "Lancer maintenant"}
+                {demandeEnCours(o) ? "Mise à jour en cours…" : "Mettre à jour maintenant"}
               </Button>
+              {o.demandeLe && (
+                <Button
+                  onClick={async () => {
+                    if (await lancer(api.delete("/assistant/outlook/demande"))) apres();
+                  }}
+                >
+                  Annuler la demande
+                </Button>
+              )}
               <Text type="secondary">
                 {demandeEnCours(o)
-                  ? `Demandée à ${dayjs(o.demandeLe).format("HH:mm")}, démarre vers ${dayjs(releve.prochainPassage).format("HH:mm")}`
+                  ? `Lancée à ${dayjs(o.demandeLe).format("HH:mm")} : le bilan s’affichera dans « Derniers passages »`
                   : o.automatique
-                    ? `Prochain passage vers ${dayjs(releve.prochainPassage).format(dayjs(releve.prochainPassage).isSame(dayjs(), "day") ? "HH:mm" : "ddd DD/MM à HH:mm")}`
-                    : "Lecture à la demande : démarre dans l’heure qui suit le clic"}
+                    ? `Prochain passage automatique vers ${dayjs(releve.prochainPassage).format(dayjs(releve.prochainPassage).isSame(dayjs(), "day") ? "HH:mm" : "ddd DD/MM à HH:mm")}`
+                    : "La lecture démarre dès le clic"}
               </Text>
             </Space>
+            {!releve.lancementImmediat && (
+              <div className="note">
+                Lancement immédiat pas encore activé sur le serveur : le bouton ne peut pas encore démarrer la lecture.
+              </div>
+            )}
             {demandeOubliee(o) && (
               <div className="note">
-                La demande du {dayjs(o.demandeLe).format("DD/MM à HH:mm")} n'a
-                pas été prise en charge : le poste du chef de service était
+                La mise à jour lancée le {dayjs(o.demandeLe).format("DD/MM à HH:mm")} n'a
+                pas abouti : le poste du chef de service était
                 peut-être éteint, Chrome fermé ou la session Outlook expirée.
                 Vous pouvez relancer.
               </div>

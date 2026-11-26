@@ -23,6 +23,8 @@ export interface ReglagesOutlook {
   /** Lancement demandé depuis l'onglet, pris en charge au passage suivant. */
   demandeLe: string | null;
   demandePar: string;
+  /** Lancement immédiat : session ouverte pour la dernière demande. */
+  sessionLancee?: string;
 }
 
 const DEFAUT: ReglagesOutlook = {
@@ -63,14 +65,6 @@ export async function modifierReglagesOutlook(
     // est déjà remontée avant cette date.
     r.rattrapageTermine = !!v.rattrapageDepuis && !!r.rattrapageAtteint && r.rattrapageAtteint <= v.rattrapageDepuis;
   }
-  await ecrire(r, par);
-  return r;
-}
-
-export async function demanderLecture(par: string): Promise<ReglagesOutlook> {
-  const r = await lireReglagesOutlook();
-  r.demandeLe = new Date().toISOString();
-  r.demandePar = par;
   await ecrire(r, par);
   return r;
 }
@@ -123,4 +117,56 @@ export function prochainPassageOutlook(maintenant = new Date()): string {
   const t = new Date(maintenant.getTime() + enMinutes * 60_000);
   t.setSeconds(0, 0);
   return t.toISOString();
+}
+
+/** Le lancement immédiat est configuré (adresse et jeton de la tâche, variables du serveur). */
+export function lancementImmediatConfigure(): boolean {
+  return !!(process.env.ASSISTANT_TACHE_URL && process.env.ASSISTANT_TACHE_JETON);
+}
+
+export class LancementImpossible extends Error {}
+
+/**
+ * Lance tout de suite la lecture d'Outlook (tâche « Mise à jour de l'assistant DK ») par son déclencheur API.
+ * Refuse un second lancement tant que le précédent (moins de 15 minutes) n'a pas déposé son bilan.
+ */
+export async function lancerMaintenant(par: string): Promise<ReglagesOutlook> {
+  const r = await lireReglagesOutlook();
+  if (r.demandeLe && Date.now() - Date.parse(r.demandeLe) < 15 * 60_000)
+    throw new LancementImpossible('Une mise à jour est déjà en cours : son bilan apparaîtra dans « Derniers passages »');
+  if (!lancementImmediatConfigure()) throw new LancementImpossible('Lancement immédiat non configuré sur le serveur');
+  let reponse: Response;
+  try {
+    reponse = await fetch(process.env.ASSISTANT_TACHE_URL!, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.ASSISTANT_TACHE_JETON}`,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'experimental-cc-routine-2026-04-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: `Lancement immédiat demandé depuis l'onglet Assistant par ${par}. Fais la lecture maintenant, quel que soit l'horaire.` }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw new LancementImpossible('Service de lancement injoignable, réessayez dans un instant');
+  }
+  if (reponse.status === 401 || reponse.status === 403) throw new LancementImpossible('Jeton de lancement refusé : il faut en générer un nouveau');
+  if (reponse.status === 429) throw new LancementImpossible('Nombre de lancements du jour atteint');
+  if (!reponse.ok) throw new LancementImpossible(`Lancement refusé (${reponse.status})`);
+  const corps = (await reponse.json().catch(() => ({}))) as { claude_code_session_url?: string };
+  r.demandeLe = new Date().toISOString();
+  r.demandePar = par;
+  r.sessionLancee = corps.claude_code_session_url ?? '';
+  await ecrire(r, par);
+  return r;
+}
+
+/** Annule la demande en cours (lancement resté sans bilan). */
+export async function annulerDemande(par: string): Promise<ReglagesOutlook> {
+  const r = await lireReglagesOutlook();
+  r.demandeLe = null;
+  r.demandePar = '';
+  await ecrire(r, par);
+  return r;
 }

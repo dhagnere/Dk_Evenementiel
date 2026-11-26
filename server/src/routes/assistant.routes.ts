@@ -10,7 +10,7 @@ import { BRANCHES } from '../lib/assistant/classement.js';
 import { analyserDossier, contexteDepot, deposerConversation, etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
 import { AnalyseImpossible, schemaReponse, testerCleAnalyse } from '../lib/assistant/analyse.js';
 import { actualiserPrestataires } from '../lib/assistant/prestataires.js';
-import { demanderLecture, enregistrerPassage, lireReglagesOutlook, modifierReglagesOutlook } from '../lib/assistant/outlook.js';
+import { LancementImpossible, annulerDemande, enregistrerPassage, lancementImmediatConfigure, lancerMaintenant, lireReglagesOutlook, modifierReglagesOutlook } from '../lib/assistant/outlook.js';
 import {
   ConnexionImpossible,
   enregistrerCleAnalyse,
@@ -1154,13 +1154,28 @@ assistantRouter.put(
   })
 );
 
-/** Bouton « Lancer maintenant » : la lecture est prise en charge au passage suivant (dans l'heure). */
+/** Bouton « Mettre à jour maintenant » : la lecture d'Outlook démarre tout de suite. */
 assistantRouter.post(
   '/outlook/demande',
   traiter(async (req, res) => {
-    const r = await demanderLecture(req.session!.nom);
-    await consigner(identiteDeRequete(req), 'assistant_releve', 'lecture demandée');
-    res.json({ ok: true, message: 'Lecture d’Outlook demandée : elle démarre au prochain passage, dans l’heure', reglages: r });
+    try {
+      const r = await lancerMaintenant(req.session!.nom);
+      await consigner(identiteDeRequete(req), 'assistant_releve', 'mise à jour lancée');
+      res.json({ ok: true, message: 'Mise à jour lancée : la lecture d’Outlook démarre maintenant', reglages: r });
+    } catch (e) {
+      if (!(e instanceof LancementImpossible)) throw e;
+      res.status(409).json({ ok: false, message: e.message });
+    }
+  })
+);
+
+/** Annule la demande en cours. */
+assistantRouter.delete(
+  '/outlook/demande',
+  traiter(async (req, res) => {
+    const r = await annulerDemande(req.session!.nom);
+    await consigner(identiteDeRequete(req), 'assistant_releve', 'demande annulée');
+    res.json({ ok: true, message: 'Demande annulée', reglages: r });
   })
 );
 
