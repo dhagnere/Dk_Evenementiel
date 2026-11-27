@@ -306,3 +306,12 @@ dans le même dossier. Le bilan prend toute sa valeur une fois l'année 2026 rep
   du dossier le fait passer à « analysé ».
 - Les expéditeurs sans lien avec le service (ressources humaines, organisations syndicales, lettres
   d'information) reçoivent la catégorie « DK traité » mais ne sont ni déposés ni déplacés.
+
+## Créer un événement depuis l'écran (novembre 2026)
+
+- Fiche d'un dossier, menu « Événement » : dernier choix « + Nouvel événement… » (nom proposé : l'objet du dossier).
+  L'événement est créé puis le dossier y est rattaché.
+- Onglet « Rattachement aux projets » : bouton « + Nouvel événement ».
+- Route : `PUT /api/assistant/evenements/:code` (nom, date, lieu, nom du dossier OneDrive et Outlook).
+- Conseil de nommage pour le classement automatique : « Clé courte AAAA – description ». La partie avant le tiret
+  est cherchée telle quelle dans les mails (sans « de », « la », « Dunkerque »…) ; l'année de l'objet désigne l'édition.
