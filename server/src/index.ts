@@ -73,6 +73,9 @@ async function main() {
     app.use(express.static(clientDist));
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api/')) return next();
+      // Récepteur de la reprise de l'historique : il doit pouvoir échanger avec la fenêtre de la messagerie
+      // qui l'a ouvert. Seule cette page (réservée au super-admin) lève l'isolement entre fenêtres.
+      if (req.path === '/admin/assistant' && req.query.reception === 'outlook') res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
       res.sendFile(path.join(clientDist, 'index.html'));
     });
   }
