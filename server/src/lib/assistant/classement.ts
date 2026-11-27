@@ -105,16 +105,44 @@ function trouverEvenementParMot(mot: string, evenements: EvenementConnu[]): stri
   return plusProche(candidats).code;
 }
 
-/** Parmi plusieurs événements, celui à venir le plus proche (sinon le plus récent). */
-function plusProche(evenements: EvenementConnu[]): EvenementConnu {
+/**
+ * Parmi plusieurs événements : avec une date de référence (celle du mail), l'édition la plus proche de cette date ;
+ * sinon celui à venir le plus proche (à défaut le plus récent).
+ */
+function plusProche(evenements: EvenementConnu[], reference?: Date | null): EvenementConnu {
+  if (reference && !Number.isNaN(reference.getTime())) {
+    const t = reference.getTime();
+    const dates = evenements.filter((e) => e.dateJour);
+    if (dates.length) return [...dates].sort((a, b) => Math.abs(Date.parse(a.dateJour!) - t) - Math.abs(Date.parse(b.dateJour!) - t))[0];
+  }
   const jour = new Date().toISOString().slice(0, 10);
   const avenir = evenements.filter((e) => e.dateJour && e.dateJour >= jour).sort((a, b) => a.dateJour!.localeCompare(b.dateJour!));
   if (avenir.length) return avenir[0];
   return [...evenements].sort((a, b) => (b.dateJour ?? '').localeCompare(a.dateJour ?? ''))[0];
 }
 
-/** Événement cité dans un texte : tous les mots propres de son nom (au moins deux s'il en a plusieurs). */
-export function evenementCite(texte: string, evenements: EvenementConnu[]): string | null {
+/** Nom court d'un événement, sans l'année ni la description : « Dunkerque Fête la Mer 2026 – … » → « dunkerque fete la mer ». */
+function nomCite(nom: string): string {
+  return normaliser(nom.split(/\s+[–—-]\s+/)[0]).replace(/[.@]/g, ' ').replace(/\b(19|20)\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Événement cité dans un texte.
+ * 1. Son nom court cité tel quel (« Dunkerque fête la mer », « feu d'artifice ») : le plus long l'emporte.
+ * 2. Sinon, tous ses mots propres (au moins deux s'il en a plusieurs).
+ * Entre deux éditions d'un même événement, la plus proche de la date du mail.
+ */
+export function evenementCite(texte: string, evenements: EvenementConnu[], reference?: Date | null): string | null {
+  const brut = ` ${normaliser(texte).replace(/[.@]/g, ' ').replace(/\s+/g, ' ')} `;
+  let phrases: { e: EvenementConnu; score: number }[] = [];
+  for (const e of evenements) {
+    const n = nomCite(e.nom);
+    if (n.length < 6 || !brut.includes(` ${n} `)) continue;
+    if (!phrases.length || n.length > phrases[0].score) phrases = [{ e, score: n.length }];
+    else if (n.length === phrases[0].score) phrases.push({ e, score: n.length });
+  }
+  if (phrases.length) return plusProche(phrases.map((x) => x.e), reference).code;
+
   const t = mots(texte);
   let meilleurs: { e: EvenementConnu; score: number }[] = [];
   for (const e of evenements) {
@@ -128,7 +156,7 @@ export function evenementCite(texte: string, evenements: EvenementConnu[]): stri
     else if (score === meilleurs[0].score) meilleurs.push({ e, score });
   }
   if (!meilleurs.length) return null;
-  return plusProche(meilleurs.map((x) => x.e)).code;
+  return plusProche(meilleurs.map((x) => x.e), reference).code;
 }
 
 const ouvert = (d: DossierConnu) => !/^clos/i.test(d.statut);
@@ -158,7 +186,7 @@ export function classer(mail: MailOrigine, consigne: ConsigneLue, ctx: ContexteC
     if (chez.length === 1) return { dossier: chez[0].code, evenement: chez[0].evenementCode, branche: chez[0].branche, motif: 'expediteur' };
   }
 
-  const ev = evenementCite(`${mail.objet}\n${mail.corps.slice(0, 4000)}`, ctx.evenements);
+  const ev = evenementCite(`${mail.objet}\n${mail.corps.slice(0, 4000)}`, ctx.evenements, mail.date);
   if (ev) return { dossier: null, evenement: ev, branche: '', motif: 'evenement' };
   return { dossier: null, evenement: '', branche: '', motif: 'nouveau' };
 }

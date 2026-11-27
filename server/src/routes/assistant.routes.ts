@@ -408,6 +408,34 @@ assistantRouter.get(
   })
 );
 
+/** Crée ou complète un événement de l'assistant (nom, date, lieu, nom du dossier OneDrive et Outlook). */
+assistantRouter.put(
+  '/evenements/:code',
+  traiter(async (req, res) => {
+    const code = req.params.code.toUpperCase();
+    if (!/^[A-Z0-9]{2,20}$/.test(code)) return invalide(res, 'Code invalide');
+    const parsed = z
+      .object({
+        nom: z.string().min(2).max(200),
+        dateJour: z.union([z.literal(''), dateDuJour]).optional(),
+        lieu: z.string().max(200).optional(),
+        dossierOnedrive: z.string().max(120).optional(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return invalide(res);
+    const { nom, dateJour, lieu, dossierOnedrive } = parsed.data;
+    await executer(
+      `INSERT INTO assistant_evenements (code, nom, date_jour, lieu, dossier_onedrive) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (code) DO UPDATE SET nom = $2, date_jour = coalesce($3, assistant_evenements.date_jour),
+         lieu = CASE WHEN $4 = '' THEN assistant_evenements.lieu ELSE $4 END,
+         dossier_onedrive = CASE WHEN $5 = '' THEN assistant_evenements.dossier_onedrive ELSE $5 END, updated_at = now()`,
+      [code, nom, dateJour || null, lieu ?? '', dossierOnedrive ?? '']
+    );
+    await consigner(identiteDeRequete(req), 'assistant_configuration', `événement ${code}`, parsed.data);
+    res.json({ ok: true, message: 'Événement enregistré' });
+  })
+);
+
 assistantRouter.put(
   '/evenements/:code/projet',
   traiter(async (req, res) => {
