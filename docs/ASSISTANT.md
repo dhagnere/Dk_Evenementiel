@@ -315,3 +315,13 @@ dans le même dossier. Le bilan prend toute sa valeur une fois l'année 2026 rep
 - Route : `PUT /api/assistant/evenements/:code` (nom, date, lieu, nom du dossier OneDrive et Outlook).
 - Conseil de nommage pour le classement automatique : « Clé courte AAAA – description ». La partie avant le tiret
   est cherchée telle quelle dans les mails (sans « de », « la », « Dunkerque »…) ; l'année de l'objet désigne l'édition.
+
+## Annuler une fiche (novembre 2026)
+
+- Fiche d'un dossier : lien « Annuler la fiche » (motif facultatif). La fiche passe au statut « Annulé » : elle sort
+  des listes, des compteurs, des bilans et du classement automatique. Ses mails sont conservés ; un nouveau mail de
+  la même conversation ne la rouvre pas.
+- Case « Fiches annulées (n) » dans la liste pour les retrouver ; bouton « Rétablir la fiche » (retour au statut
+  d'avant l'annulation).
+- Routes : `POST /api/assistant/dossiers/:code/annuler` {motif}, `POST /api/assistant/dossiers/:code/retablir`.
+- Une fiche de l'index (D01…) peut être réécrite par un nouvel import d'index.

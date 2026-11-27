@@ -170,7 +170,7 @@ export function evenementCite(texte: string, evenements: EvenementConnu[], refer
   return plusProche(parAnnee(meilleurs.map((x) => x.e)), reference).code;
 }
 
-const ouvert = (d: DossierConnu) => !/^clos/i.test(d.statut);
+const ouvert = (d: DossierConnu) => !/^(clos|annul)/i.test(d.statut);
 
 /** Classe un mail d'origine. `consigne` : hashtags du transfert qui le contient. */
 export function classer(mail: MailOrigine, consigne: ConsigneLue, ctx: ContexteClassement): Classement {

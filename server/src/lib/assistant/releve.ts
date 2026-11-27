@@ -345,6 +345,8 @@ async function enregistrer(
     // Un dossier clos qui reçoit un nouveau mail est rouvert.
     const rouvrir = /^clos/i.test(d.statut) && recents.some((m) => m.sens === 'reçu');
     if (rouvrir) donnees.statut = 'À traiter';
+    // Une fiche annulée le reste, même si un nouveau mail arrive dans sa conversation.
+    if (/^annul/i.test(d.statut)) donnees.statut = d.statut;
     await executer(
       `UPDATE assistant_dossiers SET donnees = $2, statut = CASE WHEN $3 THEN 'À traiter' ELSE statut END,
          priorite = CASE WHEN $4 THEN 'Haute' ELSE priorite END, updated_at = now() WHERE code = $1`,
@@ -725,7 +727,7 @@ export async function contexteDepot() {
     'SELECT code, nom, date_jour, dossier_onedrive FROM assistant_evenements ORDER BY date_jour NULLS LAST'
   );
   const dossiers = await requete<{ code: string; titre: string; evenementCode: string; branche: string; statut: string; donnees: Record<string, unknown> }>(
-    "SELECT code, titre, evenement_code, branche, statut, donnees FROM assistant_dossiers WHERE statut !~* '^clos' ORDER BY code"
+    "SELECT code, titre, evenement_code, branche, statut, donnees FROM assistant_dossiers WHERE statut !~* '^(clos|annul)' ORDER BY code"
   );
   const dernier = await requeteUne<{ d: Date | null }>("SELECT max(date_envoi) AS d FROM assistant_mails WHERE source = 'releve'");
   const reglages = await lireReglagesOutlook();

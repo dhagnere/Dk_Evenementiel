@@ -130,7 +130,7 @@ export async function analyser(
   const config = await lireConfiguration();
   if (!config.cleAnalyse) return null;
 
-  const ouverts = dossiers.filter((d) => !/^clos/i.test(d.statut) || d.code === proposition.dossier).slice(0, 150);
+  const ouverts = dossiers.filter((d) => !/^(clos|annul)/i.test(d.statut) || d.code === proposition.dossier).slice(0, 150);
   const evenements = ctx.evenements.map((e) => `${e.code} | ${e.nom} | ${e.dateJour ?? 'date inconnue'}`).join('\n');
   const listeDossiers = ouverts
     .map(

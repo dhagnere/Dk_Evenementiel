@@ -700,6 +700,44 @@ assistantRouter.put(
   })
 );
 
+/**
+ * Annule une fiche : elle sort des listes et du classement mais reste consultable, avec ses mails,
+ * et peut être rétablie. Un nouveau mail de la même conversation ne la rouvre pas.
+ */
+assistantRouter.post(
+  '/dossiers/:code/annuler',
+  traiter(async (req, res) => {
+    const parsed = z.object({ motif: z.string().trim().max(300).optional() }).safeParse(req.body ?? {});
+    if (!parsed.success) return invalide(res);
+    const d = await requeteUne<LigneDossier>('SELECT * FROM assistant_dossiers WHERE code = $1', [req.params.code]);
+    if (!d) return void res.status(404).json({ ok: false, message: 'Fiche introuvable' });
+    if (/^annul/i.test(d.statut)) throw new ErreurMetier('Cette fiche est déjà annulée');
+    const donnees = { ...d.donnees } as Record<string, unknown>;
+    donnees.annulation = { le: new Date().toISOString(), par: req.session!.nom, motif: parsed.data.motif ?? '', statutAvant: d.statut };
+    donnees.statut = 'Annulé';
+    await executer("UPDATE assistant_dossiers SET statut = 'Annulé', donnees = $2, updated_at = now() WHERE code = $1", [d.code, JSON.stringify(donnees)]);
+    await consigner(identiteDeRequete(req), 'assistant_annulation', d.code, { motif: parsed.data.motif ?? '' });
+    res.json({ ok: true, message: `Fiche ${d.code} annulée` });
+  })
+);
+
+assistantRouter.post(
+  '/dossiers/:code/retablir',
+  traiter(async (req, res) => {
+    const d = await requeteUne<LigneDossier>('SELECT * FROM assistant_dossiers WHERE code = $1', [req.params.code]);
+    if (!d) return void res.status(404).json({ ok: false, message: 'Fiche introuvable' });
+    const donnees = { ...d.donnees } as Record<string, unknown>;
+    const a = donnees.annulation as { statutAvant?: string } | undefined;
+    if (!a && !/^annul/i.test(d.statut)) throw new ErreurMetier("Cette fiche n'est pas annulée");
+    const statut = a?.statutAvant && !/^annul/i.test(a.statutAvant) ? a.statutAvant : 'À traiter';
+    delete donnees.annulation;
+    donnees.statut = statut;
+    await executer('UPDATE assistant_dossiers SET statut = $2, donnees = $3, updated_at = now() WHERE code = $1', [d.code, statut, JSON.stringify(donnees)]);
+    await consigner(identiteDeRequete(req), 'assistant_retablissement', d.code, { statut });
+    res.json({ ok: true, message: `Fiche ${d.code} rétablie (${statut})` });
+  })
+);
+
 // --- Réglages de la messagerie de l'assistant -------------------------------------------------------
 
 const schemaConfiguration = z.object({
@@ -880,7 +918,7 @@ assistantRouter.post(
   '/analyser-dossiers',
   traiter(async (req, res) => {
     const codes = await requete<{ code: string }>(
-      "SELECT code FROM assistant_dossiers WHERE source = 'releve' AND NOT (donnees ? 'analyse') AND statut !~* '^clos' ORDER BY code LIMIT 20"
+      "SELECT code FROM assistant_dossiers WHERE source = 'releve' AND NOT (donnees ? 'analyse') AND statut !~* '^(clos|annul)' ORDER BY code LIMIT 20"
     );
     let faits = 0;
     let erreur = '';
@@ -895,7 +933,7 @@ assistantRouter.post(
     }
     await consigner(identiteDeRequete(req), 'assistant_analyse', `${faits} dossier(s)`);
     const reste = await requeteUne<{ n: number }>(
-      "SELECT count(*) AS n FROM assistant_dossiers WHERE source = 'releve' AND NOT (donnees ? 'analyse') AND statut !~* '^clos'"
+      "SELECT count(*) AS n FROM assistant_dossiers WHERE source = 'releve' AND NOT (donnees ? 'analyse') AND statut !~* '^(clos|annul)'"
     );
     res.json({
       ok: faits > 0 || !erreur,
@@ -925,7 +963,7 @@ assistantRouter.get(
       requeteUne<{ n: number }>("SELECT count(*) AS n FROM assistant_mails WHERE source = 'releve' AND created_at > now() - interval '24 hours'"),
     ]);
     const statut = (d: DossierResume) => d.corrections?.statut ?? d.statut;
-    const ouverts = dossiers.filter((d) => !/^clos|information/i.test(statut(d)));
+    const ouverts = dossiers.filter((d) => !/^clos|^annul|information/i.test(statut(d)));
     const echeances = dossiers
       .flatMap((d) =>
         ((Array.isArray(d.donnees.echeances) ? d.donnees.echeances : []) as { date?: string; libelle?: string }[])

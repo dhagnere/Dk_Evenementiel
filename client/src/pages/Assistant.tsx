@@ -74,6 +74,8 @@ interface Fiche {
   dernier_mail?: string;
   /** 'brut' : repris en masse, classé par règles, pas encore lu en détail. Absent ou 'analysé' : lu. */
   niveau?: string;
+  /** Fiche annulée : retirée des listes, rétablissable. */
+  annulation?: { le: string; par: string; motif?: string; statutAvant?: string };
 }
 interface Corrections {
   statut?: string;
@@ -209,7 +211,9 @@ const jours = (date: string) =>
 const fdate = (s?: string | null) =>
   s ? dayjs(s.slice(0, 10)).format("DD/MM/YYYY") : "—";
 const classeStatut = (s: string) =>
-  /traiter/.test(s)
+  /Annulé/.test(s)
+    ? "st-annule"
+    : /traiter/.test(s)
     ? "st-todo"
     : /attente/i.test(s)
       ? "st-wait"
@@ -218,14 +222,15 @@ const classeStatut = (s: string) =>
         : /Clos|Répondu|Validé/.test(s)
           ? "st-done"
           : "st-run";
-const statutOuvert = (s: string) => !/Clos|information/.test(s);
+const statutOuvert = (s: string) => !/Clos|information|Annulé/.test(s);
 const euros = (v?: number | null) =>
   v === null || v === undefined
     ? "—"
     : v
         .toLocaleString("fr-FR", { style: "currency", currency: "EUR" })
         .replace(/\u202f/g, "\u00a0");
-const statutDe = (d: Dossier) => d.corrections.statut ?? d.donnees.statut;
+const estAnnulee = (d: Dossier) => !!d.donnees.annulation || /^annul/i.test(d.donnees.statut);
+const statutDe = (d: Dossier) => (estAnnulee(d) ? "Annulé" : d.corrections.statut ?? d.donnees.statut);
 const SANS_EVENEMENT = "";
 const MOTIFS: Record<string, string> = {
   consigne: "classé par votre consigne",
@@ -344,18 +349,25 @@ function AssistantPrincipal() {
   const [fSt, setFSt] = useState("");
   const [fVig, setFVig] = useState(false);
   const [fBrut, setFBrut] = useState(false);
+  const [fAnn, setFAnn] = useState(false);
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [miseAJour, setMiseAJour] = useState(false);
   const [releveEnCours, setReleveEnCours] = useState(false);
 
-  const charger = () => api.get<Index>("/assistant/index").then(setIndex);
+  const [annulees, setAnnulees] = useState<Dossier[]>([]);
+  // Les fiches annulées sont mises à part : aucune liste, aucun compteur ni bilan n'en tient compte.
+  const recevoir = (r: Index) => {
+    setAnnulees(r.dossiers.filter(estAnnulee));
+    setIndex({ ...r, dossiers: r.dossiers.filter((d) => !estAnnulee(d)) });
+  };
+  const charger = () => api.get<Index>("/assistant/index").then(recevoir);
   // Tant qu'une mise à jour est en cours, l'état est relu toutes les 20 secondes : le bouton s'arrête de
   // tourner dès que le bilan arrive ou que la demande est annulée (depuis un autre onglet ou un autre poste).
   const demandeLeCourante = index?.releve.outlook.demandeLe ?? null;
   useEffect(() => {
     if (!demandeLeCourante) return;
     const minuterie = window.setInterval(() => {
-      api.get<Index>("/assistant/index").then(setIndex).catch(() => undefined);
+      api.get<Index>("/assistant/index").then(recevoir).catch(() => undefined);
     }, 20_000);
     return () => window.clearInterval(minuterie);
   }, [demandeLeCourante]);
@@ -404,7 +416,7 @@ function AssistantPrincipal() {
   const filtres = useMemo(() => {
     if (!index) return [];
     const r = q.trim().toLowerCase();
-    return index.dossiers.filter((d) => {
+    return (fAnn ? annulees : index.dossiers).filter((d) => {
       const f = d.donnees;
       return (
         (!fMois ||
@@ -421,7 +433,7 @@ function AssistantPrincipal() {
           (d.corrections.note ?? "").toLowerCase().includes(r))
       );
     });
-  }, [index, q, fMois, fEv, fBr, fSt, fVig, fBrut, mailParNumero]);
+  }, [index, annulees, q, fMois, fEv, fBr, fSt, fVig, fBrut, fAnn, mailParNumero]);
 
   if (!index)
     return <div style={{ padding: 24, color: "#5f6b73" }}>Chargement…</div>;
@@ -469,7 +481,8 @@ function AssistantPrincipal() {
     setFVig(k === "vig");
     setVue(k === "week" ? "echeances" : "dossiers");
   };
-  const dossierOuvert = index.dossiers.find((d) => d.code === ouvert) ?? null;
+  const dossierOuvert =
+    index.dossiers.find((d) => d.code === ouvert) ?? annulees.find((d) => d.code === ouvert) ?? null;
   const nbCorrections = index.dossiers.filter(
     (d) => d.corrections.statut || d.corrections.note,
   ).length;
@@ -608,6 +621,12 @@ function AssistantPrincipal() {
                 onChange={(e) => setFBrut(e.target.checked)}
               />{" "}
               À analyser ({nbBruts})
+            </label>
+          )}
+          {annulees.length > 0 && (
+            <label className="row muted" title="Fiches retirées des listes ; elles peuvent être rétablies">
+              <input type="checkbox" checked={fAnn} onChange={(e) => setFAnn(e.target.checked)} /> Fiches
+              annulées ({annulees.length})
             </label>
           )}
           <span style={{ marginLeft: "auto" }} />
@@ -1534,11 +1553,21 @@ function FicheDossier({
 }) {
   const [note, setNote] = useState("");
   const [creationEv, setCreationEv] = useState(false);
+  const [motifAnnulation, setMotifAnnulation] = useState("");
   useEffect(() => setNote(dossier?.corrections.note ?? ""), [dossier?.code]);
   if (!dossier) return null;
   const f = dossier.donnees;
   const s = statutDe(dossier);
 
+  const annuler = async () => {
+    if (await lancer(api.post(`/assistant/dossiers/${dossier.code}/annuler`, { motif: motifAnnulation.trim() }))) {
+      setMotifAnnulation("");
+      recharger();
+    }
+  };
+  const retablir = async () => {
+    if (await lancer(api.post(`/assistant/dossiers/${dossier.code}/retablir`, {}))) recharger();
+  };
   const corriger = async (corps: { statut?: string | null; note?: string }) => {
     const res = await api.put<{ ok: boolean; message: string }>(
       `/assistant/dossiers/${dossier.code}/correction`,
@@ -1686,9 +1715,19 @@ function FicheDossier({
             Événement non rattaché : voir l'onglet « Rattachement aux projets ».
           </span>
         )}
+        {f.annulation && (
+          <div className="annulee">
+            Fiche annulée le {dayjs(f.annulation.le).format("DD/MM/YYYY à HH:mm")} par {f.annulation.par}
+            {f.annulation.motif ? ` – ${f.annulation.motif}` : ""}.{" "}
+            <button className="btn" onClick={retablir}>
+              Rétablir la fiche
+            </button>
+          </div>
+        )}
         <h4>Statut</h4>
         <div className="row">
           <select
+            disabled={!!f.annulation}
             value={s}
             onChange={(e) => corriger({ statut: e.target.value })}
           >
@@ -1710,6 +1749,29 @@ function FicheDossier({
             </>
           )}
         </div>
+        {!f.annulation && (
+          <div className="row" style={{ marginTop: 6 }}>
+            <Popconfirm
+              title="Annuler cette fiche ?"
+              description={
+                <div style={{ maxWidth: 300 }}>
+                  Elle sort des listes et des compteurs. Ses mails sont conservés et elle peut être rétablie.
+                  <Input
+                    style={{ marginTop: 8 }}
+                    placeholder="Motif (facultatif)"
+                    value={motifAnnulation}
+                    onChange={(e) => setMotifAnnulation(e.target.value)}
+                  />
+                </div>
+              }
+              okText="Annuler la fiche"
+              cancelText="Garder"
+              onConfirm={annuler}
+            >
+              <button className="lien danger">Annuler la fiche</button>
+            </Popconfirm>
+          </div>
+        )}
         <h4>Demandeur</h4>
         <div>{f.demandeur || "—"}</div>
         <h4>Contacts</h4>
@@ -2927,6 +2989,8 @@ const CSS = `
 .asst .lien-gris{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;padding:0}
 .asst .tag.neuf{background:#dff0e6;color:var(--green);font-weight:600}
 .asst .tag.brut{background:#f3ead6;color:#8a6414;font-weight:600}
+.asst .st-annule{background:#eceff1;color:#78858f;text-decoration:line-through}
+.asst .annulee{background:#f4f5f6;border-left:3px solid #9aa5ad;padding:8px 10px;margin:8px 0;border-radius:4px}
 .asst .group.a-classer h2{color:var(--amber)}
 .asst .petit{font-size:12px}
 .asst .classement select{max-width:260px}
