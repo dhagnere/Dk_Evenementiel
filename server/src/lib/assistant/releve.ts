@@ -8,7 +8,7 @@ import { detecterEcheances } from './echeances.js';
 import { nettoyerAnciensMails } from './maintenance.js';
 import { lancementImmediatConfigure, lireReglagesOutlook, prochainPassageOutlook } from './outlook.js';
 import { formatParis, objetDeFil } from './texte.js';
-import { decoderTransfert, empreinteDe, type MailOrigine, type PieceJointe, type Transfert } from './transferts.js';
+import { sansSignature, decoderTransfert, empreinteDe, type MailOrigine, type PieceJointe, type Transfert } from './transferts.js';
 
 /**
  * Mise à jour automatique des dossiers : lecture des nouveaux mails de la messagerie de l'assistant, toutes
@@ -138,8 +138,9 @@ async function enregistrer(
   dossiers: DossierEnBase[],
   bilan: BilanReleve,
   boite = '',
-  /** Analyse déjà faite (mails lus dans Outlook Web) : utilisée telle quelle, sans appeler le service. */
-  fournie?: ResultatAnalyse | null
+  /** Analyse déjà faite (mails lus dans Outlook Web) : utilisée telle quelle, sans appeler le service.
+   *  `false` : dépôt brut, classement par règles seulement (jamais d'analyse). */
+  fournie?: ResultatAnalyse | null | false
 ): Promise<string | null> {
   // Mails déjà au registre (transférés deux fois) : ignorés.
   const vus = new Set<string>();
@@ -183,7 +184,7 @@ async function enregistrer(
           classement = { dossier: null, evenement: fournie.evenement ?? classement.evenement, branche: fournie.branche ?? classement.branche, motif: 'analyse' };
       }
     }
-  } else if (await analyseActive()) {
+  } else if (fournie !== false && (await analyseActive())) {
     try {
       const pourAnalyse: DossierPourAnalyse[] = dossiers.map((d) => ({
         code: d.code,
@@ -254,6 +255,7 @@ async function enregistrer(
         remarques: consigne.remarque ? [consigne.remarque] : [],
         origine: 'releve',
         classement: classement.motif,
+        niveau: analyse ? 'analysé' : 'brut',
       } as Record<string, unknown>;
       if (analyse) {
         appliquerAnalyse(donnees, analyse, true);
@@ -644,7 +646,73 @@ export async function deposerConversation(c: ConversationDeposee, par: string): 
   };
   void par;
   const code = await enregistrer(t, '', ctx, dossiers, bilan, conf.adresse, c.analyse);
+  // Une conversation lue et analysée fait passer son dossier au niveau « analysé ».
+  if (code) await executer(`UPDATE assistant_dossiers SET donnees = jsonb_set(donnees, '{niveau}', '"analysé"') WHERE code = $1`, [code]);
   return { dossier: code, bilan };
+}
+
+export interface ConversationBrute {
+  objet: string;
+  expediteurNom: string;
+  expediteurAdresse?: string;
+  destinataires?: string;
+  date: string;
+  corps: string;
+  sens?: 'reçu' | 'envoyé';
+}
+
+/**
+ * Dépôt brut (reprise en masse) : la conversation est enregistrée et classée par les règles (conversation,
+ * expéditeur, nom d'événement), sans analyse. Renvoie le dossier et le dossier Outlook où ranger le mail.
+ */
+export async function deposerBrut(convs: ConversationBrute[]): Promise<{
+  resultats: { objet: string; dossier: string | null; evenement: string; dossierOutlook: string; nouveaux: number; doublons: number }[];
+  bilan: BilanReleve;
+}> {
+  const total: BilanReleve = { lus: 0, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, ignores: 0, erreur: '' };
+  const conf = await lireConfiguration();
+  const service = [...conf.adressesService, conf.adresse].filter(Boolean);
+  const { ctx, dossiers } = await chargerContexte(service);
+  const reglages = await lireReglagesOutlook();
+  const evs = await requete<{ code: string; nom: string; dossierOnedrive: string }>('SELECT code, nom, dossier_onedrive FROM assistant_evenements');
+  const sousDossier = (code: string) => {
+    const e = evs.find((x) => x.code === code);
+    if (!e) return 'À classer';
+    const court = e.nom.split(/\s+[–—-]\s+/)[0].trim();
+    return e.dossierOnedrive || (/^fonctionnement du service/i.test(court) ? 'Fonctionnement du service' : court);
+  };
+  const resultats = [];
+  for (const c of convs) {
+    const bilan: BilanReleve = { lus: 1, nouveaux: 0, doublons: 0, dossiersCrees: 0, analyses: 0, ignores: 0, erreur: '' };
+    const date = Number.isNaN(Date.parse(c.date)) ? null : new Date(c.date);
+    const adresse = (c.expediteurAdresse ?? '').toLowerCase();
+    const t: Transfert = {
+      consigne: '',
+      hashtags: [],
+      enveloppe: { nom: '', adresse: '', date: null, objet: c.objet },
+      nonDecode: false,
+      mails: [
+        {
+          expediteurNom: c.expediteurNom,
+          expediteurAdresse: adresse,
+          destinataires: c.destinataires ?? '',
+          date,
+          objet: c.objet,
+          corps: sansSignature(c.corps.slice(0, 20_000).split('\n'), [c.expediteurNom]).join('\n'),
+          piecesJointes: [],
+          sens: c.sens ?? (service.includes(adresse) ? 'envoyé' : 'reçu'),
+          mode: 'direct' as const,
+        },
+      ],
+    };
+    const code = await enregistrer(t, '', ctx, dossiers, bilan, conf.adresse, false);
+    let evenement = '';
+    if (code) evenement = (await requeteUne<{ e: string }>('SELECT evenement_code AS e FROM assistant_dossiers WHERE code = $1', [code]))?.e ?? '';
+    const dossierOutlook = !reglages.deplacerVers ? '' : reglages.sousDossiers ? `${reglages.deplacerVers}/${evenement ? sousDossier(evenement) : 'À classer'}` : reglages.deplacerVers;
+    resultats.push({ objet: c.objet, dossier: code, evenement, dossierOutlook, nouveaux: bilan.nouveaux, doublons: bilan.doublons });
+    for (const k of ['lus', 'nouveaux', 'doublons', 'dossiersCrees'] as const) total[k] += bilan[k];
+  }
+  return { resultats, bilan: total };
 }
 
 /** Ce dont la lecture d'Outlook a besoin : événements, dossiers ouverts, dossiers OneDrive, dernier passage. */

@@ -292,3 +292,17 @@ dans le même dossier. Le bilan prend toute sa valeur une fois l'année 2026 rep
 
 - **Répondre dans ma messagerie** : bouton dans la fiche dossier qui ouvre le brouillon de réponse dans Outlook,
   prêt à relire et envoyer depuis la messagerie professionnelle.
+
+## Reprise de l'historique en deux vitesses (novembre 2026)
+
+- **Du 1er janvier au 31 août 2026 : dépôt brut.** Les mails de la boîte de réception sont repris en masse
+  depuis la messagerie (onglet Assistant, adresse `?reception=outlook`, bouton « Ouvrir la messagerie »).
+  Chaque conversation est classée par les règles (fil déjà connu, expéditeur, nom d'événement), sans lecture
+  détaillée, puis rangée dans DKEVENTS/<événement> (ou DKEVENTS/À classer) et catégorisée « DK traité ».
+  Route : `POST /api/assistant/outlook/depot-brut` (20 conversations au plus par lot, doublons ignorés).
+- **Depuis le 1er septembre 2026 : lecture détaillée** lors des mises à jour habituelles.
+- **Indicateur de niveau** : chaque dossier porte `niveau` = `brut` ou `analysé`. Les dossiers bruts ont un
+  badge « brut » et un filtre « À analyser (n) » dans la liste. Une lecture détaillée d'une conversation
+  du dossier le fait passer à « analysé ».
+- Les expéditeurs sans lien avec le service (ressources humaines, organisations syndicales, lettres
+  d'information) reçoivent la catégorie « DK traité » mais ne sont ni déposés ni déplacés.

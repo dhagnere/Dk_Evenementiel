@@ -70,6 +70,8 @@ interface Fiche {
   remarques?: string[];
   origine?: string;
   dernier_mail?: string;
+  /** 'brut' : repris en masse, classé par règles, pas encore lu en détail. Absent ou 'analysé' : lu. */
+  niveau?: string;
 }
 interface Corrections {
   statut?: string;
@@ -264,7 +266,72 @@ const ONGLETS: [Vue, string][] = [
  * de messagerie, avec en plus le lien aux projets : rattachement, création, échéances et actions versées au
  * rétroplanning. Les statuts corrigés et les notes sont enregistrés sur le serveur.
  */
+/**
+ * Récepteur de la reprise en masse : la page Outlook ouverte depuis ici envoie ses lots par message,
+ * le récepteur les dépose et renvoie le dossier Outlook où ranger chaque mail.
+ */
+const ORIGINES_OUTLOOK = ["https://outlook.cloud.microsoft", "https://outlook.office.com", "https://outlook.office365.com"];
+function ReceptionOutlook() {
+  const [compte, setCompte] = useState({ lots: 0, mails: 0, nouveaux: 0, dossiers: 0, erreurs: 0 });
+  const [dernier, setDernier] = useState("");
+  const [fenetre, setFenetre] = useState<Window | null>(null);
+  useEffect(() => {
+    const ecoute = async (e: MessageEvent) => {
+      if (!ORIGINES_OUTLOOK.includes(e.origin) || !e.data || e.data.dk !== "lot") return;
+      const repondre = (r: unknown) => (e.source as Window | null)?.postMessage({ dk: "reponse", id: e.data.id, ...(r as object) }, e.origin);
+      try {
+        const r = await api.post<{
+          resultats: { dossier: string | null; dossierOutlook: string; nouveaux: number }[];
+          bilan: { nouveaux: number; dossiersCrees: number };
+        }>("/assistant/outlook/depot-brut", { conversations: e.data.conversations });
+        setCompte((c) => ({
+          ...c,
+          lots: c.lots + 1,
+          mails: c.mails + e.data.conversations.length,
+          nouveaux: c.nouveaux + r.bilan.nouveaux,
+          dossiers: c.dossiers + r.bilan.dossiersCrees,
+        }));
+        setDernier(new Date().toLocaleTimeString("fr-FR"));
+        repondre({ ok: true, resultats: r.resultats });
+      } catch (err) {
+        setCompte((c) => ({ ...c, erreurs: c.erreurs + 1 }));
+        repondre({ ok: false, erreur: (err as Error).message });
+      }
+    };
+    window.addEventListener("message", ecoute);
+    return () => window.removeEventListener("message", ecoute);
+  }, []);
+  return (
+    <div className="asst" style={{ padding: 24, maxWidth: 640 }}>
+      <style>{CSS}</style>
+      <h2>Reprise de l'historique</h2>
+      <p className="muted">
+        Laisser cet onglet ouvert pendant la reprise. Les mails sont classés automatiquement et marqués « brut »
+        jusqu'à leur lecture détaillée.
+      </p>
+      <p>
+        <button
+          className="btn"
+          onClick={() => setFenetre(window.open("https://outlook.cloud.microsoft/mail/", "dk-reprise"))}
+        >
+          {fenetre ? "Rouvrir la messagerie" : "Ouvrir la messagerie"}
+        </button>
+      </p>
+      <p>
+        {compte.lots} lot(s) reçu(s) · {compte.mails} mail(s) · {compte.nouveaux} nouveau(x) au registre ·{" "}
+        {compte.dossiers} dossier(s) ouvert(s){compte.erreurs ? ` · ${compte.erreurs} erreur(s)` : ""}
+        {dernier && ` · dernier lot à ${dernier}`}
+      </p>
+    </div>
+  );
+}
+
 export default function Assistant() {
+  if (new URLSearchParams(window.location.search).get("reception") === "outlook") return <ReceptionOutlook />;
+  return <AssistantPrincipal />;
+}
+
+function AssistantPrincipal() {
   const navigate = useNavigate();
   const [index, setIndex] = useState<Index | null>(null);
   const [vue, setVue] = useState<Vue>("dossiers");
@@ -274,6 +341,7 @@ export default function Assistant() {
   const [fBr, setFBr] = useState("");
   const [fSt, setFSt] = useState("");
   const [fVig, setFVig] = useState(false);
+  const [fBrut, setFBrut] = useState(false);
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [miseAJour, setMiseAJour] = useState(false);
   const [releveEnCours, setReleveEnCours] = useState(false);
@@ -345,12 +413,13 @@ export default function Assistant() {
         (!fBr || f.branche === fBr) &&
         (!fSt || statutDe(d) === fSt) &&
         (!fVig || (f.vigilance ?? []).length > 0) &&
+        (!fBrut || f.niveau === "brut") &&
         (!r ||
           JSON.stringify(f).toLowerCase().includes(r) ||
           (d.corrections.note ?? "").toLowerCase().includes(r))
       );
     });
-  }, [index, q, fMois, fEv, fBr, fSt, fVig, mailParNumero]);
+  }, [index, q, fMois, fEv, fBr, fSt, fVig, fBrut, mailParNumero]);
 
   if (!index)
     return <div style={{ padding: 24, color: "#5f6b73" }}>Chargement…</div>;
@@ -403,6 +472,7 @@ export default function Assistant() {
     (d) => d.corrections.statut || d.corrections.note,
   ).length;
   const sansProjet = index.evenements.filter((e) => !e.projetId).length;
+  const nbBruts = index.dossiers.filter((d) => d.donnees.niveau === "brut").length;
 
   const exporterCorrections = () => {
     window.location.href = "/api/assistant/corrections/export";
@@ -525,6 +595,19 @@ export default function Assistant() {
             />{" "}
             Avec point de vigilance
           </label>
+          {nbBruts > 0 && (
+            <label
+              className="row muted"
+              title="Dossiers repris en masse : classés automatiquement, à relire en détail"
+            >
+              <input
+                type="checkbox"
+                checked={fBrut}
+                onChange={(e) => setFBrut(e.target.checked)}
+              />{" "}
+              À analyser ({nbBruts})
+            </label>
+          )}
           <span style={{ marginLeft: "auto" }} />
           <button
             className="btn"
@@ -642,6 +725,11 @@ function Carte({ d, ouvrir }: { d: Dossier; ouvrir: (c: string) => void }) {
           <span className="tag st-done">{nbTaches} au rétroplanning</span>
         )}
         {recent(f) && <span className="tag neuf">nouveau mail</span>}
+        {f.niveau === "brut" && (
+          <span className="tag brut" title="Repris en masse, classé automatiquement, pas encore lu en détail">
+            brut
+          </span>
+        )}
       </div>
       <h3>{f.titre}</h3>
       <div className="meta">{f.demandeur}</div>
@@ -1429,6 +1517,7 @@ function FicheDossier({
           <span>{dossier.code}</span>
           <span>Priorité {f.priorite.toLowerCase()}</span>
           {dossier.source === "releve" && <span>· ouvert automatiquement</span>}
+          {f.niveau === "brut" && <span className="tag brut">brut, à analyser</span>}
         </div>
         <h2>{f.titre}</h2>
         <div className="meta">
@@ -2733,6 +2822,7 @@ const CSS = `
 .asst .lien.clair{color:#cfe3ec;font-size:12px;padding:0;text-decoration:underline}
 .asst .lien-gris{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;padding:0}
 .asst .tag.neuf{background:#dff0e6;color:var(--green);font-weight:600}
+.asst .tag.brut{background:#f3ead6;color:#8a6414;font-weight:600}
 .asst .group.a-classer h2{color:var(--amber)}
 .asst .petit{font-size:12px}
 .asst .classement select{max-width:260px}

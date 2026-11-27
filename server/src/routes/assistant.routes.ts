@@ -7,7 +7,7 @@ import { aujourdhui } from '../lib/projets.js';
 import { creerProjet, ErreurMetier, jalonDuDecalage, schemaInfos } from './projets.routes.js';
 import { mots } from '../lib/assistant/texte.js';
 import { BRANCHES } from '../lib/assistant/classement.js';
-import { analyserDossier, contexteDepot, deposerConversation, etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
+import { analyserDossier, contexteDepot, deposerBrut, deposerConversation, etatReleve, relever, ReleveImpossible } from '../lib/assistant/releve.js';
 import { AnalyseImpossible, schemaReponse, testerCleAnalyse } from '../lib/assistant/analyse.js';
 import { actualiserPrestataires } from '../lib/assistant/prestataires.js';
 import { LancementImpossible, annulerDemande, enregistrerPassage, lancementImmediatConfigure, lancerMaintenant, lireReglagesOutlook, modifierReglagesOutlook } from '../lib/assistant/outlook.js';
@@ -1119,6 +1119,34 @@ assistantRouter.post(
     const annuaire = await actualiserPrestataires().catch(() => ({ crees: 0, completes: 0 }));
     await consigner(identiteDeRequete(req), 'assistant_releve', `${nouveaux} mail(s) lus dans Outlook`, { conversations: resultats.length });
     res.json({ ok: true, message: `${nouveaux} mail(s) ajouté(s) au registre`, resultats, annuaire });
+  })
+);
+
+/** Reprise en masse : conversations déposées sans analyse, classées par les règles (niveau « brut »). */
+assistantRouter.post(
+  '/outlook/depot-brut',
+  traiter(async (req, res) => {
+    const schema = z.object({
+      conversations: z
+        .array(
+          z.object({
+            objet: z.string().max(1000),
+            expediteurNom: z.string().max(300),
+            expediteurAdresse: z.string().max(300).optional(),
+            destinataires: z.string().max(4000).optional(),
+            date: z.string().max(60),
+            corps: z.string().max(60_000),
+            sens: z.enum(['reçu', 'envoyé']).optional(),
+          })
+        )
+        .min(1)
+        .max(20),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return invalide(res, `Dépôt invalide : ${parsed.error.issues[0]?.path.join('.')} ${parsed.error.issues[0]?.message}`);
+    const r = await deposerBrut(parsed.data.conversations);
+    await consigner(identiteDeRequete(req), 'assistant_releve', `${r.bilan.nouveaux} mail(s) repris en masse`, { conversations: r.resultats.length });
+    res.json({ ok: true, ...r });
   })
 );
 
