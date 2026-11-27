@@ -180,7 +180,8 @@ export function classer(mail: MailOrigine, consigne: ConsigneLue, ctx: ContexteC
   }
 
   const fil = objetDeFil(mail.objet);
-  const parFil = fil.length >= 4 ? ctx.fils.get(fil) : undefined;
+  // Un objet vide ou générique ne relie pas deux conversations entre elles.
+  const parFil = fil.length >= 4 && !/^(aucun objet|sans objet|pas d objet)$/.test(fil) ? ctx.fils.get(fil) : undefined;
   const dFil = parFil ? ctx.dossiers.find((x) => x.code === parFil) : undefined;
 
   if (consigne.evenement || consigne.branche) {
