@@ -4,7 +4,9 @@ import {
   Button,
   DatePicker,
   Drawer,
+  Input,
   InputNumber,
+  Modal,
   Popconfirm,
   Popover,
   Select,
@@ -1210,6 +1212,83 @@ function VueAnnuaire({
   );
 }
 
+/** Code court d'un événement à partir de son nom : « Festival du carillon 2026 » → FESTIVALCAR26. */
+function codeEvenement(nom: string, date: string, existants: string[]): string {
+  const propre = nom
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  const annee = (date.match(/^20(\d{2})/) ?? propre.match(/\b20(\d{2})\b/))?.[1] ?? "";
+  const mots = propre
+    .replace(/\b20\d{2}\b/g, " ")
+    .split(/[^A-Z0-9]+/)
+    .filter((m) => m.length > 2 && !["DES", "DU", "DE", "LES", "LA", "LE", "ET", "AUX"].includes(m));
+  const base = (mots.join("").slice(0, 10) || "EVENEMENT") + annee;
+  let code = base;
+  for (let i = 2; existants.includes(code); i++) code = `${base}${i}`;
+  return code;
+}
+
+/** Fenêtre de création d'un événement : il rejoint aussitôt toutes les listes déroulantes. */
+function NouvelEvenement({
+  ouvert,
+  fermer,
+  existants,
+  cree,
+  nomPropose = "",
+}: {
+  ouvert: boolean;
+  fermer: () => void;
+  existants: string[];
+  cree: (code: string) => void;
+  nomPropose?: string;
+}) {
+  const [nom, setNom] = useState(nomPropose);
+  const [date, setDate] = useState<Dayjs | null>(null);
+  const [lieu, setLieu] = useState("");
+  const [dossier, setDossier] = useState("");
+  useEffect(() => {
+    if (ouvert) {
+      setNom(nomPropose);
+      setDate(null);
+      setLieu("");
+      setDossier("");
+    }
+  }, [ouvert, nomPropose]);
+  const jour = date ? date.format("YYYY-MM-DD") : "";
+  const code = codeEvenement(nom, jour, existants);
+  const valider = async () => {
+    if (nom.trim().length < 2) return void message.warning("Indiquez le nom de l'événement");
+    const ok = await lancer(
+      api.put(`/assistant/evenements/${code}`, {
+        nom: nom.trim(),
+        dateJour: jour,
+        lieu: lieu.trim(),
+        dossierOnedrive: dossier.trim(),
+      }),
+    );
+    if (ok) {
+      fermer();
+      cree(code);
+    }
+  };
+  return (
+    <Modal open={ouvert} title="Nouvel événement" onCancel={fermer} onOk={valider} okText="Créer" cancelText="Annuler" destroyOnClose>
+      <Space direction="vertical" style={{ width: "100%" }}>
+        <Input placeholder="Nom (ex. Festival du carillon 2026)" value={nom} onChange={(e) => setNom(e.target.value)} autoFocus />
+        <DatePicker placeholder="Date (facultative)" value={date} onChange={setDate} format="DD/MM/YYYY" style={{ width: "100%" }} />
+        <Input placeholder="Lieu (facultatif)" value={lieu} onChange={(e) => setLieu(e.target.value)} />
+        <Input
+          placeholder="Nom du dossier OneDrive et Outlook (par défaut : le nom)"
+          value={dossier}
+          onChange={(e) => setDossier(e.target.value)}
+        />
+        <Typography.Text type="secondary">Code : {code}</Typography.Text>
+      </Space>
+    </Modal>
+  );
+}
+
 function VueProjets({
   index,
   recharger,
@@ -1231,8 +1310,20 @@ function VueProjets({
   };
   const nbDossiers = (code: string) =>
     index.dossiers.filter((d) => d.donnees.evenement === code).length;
+  const [creation, setCreation] = useState(false);
   return (
     <>
+      <NouvelEvenement
+        ouvert={creation}
+        fermer={() => setCreation(false)}
+        existants={index.evenements.map((e) => e.code)}
+        cree={() => recharger()}
+      />
+      <p>
+        <button className="btn" onClick={() => setCreation(true)}>
+          + Nouvel événement
+        </button>
+      </p>
       <div className="note">
         Rattachez chaque événement de l'assistant à son projet. Le lien est
         conservé d'une mise à jour à l'autre. Les dossiers rattachés peuvent
@@ -1442,6 +1533,7 @@ function FicheDossier({
   ouvrirProjet: (id: string) => void;
 }) {
   const [note, setNote] = useState("");
+  const [creationEv, setCreationEv] = useState(false);
   useEffect(() => setNote(dossier?.corrections.note ?? ""), [dossier?.code]);
   if (!dossier) return null;
   const f = dossier.donnees;
@@ -1528,7 +1620,11 @@ function FicheDossier({
         <div className="row classement">
           <select
             value={f.evenement}
-            onChange={(e) => reclasser({ evenement: e.target.value })}
+            onChange={(e) =>
+              e.target.value === "__nouveau"
+                ? setCreationEv(true)
+                : reclasser({ evenement: e.target.value })
+            }
             aria-label="Événement"
           >
             <option value="">— sans événement —</option>
@@ -1537,7 +1633,15 @@ function FicheDossier({
                 {e.nom}
               </option>
             ))}
+            <option value="__nouveau">+ Nouvel événement…</option>
           </select>
+          <NouvelEvenement
+            ouvert={creationEv}
+            fermer={() => setCreationEv(false)}
+            existants={index.evenements.map((e) => e.code)}
+            nomPropose={f.titre.slice(0, 80)}
+            cree={(code) => reclasser({ evenement: code })}
+          />
           <select
             value={f.branche}
             onChange={(e) => reclasser({ branche: e.target.value })}
