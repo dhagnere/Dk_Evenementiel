@@ -705,7 +705,10 @@ export async function deposerBrut(convs: ConversationBrute[]): Promise<{
         },
       ],
     };
-    const code = await enregistrer(t, '', ctx, dossiers, bilan, conf.adresse, false);
+    let code = await enregistrer(t, '', ctx, dossiers, bilan, conf.adresse, false);
+    // Déjà au registre : on retrouve son dossier pour le ranger au même endroit.
+    if (!code && bilan.doublons > 0)
+      code = (await requeteUne<{ d: string }>("SELECT dossier_code AS d FROM assistant_mails WHERE objet = $1 AND dossier_code <> '' ORDER BY numero DESC LIMIT 1", [c.objet]))?.d ?? null;
     let evenement = '';
     if (code) evenement = (await requeteUne<{ e: string }>('SELECT evenement_code AS e FROM assistant_dossiers WHERE code = $1', [code]))?.e ?? '';
     const dossierOutlook = !reglages.deplacerVers ? '' : reglages.sousDossiers ? `${reglages.deplacerVers}/${evenement ? sousDossier(evenement) : 'À classer'}` : reglages.deplacerVers;
