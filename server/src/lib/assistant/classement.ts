@@ -122,8 +122,13 @@ function plusProche(evenements: EvenementConnu[], reference?: Date | null): Even
 }
 
 /** Nom court d'un événement, sans l'année ni la description : « Dunkerque Fête la Mer 2026 – … » → « dunkerque fete la mer ». */
+const PETITS_MOTS = /\b(de|du|des|la|le|les|d|l|dunkerque)\b/g;
 function nomCite(nom: string): string {
-  return normaliser(nom.split(/\s+[–—-]\s+/)[0]).replace(/[.@]/g, ' ').replace(/\b(19|20)\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim();
+  return compacter(nom.split(/\s+[–—-]\s+/)[0]).replace(/\b(19|20)\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim();
+}
+/** Texte normalisé sans petits mots : « Fête de la Mer » et « Dunkerque fête la mer » donnent tous deux « fete mer ». */
+function compacter(texte: string): string {
+  return normaliser(texte).replace(/[.@]/g, ' ').replace(PETITS_MOTS, ' ').replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -133,7 +138,7 @@ function nomCite(nom: string): string {
  * Entre deux éditions d'un même événement, la plus proche de la date du mail.
  */
 export function evenementCite(texte: string, evenements: EvenementConnu[], reference?: Date | null): string | null {
-  const brut = ` ${normaliser(texte).replace(/[.@]/g, ' ').replace(/\s+/g, ' ')} `;
+  const brut = ` ${compacter(texte)} `;
   let phrases: { e: EvenementConnu; score: number }[] = [];
   for (const e of evenements) {
     const n = nomCite(e.nom);
@@ -141,7 +146,13 @@ export function evenementCite(texte: string, evenements: EvenementConnu[], refer
     if (!phrases.length || n.length > phrases[0].score) phrases = [{ e, score: n.length }];
     else if (n.length === phrases[0].score) phrases.push({ e, score: n.length });
   }
-  if (phrases.length) return plusProche(phrases.map((x) => x.e), reference).code;
+  // L'année citée dans l'objet (« Fête de la Mer 2027 ») désigne l'édition, avant toute question de date.
+  const annees = new Set((texte.split('\n')[0].match(/\b20\d{2}\b/g) ?? []));
+  const parAnnee = (liste: EvenementConnu[]) => {
+    const ok = liste.filter((e) => (e.nom.match(/\b20\d{2}\b/g) ?? []).some((a) => annees.has(a)));
+    return ok.length ? ok : liste;
+  };
+  if (phrases.length) return plusProche(parAnnee(phrases.map((x) => x.e)), reference).code;
 
   const t = mots(texte);
   let meilleurs: { e: EvenementConnu; score: number }[] = [];
@@ -156,7 +167,7 @@ export function evenementCite(texte: string, evenements: EvenementConnu[], refer
     else if (score === meilleurs[0].score) meilleurs.push({ e, score });
   }
   if (!meilleurs.length) return null;
-  return plusProche(meilleurs.map((x) => x.e), reference).code;
+  return plusProche(parAnnee(meilleurs.map((x) => x.e)), reference).code;
 }
 
 const ouvert = (d: DossierConnu) => !/^clos/i.test(d.statut);
